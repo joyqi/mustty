@@ -61,12 +61,12 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn new(doc: Document, wrap_width: u16) -> Self {
+    pub fn new(doc: Document, wrap_width: u16, tab_width: u16) -> Self {
         let saved_revision = doc.revision();
         let body_words = count_words(&doc.body().to_string());
         Self {
             doc,
-            wrap: WrapCache::new(wrap_width),
+            wrap: WrapCache::new(wrap_width, tab_width),
             highlight: HighlightCache::default(),
             cursor: Cursor::default(),
             title_cursor: 0,
@@ -515,7 +515,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     fn editor(raw: &str) -> Editor {
-        Editor::new(Document::parse(raw, FileMeta::new(None)), 20)
+        Editor::new(Document::parse(raw, FileMeta::new(None)), 20, 4)
     }
 
     fn run(ed: &mut Editor, actions: &[Action]) -> Effect {

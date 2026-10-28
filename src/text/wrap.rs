@@ -25,7 +25,7 @@ pub struct VisualPos {
     pub col: u16,
 }
 
-pub fn wrap_line(line: &str, width: u16) -> Vec<VisualRow> {
+pub fn wrap_line(line: &str, width: u16, tab_width: u16) -> Vec<VisualRow> {
     let width = width.max(1);
     let gs: Vec<(usize, &str)> = graphemes(line).collect();
     let total = line.chars().count();
@@ -58,7 +58,7 @@ pub fn wrap_line(line: &str, width: u16) -> Vec<VisualRow> {
         if i > start && is_opp[c] {
             last_opp = Some((i, col));
         }
-        let w = grapheme_width(g, col);
+        let w = grapheme_width(g, col, tab_width);
         if !hanging && col + w <= width {
             col += w;
             i += 1;
@@ -98,7 +98,13 @@ pub fn wrap_line(line: &str, width: u16) -> Vec<VisualRow> {
 
 /// 行内 char 偏移 → `(row, col)`。软换行处的偏移按 `Downstream` 显示在下一视觉行行首，
 /// `Upstream` 显示在上一视觉行行尾。
-pub fn char_to_visual(line: &str, rows: &[VisualRow], idx: usize, aff: Affinity) -> (usize, u16) {
+pub fn char_to_visual(
+    line: &str,
+    rows: &[VisualRow],
+    idx: usize,
+    aff: Affinity,
+    tab_width: u16,
+) -> (usize, u16) {
     let upstream = match aff {
         Affinity::Upstream => rows.iter().position(|r| r.start < idx && idx <= r.end),
         Affinity::Downstream => None,
@@ -111,7 +117,7 @@ pub fn char_to_visual(line: &str, rows: &[VisualRow], idx: usize, aff: Affinity)
             break;
         }
         if c >= start {
-            col += grapheme_width(g, col);
+            col += grapheme_width(g, col, tab_width);
         }
     }
     (row, col)
@@ -119,7 +125,13 @@ pub fn char_to_visual(line: &str, rows: &[VisualRow], idx: usize, aff: Affinity)
 
 /// `(row, col)` → 行内 char 偏移。列落在宽字符中间时吸附到其左侧；
 /// 超出行尾时，末行取行尾，其余行取最后一个 grapheme。
-pub fn visual_to_char(line: &str, rows: &[VisualRow], row: usize, col: u16) -> usize {
+pub fn visual_to_char(
+    line: &str,
+    rows: &[VisualRow],
+    row: usize,
+    col: u16,
+    tab_width: u16,
+) -> usize {
     let row = row.min(rows.len() - 1);
     let r = rows[row];
     let mut c_col = 0;
@@ -128,7 +140,7 @@ pub fn visual_to_char(line: &str, rows: &[VisualRow], row: usize, col: u16) -> u
         .skip_while(|&(c, _)| c < r.start)
         .take_while(|&(c, _)| c < r.end)
     {
-        let w = grapheme_width(g, c_col);
+        let w = grapheme_width(g, c_col, tab_width);
         if col < c_col + w {
             return c;
         }
@@ -150,19 +162,26 @@ pub fn line_text(rope: &Rope, line: usize) -> String {
 /// 按逻辑行惰性缓存 `wrap_line` 的结果。
 pub struct WrapCache {
     width: u16,
+    /// Tab 的显示宽度（配置 tab_width），换行与渲染都从这里取
+    tab_width: u16,
     lines: Vec<Option<Vec<VisualRow>>>,
 }
 
 impl WrapCache {
-    pub fn new(width: u16) -> Self {
+    pub fn new(width: u16, tab_width: u16) -> Self {
         Self {
             width,
+            tab_width,
             lines: Vec::new(),
         }
     }
 
     pub fn width(&self) -> u16 {
         self.width
+    }
+
+    pub fn tab_width(&self) -> u16 {
+        self.tab_width
     }
 
     pub fn set_width(&mut self, width: u16) {
@@ -189,7 +208,7 @@ impl WrapCache {
         }
         self.lines.len() == rope.len_lines()
             && lines.into_iter().all(|l| match &self.lines[l] {
-                Some(rows) => *rows == wrap_line(&line_text(rope, l), self.width),
+                Some(rows) => *rows == wrap_line(&line_text(rope, l), self.width, self.tab_width),
                 None => true,
             })
     }
@@ -199,22 +218,24 @@ impl WrapCache {
         if self.lines.len() != rope.len_lines() {
             self.lines = vec![None; rope.len_lines()];
         }
-        let width = self.width;
-        self.lines[line].get_or_insert_with(|| wrap_line(&line_text(rope, line), width))
+        let (width, tab) = (self.width, self.tab_width);
+        self.lines[line].get_or_insert_with(|| wrap_line(&line_text(rope, line), width, tab))
     }
 
     pub fn char_to_visual(&mut self, rope: &Rope, idx: usize, aff: Affinity) -> VisualPos {
         let line = rope.char_to_line(idx);
         let text = line_text(rope, line);
         let local = idx - rope.line_to_char(line);
-        let (row, col) = char_to_visual(&text, self.rows(rope, line), local, aff);
+        let tab = self.tab_width;
+        let (row, col) = char_to_visual(&text, self.rows(rope, line), local, aff, tab);
         VisualPos { line, row, col }
     }
 
     pub fn visual_to_char(&mut self, rope: &Rope, pos: VisualPos) -> usize {
         let text = line_text(rope, pos.line);
+        let tab = self.tab_width;
         rope.line_to_char(pos.line)
-            + visual_to_char(&text, self.rows(rope, pos.line), pos.row, pos.col)
+            + visual_to_char(&text, self.rows(rope, pos.line), pos.row, pos.col, tab)
     }
 
     /// 从视觉行 `(line, row)` 前进 `delta` 个视觉行，在文档首尾处停住。
@@ -258,7 +279,7 @@ mod tests {
     use proptest::prelude::*;
 
     fn spans(line: &str, width: u16) -> Vec<(usize, usize, u16)> {
-        wrap_line(line, width)
+        wrap_line(line, width, 4)
             .into_iter()
             .map(|r| (r.start, r.end, r.width))
             .collect()
@@ -305,35 +326,63 @@ mod tests {
     }
 
     #[test]
+    fn configured_tab_width_drives_wrap_and_width() {
+        use crate::text::grapheme::grapheme_width;
+        assert_eq!(grapheme_width("\t", 0, 8), 8);
+        assert_eq!(grapheme_width("\t", 3, 8), 5);
+        assert_eq!(wrap_line("a\tb", 20, 8)[0].width, 9);
+        assert_eq!(grapheme_width("\t", 5, 0), 1, "0 按 1 处理");
+        // 显式参数：同一进程里不同 tab 宽度互不影响
+        assert_eq!(wrap_line("a\tb", 20, 2)[0].width, 3);
+        assert_eq!(wrap_line("a\tb", 20, 8)[0].width, 9);
+        let mut wide = WrapCache::new(20, 8);
+        let mut narrow = WrapCache::new(20, 2);
+        let rope = Rope::from_str("\tx");
+        assert_eq!(wide.char_to_visual(&rope, 1, Affinity::Downstream).col, 8);
+        assert_eq!(narrow.char_to_visual(&rope, 1, Affinity::Downstream).col, 2);
+        assert_eq!(
+            wide.visual_to_char(
+                &rope,
+                VisualPos {
+                    line: 0,
+                    row: 0,
+                    col: 7
+                }
+            ),
+            0
+        );
+    }
+
+    #[test]
     fn long_url_stays_within_width() {
         let line = "见 https://example.com/a/very/long/path/that/does/not/fit?query=1 结束";
-        for r in wrap_line(line, 20) {
+        for r in wrap_line(line, 20, 4) {
             assert!(r.width <= 20, "{r:?}");
         }
     }
 
     #[test]
     fn mapping_snaps_wide_char_left() {
-        let rows = wrap_line("中文", 10);
-        assert_eq!(visual_to_char("中文", &rows, 0, 1), 0);
-        assert_eq!(visual_to_char("中文", &rows, 0, 3), 1);
-        assert_eq!(visual_to_char("中文", &rows, 0, 9), 2);
+        let rows = wrap_line("中文", 10, 4);
+        assert_eq!(visual_to_char("中文", &rows, 0, 1, 4), 0);
+        assert_eq!(visual_to_char("中文", &rows, 0, 3, 4), 1);
+        assert_eq!(visual_to_char("中文", &rows, 0, 9, 4), 2);
     }
 
     #[test]
     fn mapping_wrap_point_is_downstream() {
         let line = "hello world foo";
-        let rows = wrap_line(line, 11);
+        let rows = wrap_line(line, 11, 4);
         assert_eq!(
-            char_to_visual(line, &rows, 12, Affinity::Downstream),
+            char_to_visual(line, &rows, 12, Affinity::Downstream, 4),
             (1, 0)
         );
         assert_eq!(
-            char_to_visual(line, &rows, 15, Affinity::Downstream),
+            char_to_visual(line, &rows, 15, Affinity::Downstream, 4),
             (1, 3)
         );
         // 非末行超出行尾：停在最后一个 grapheme 上
-        assert_eq!(visual_to_char(line, &rows, 0, 40), 11);
+        assert_eq!(visual_to_char(line, &rows, 0, 40, 4), 11);
     }
 
     #[test]
@@ -341,24 +390,27 @@ mod tests {
         use Affinity::{Downstream, Upstream};
         // 恰好写满一行：同一个偏移，Upstream 在本行行尾（第 6 列），Downstream 在下一行行首
         let full = "一二三四五六";
-        let rows = wrap_line(full, 6);
-        assert_eq!(char_to_visual(full, &rows, 3, Upstream), (0, 6));
-        assert_eq!(char_to_visual(full, &rows, 3, Downstream), (1, 0));
+        let rows = wrap_line(full, 6, 4);
+        assert_eq!(char_to_visual(full, &rows, 3, Upstream, 4), (0, 6));
+        assert_eq!(char_to_visual(full, &rows, 3, Downstream, 4), (1, 0));
         // 悬挂空白之后
         let line = "hello world foo";
-        let rows = wrap_line(line, 11);
-        assert_eq!(char_to_visual(line, &rows, 12, Upstream), (0, 12));
+        let rows = wrap_line(line, 11, 4);
+        assert_eq!(char_to_visual(line, &rows, 12, Upstream, 4), (0, 12));
         // 非边界处两种 affinity 结果相同；行首、行尾、空行不受影响
-        assert_eq!(char_to_visual(line, &rows, 5, Upstream), (0, 5));
-        assert_eq!(char_to_visual(line, &rows, 0, Upstream), (0, 0));
-        assert_eq!(char_to_visual(line, &rows, 15, Upstream), (1, 3));
-        assert_eq!(char_to_visual("", &wrap_line("", 6), 0, Upstream), (0, 0));
+        assert_eq!(char_to_visual(line, &rows, 5, Upstream, 4), (0, 5));
+        assert_eq!(char_to_visual(line, &rows, 0, Upstream, 4), (0, 0));
+        assert_eq!(char_to_visual(line, &rows, 15, Upstream, 4), (1, 3));
+        assert_eq!(
+            char_to_visual("", &wrap_line("", 6, 4), 0, Upstream, 4),
+            (0, 0)
+        );
     }
 
     #[test]
     fn invalidate_tracks_line_count() {
         let mut rope = Rope::from_str("a\nb\nc");
-        let mut wrap = WrapCache::new(10);
+        let mut wrap = WrapCache::new(10, 4);
         for l in 0..3 {
             wrap.rows(&rope, l);
         }
@@ -385,7 +437,7 @@ mod tests {
         #[test]
         fn rows_are_well_formed(parts in prop::collection::vec(TEXT, 0..80), width in 1u16..30) {
             let line: String = parts.concat();
-            let rows = wrap_line(&line, width);
+            let rows = wrap_line(&line, width, 4);
             let bounds = boundaries(&line);
             prop_assert_eq!(rows[0].start, 0);
             prop_assert_eq!(rows.last().unwrap().end, line.chars().count());
@@ -404,10 +456,10 @@ mod tests {
         #[test]
         fn mapping_round_trips(parts in prop::collection::vec(TEXT, 0..80), width in 10u16..80) {
             let line: String = parts.concat();
-            let rows = wrap_line(&line, width);
+            let rows = wrap_line(&line, width, 4);
             for idx in boundaries(&line) {
-                let (row, col) = char_to_visual(&line, &rows, idx, Affinity::Downstream);
-                prop_assert_eq!(visual_to_char(&line, &rows, row, col), idx);
+                let (row, col) = char_to_visual(&line, &rows, idx, Affinity::Downstream, 4);
+                prop_assert_eq!(visual_to_char(&line, &rows, row, col, 4), idx);
             }
         }
     }

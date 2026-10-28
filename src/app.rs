@@ -1,6 +1,7 @@
 //! App 状态与同步事件循环（方案 §11.3）。
 
 use std::io::Write;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -13,6 +14,7 @@ use ratatui::style::Color;
 
 use crate::action::{Action, Motion, Target};
 use crate::config::Config;
+use crate::editor::cursor::Cursor;
 use crate::editor::document::Document;
 use crate::editor::{Editor, Effect};
 use crate::io::file::{self, IoError};
@@ -20,7 +22,8 @@ use crate::keymap::{Keymap, Mode};
 use crate::status::{Prompt, StatusModel};
 use crate::view;
 use crate::view::layout::{Layout, compute_layout};
-use crate::view::mouse::{DRAG_SCROLL_INTERVAL, DragState, drag_target, map_mouse};
+use crate::view::mouse::{DRAG_SCROLL_INTERVAL, DragState, map_mouse};
+use crate::view::screen::ScreenMap;
 use crate::view::viewport::Viewport;
 
 /// 默认：最后一次编辑后空闲多久自动保存（配置项 autosave_idle_ms）。
@@ -51,7 +54,10 @@ pub struct App {
     mouse: bool,
     /// 左键拖拽中（仅鼠标开启时）
     drag: Option<DragState>,
+    /// 上一帧渲染输出的屏幕 ↔ 文档坐标换算，鼠标只查它
+    pub(crate) screen: Option<ScreenMap>,
     pub(crate) focus_mode: bool,
+    pub(crate) tab_width: u16,
     pub(crate) code_color: Color,
     /// 大文件：字数只在保存时刷新
     large: bool,
@@ -81,7 +87,11 @@ impl App {
     pub fn with_config(doc: Document, size: Size, config: &Config) -> Self {
         let area = Rect::new(0, 0, size.width, size.height);
         let large = doc.body().len_bytes() > LARGE_FILE;
-        let editor = Editor::new(doc, compute_layout(area, config.width).body.width);
+        let editor = Editor::new(
+            doc,
+            compute_layout(area, config.width).body.width,
+            config.tab_width,
+        );
         let mut status = StatusModel::default();
         if large {
             status.info(
@@ -93,7 +103,11 @@ impl App {
         status.words = editor.word_count();
         Self {
             editor,
-            keymap: Keymap { vim: config.vim },
+            keymap: Keymap {
+                vim: config.vim,
+                tab_width: config.tab_width,
+            },
+            tab_width: config.tab_width,
             mode: Mode::Insert,
             status,
             viewport: Viewport {
@@ -107,6 +121,7 @@ impl App {
             autosave_idle: config.autosave_idle,
             mouse: config.mouse,
             drag: None,
+            screen: None,
             focus_mode: config.focus_mode,
             code_color: config.code_color,
             large,
@@ -131,6 +146,26 @@ impl App {
     /// 启动后 5 s 在 status bar 右段显示键位提示。
     pub fn show_startup_hint(&mut self, now: Instant) {
         self.status.hint_until = Some(now + HINT_TTL);
+    }
+
+    /// vim visual 的选区是闭区间：锚点与光标所在的字都在选区内。编辑内核只认半开区间，
+    /// 这里在 App 层换算，内核不感知 Mode。
+    fn visual_range(&self) -> Option<Range<usize>> {
+        if self.editor.focus != crate::editor::Focus::Body {
+            return None;
+        }
+        let c = self.editor.cursor;
+        let anchor = c.anchor?;
+        let (lo, hi) = (anchor.min(c.head), anchor.max(c.head));
+        Some(lo..Cursor::next(self.editor.doc().body(), hi).max(lo))
+    }
+
+    /// 渲染用的选区：vim visual 下为闭区间，其余为编辑内核的选区。
+    pub(crate) fn visible_selection(&self) -> Option<Range<usize>> {
+        match self.mode {
+            Mode::Normal(s) if s.visual => self.visual_range(),
+            _ => self.editor.selection(),
+        }
     }
 
     /// 配置文件的警告：一条 status bar 错误消息，保留到第一次按键。
@@ -199,7 +234,8 @@ impl App {
         let was_visual = matches!(self.mode, Mode::Normal(s) if s.visual);
         let action = self.keymap.map_event(&ev, &mut self.mode, prompt_active);
         let after = matches!(self.mode, Mode::Normal(_));
-        let left_visual = was_visual && !matches!(self.mode, Mode::Normal(s) if s.visual);
+        let is_visual = matches!(self.mode, Mode::Normal(s) if s.visual);
+        let left_visual = was_visual && !is_visual;
         if before != after || self.mode_label().is_some() {
             self.needs_redraw = true;
         }
@@ -214,6 +250,22 @@ impl App {
             if style.write_ansi(&mut seq).is_ok() {
                 self.output.push(seq);
             }
+        }
+        // 进入 visual：选区从光标所在的字开始
+        if is_visual && !was_visual {
+            let head = self.editor.cursor.head;
+            self.edit(&Action::MoveTo(Target::Body(head), true), now);
+        }
+        // visual 下的 d / x / y / p：先把选区换成闭区间（含光标所在的字），再交给编辑内核
+        if was_visual
+            && matches!(
+                action,
+                Some(Action::Cut | Action::Copy | Action::PasteRegister)
+            )
+            && let Some(range) = self.visual_range()
+        {
+            self.edit(&Action::MoveTo(Target::Body(range.end), false), now);
+            self.edit(&Action::MoveTo(Target::Body(range.start), true), now);
         }
         if let Some(action) = action {
             self.dispatch(action, now);
@@ -412,23 +464,11 @@ impl App {
         if self.status.prompt.is_some() {
             return;
         }
-        let layout = self.layout();
-        if layout.too_small {
-            return;
-        }
-        self.sync_body(layout.body);
+        // 只查上一帧渲染给出的换算；还没渲染过（或窗口太小）时忽略
+        let Some(map) = self.screen else { return };
         let title = self.editor.doc().title_text().to_owned();
         let (doc, wrap, _) = self.editor.view();
-        let action = map_mouse(
-            &m,
-            &layout,
-            &self.viewport,
-            wrap,
-            doc.body(),
-            &title,
-            &mut self.drag,
-            now,
-        );
+        let action = map_mouse(&m, &map, wrap, doc.body(), &title, &mut self.drag, now);
         if let Some(action) = action {
             self.mouse_action(action, now);
         }
@@ -440,6 +480,10 @@ impl App {
             state.visual = true;
         }
         self.dispatch(action, now);
+        // 定位可能让视口跟随滚动：同一批里后续的鼠标事件按新的视口查表
+        if let Some(map) = &mut self.screen {
+            map.follow(&self.viewport);
+        }
     }
 
     /// 滚轮：只移动视口；光标若离开 scrolloff 区间，就拉回可见区域边缘（保持 preferred_col），
@@ -475,15 +519,19 @@ impl App {
 
     /// 拖到正文上下边缘之外并保持不动：每 50 ms 滚动一行，光标跟到新的边缘行。
     fn drag_autoscroll(&mut self, now: Instant) {
-        let Some(state) = self.drag else { return };
+        let (Some(state), Some(mut map)) = (self.drag, self.screen) else {
+            return;
+        };
         if state.deadline.is_none_or(|d| now < d) {
             return;
         }
-        let body = self.layout().body;
-        let delta = if state.last.y < body.y { -1 } else { 1 };
+        let Some(delta) = map.drag_overflow(state.last) else {
+            return;
+        };
         let (doc, wrap, _) = self.editor.view();
         self.viewport.scroll(delta, wrap, doc.body());
-        let at = drag_target(body, state.last, &self.viewport, wrap, doc.body());
+        map.follow(&self.viewport);
+        let at = map.drag_char(state.last, wrap, doc.body());
         self.drag = Some(DragState {
             deadline: Some(now + DRAG_SCROLL_INTERVAL),
             ..state
@@ -737,28 +785,49 @@ mod tests {
         // Normal 态的可打印字符（含汉字）不插入
         typed(&mut app, "中q");
         assert_eq!(body(&app), "hello world foo");
-        // v + w + d 删除一个词
-        typed(&mut app, "vw");
-        assert_eq!(app.mode_label(), Some("VIS"));
-        typed(&mut app, "d");
+        // visual 是闭区间：v 之后光标所在的字立即被选中
+        typed(&mut app, "v");
+        assert_eq!(
+            (app.mode_label(), app.visible_selection()),
+            (Some("VIS"), Some(0..1))
+        );
+        // v e d：删掉整个词，包括最后一个字母
+        typed(&mut app, "ed");
         assert_eq!(
             (body(&app).as_str(), app.mode_label()),
-            ("world foo", Some("NOR"))
+            (" world foo", Some("NOR"))
         );
-        // v + w + y 复制后选区消失，p 粘贴到光标处
-        typed(&mut app, "vwy");
+        assert_eq!(app.editor.cursor.head, 0);
+        // v w d：删到下一个词首（含词首这个字）
+        let mut app = vim_app("hello world foo");
+        typed(&mut app, "\x1bvw");
+        assert_eq!(
+            app.visible_selection(),
+            Some(0..7),
+            "渲染出的选区含光标所在的字"
+        );
+        typed(&mut app, "d");
+        assert_eq!(body(&app), "orld foo");
+        // v e y 复制整个词，选区消失、光标回到选区开头；p 粘贴到光标处
+        typed(&mut app, "vey");
         assert_eq!(
             (
                 app.editor.register().unwrap().text.as_str(),
                 app.editor.selection()
             ),
-            ("world ", None)
+            ("orld", None)
         );
-        typed(&mut app, "0p");
-        assert_eq!(body(&app), "world world foo");
-        // 选区不含光标所在的字（竖线光标模型）：v + e 停在词的最后一个字之前
-        typed(&mut app, "0vey");
-        assert_eq!(app.editor.register().unwrap().text, "worl");
+        assert_eq!(app.editor.cursor.head, 0);
+        typed(&mut app, "p");
+        assert_eq!(body(&app), "orldorld foo");
+        // 反向选择（光标在锚点之前）同样包含两端
+        let mut app = vim_app("abcdef");
+        typed(&mut app, "\x1blllvhhd"); // 锚点在「d」，光标退到「b」
+        assert_eq!(body(&app), "aef");
+        // 单独 v 再 x：删掉光标所在的一个字
+        let mut app = vim_app("中文");
+        typed(&mut app, "\x1bvx");
+        assert_eq!(body(&app), "文");
     }
 
     #[test]
@@ -802,6 +871,16 @@ mod tests {
         })
     }
 
+    /// 与事件循环一样：先绘制一帧（产出 ScreenMap），再处理下一个事件。
+    fn rendered(app: &mut App, ev: Event, now: Instant) {
+        let size = app.area;
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(size.width, size.height))
+                .unwrap();
+        terminal.draw(|f| view::render(f, app)).unwrap();
+        app.handle_at(ev, now);
+    }
+
     fn mouse_app(text: &str, enabled: bool) -> App {
         let doc = Document::parse(text, crate::editor::document::FileMeta::new(None));
         let config = Config {
@@ -820,23 +899,39 @@ mod tests {
         let left = MouseButton::Left;
         let t0 = Instant::now();
         // 每行 "第NN行 line\n" 共 10 个 char：「第」占第 0–1 列，「0」第 2 列，「2」第 3 列
-        app.handle_at(mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2), t0);
+        rendered(
+            &mut app,
+            mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2),
+            t0,
+        );
         assert_eq!(app.editor.cursor.head, 2 * 10 + 2);
         // 宽字符右半格吸附左侧
-        app.handle_at(mouse(MouseEventKind::Down(left), 4 + 1, 5 + 2), t0);
+        rendered(
+            &mut app,
+            mouse(MouseEventKind::Down(left), 4 + 1, 5 + 2),
+            t0,
+        );
         assert_eq!(app.editor.cursor.head, 2 * 10);
-        app.handle_at(mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2), t0);
+        rendered(
+            &mut app,
+            mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2),
+            t0,
+        );
         // 点在正文之外：忽略
-        app.handle_at(mouse(MouseEventKind::Down(left), 1, 7), t0);
-        app.handle_at(mouse(MouseEventKind::Down(left), 4, 22), t0);
+        rendered(&mut app, mouse(MouseEventKind::Down(left), 1, 7), t0);
+        rendered(&mut app, mouse(MouseEventKind::Down(left), 4, 22), t0);
         assert_eq!(app.editor.cursor.head, 2 * 10 + 2);
-        app.handle_at(mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2), t0);
+        rendered(
+            &mut app,
+            mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2),
+            t0,
+        );
         // 拖拽形成选区
-        app.handle_at(mouse(MouseEventKind::Drag(left), 4, 5 + 4), t0);
+        rendered(&mut app, mouse(MouseEventKind::Drag(left), 4, 5 + 4), t0);
         assert_eq!(app.editor.selection(), Some(2 * 10 + 2..4 * 10));
         // 拖到正文下方并保持不动：每 50 ms 滚动一行，选区跟着延伸；松开后停止
         let top = app.viewport.top.line;
-        app.handle_at(mouse(MouseEventKind::Drag(left), 10, 23), t0);
+        rendered(&mut app, mouse(MouseEventKind::Drag(left), 10, 23), t0);
         assert_eq!(app.next_deadline(), Some(t0 + DRAG_SCROLL_INTERVAL));
         for k in 1..=10 {
             app.tick(t0 + DRAG_SCROLL_INTERVAL * k);
@@ -845,26 +940,30 @@ mod tests {
         let sel = app.editor.selection().unwrap();
         assert_eq!(sel.start, 2 * 10 + 2);
         assert!(sel.end > 20 * 10, "{sel:?}");
-        app.handle_at(mouse(MouseEventKind::Up(left), 10, 23), t0);
+        rendered(&mut app, mouse(MouseEventKind::Up(left), 10, 23), t0);
         app.tick(t0 + DRAG_SCROLL_INTERVAL * 20);
         assert_eq!(app.viewport.top.line, top + 10, "松开后停止");
         // 滚轮只移动视口；光标离开 scrolloff 区间时被拉回边缘，始终可见
         let line = |app: &App| app.editor.doc().body().char_to_line(app.editor.cursor.head);
         let (top, cursor_line) = (app.viewport.top.line, line(&app));
-        app.handle_at(mouse(MouseEventKind::ScrollDown, 10, 10), t0);
+        rendered(&mut app, mouse(MouseEventKind::ScrollDown, 10, 10), t0);
         assert_eq!(
             (app.viewport.top.line, line(&app)),
             (top + 3, cursor_line),
             "光标仍在区间内：不动"
         );
         for _ in 0..10 {
-            app.handle_at(mouse(MouseEventKind::ScrollDown, 10, 10), t0);
+            rendered(&mut app, mouse(MouseEventKind::ScrollDown, 10, 10), t0);
         }
         assert_eq!(app.viewport.top.line, top + 33);
         assert_eq!(line(&app), top + 33 + 3, "被拉到上边缘（scrolloff 3）");
         // 鼠标关闭：完全忽略鼠标事件
         let mut off = mouse_app(&text, false);
-        off.handle(mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2));
+        rendered(
+            &mut off,
+            mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2),
+            Instant::now(),
+        );
         assert_eq!(off.editor.cursor.head, 0);
     }
 
@@ -882,14 +981,43 @@ mod tests {
         };
         let mut app = App::with_config(doc, Size::new(80, 24), &config);
         typed(&mut app, "\x1b");
-        app.handle(mouse(MouseEventKind::Down(MouseButton::Left), 4, 5));
-        app.handle(mouse(MouseEventKind::Drag(MouseButton::Left), 4 + 6, 5));
+        rendered(
+            &mut app,
+            mouse(MouseEventKind::Down(MouseButton::Left), 4, 5),
+            Instant::now(),
+        );
+        rendered(
+            &mut app,
+            mouse(MouseEventKind::Drag(MouseButton::Left), 4 + 6, 5),
+            Instant::now(),
+        );
         assert_eq!(app.mode_label(), Some("VIS"));
         typed(&mut app, "d");
         assert_eq!(
             (body(&app).as_str(), app.mode_label()),
-            ("world\nsecond", Some("NOR"))
+            // 闭区间：拖到第 6 列，「w」也被删掉
+            ("orld\nsecond", Some("NOR"))
         );
+    }
+
+    #[test]
+    fn click_on_horizontally_scrolled_title() {
+        // 80×24：标题行 y = 3、x = 4、宽 72。100 个字母的标题在焦点下、光标在末尾时滚动了 100 + 1 - 72 = 29 列
+        let long: String = ('a'..='z').cycle().take(100).collect();
+        let mut app = mouse_app(&format!("# {long}\n\nbody"), true);
+        app.handle(press(KeyCode::Up));
+        assert_eq!(
+            (app.editor.focus, app.editor.title_cursor),
+            (crate::editor::Focus::Title, 100)
+        );
+        // 点屏幕上标题的第一格：那里显示的是第 29 个字母
+        rendered(
+            &mut app,
+            mouse(MouseEventKind::Down(MouseButton::Left), 4, 3),
+            Instant::now(),
+        );
+        assert_eq!(app.editor.title_cursor, 29);
+        assert_eq!(app.screen.unwrap().title.map(|t| t.scroll), Some(29));
     }
 
     #[test]
@@ -897,7 +1025,11 @@ mod tests {
         let mut app = mouse_app("# T\n\nabc", true);
         app.handle(press(KeyCode::Up));
         assert_eq!(app.editor.focus, crate::editor::Focus::Title);
-        app.handle(mouse(MouseEventKind::Down(MouseButton::Left), 4 + 2, 5));
+        rendered(
+            &mut app,
+            mouse(MouseEventKind::Down(MouseButton::Left), 4 + 2, 5),
+            Instant::now(),
+        );
         assert_eq!(
             (app.editor.focus, app.editor.cursor.head),
             (crate::editor::Focus::Body, 2)

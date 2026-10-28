@@ -55,7 +55,7 @@ mustty [FILE] [--width N] [--[no-]autosave] [--[no-]vim] [--[no-]mouse]
 | `v` 后移动，再按 `y` / `d` / `x` / `p` | 选区：复制 / 剪切 / 剪切 / 替换粘贴 |
 
 所有 `Ctrl+` 组合键在两种状态下都有效。不支持计数前缀、`.` 重复、宏、`:` 命令行与 text object。
-选区按竖线光标计算，不含光标所在的字：`v` `e` 选到词的最后一个字之前，`v` `w` 恰好是一个词。
+与 vim 一样，visual 选区是闭区间，光标所在的字也在选区内：`v` `e` `d` 删掉整个词，`v` `w` `d` 删到下一个词的词首（含词首）。
 
 **中文输入法与 `--vim`**：输入法处于中文状态时，`j` `k` `d` 等按键会被输入法当作拼音截获，程序收不到；
 Normal 态收到的汉字一律忽略、不会误插入。建议为终端单独设置英文输入源，或在按 `Esc` 之前先切到英文。
@@ -79,7 +79,7 @@ typewriter = false      # 启动时是否进入 Typewriter 模式（Ctrl+T 切�
 focus_mode = false      # 启动时是否进入 Focus 模式（Ctrl+F 切换）
 scrolloff = 3           # 光标与视口上下边保持的行数，0..=10
 tab_width = 4           # Tab 字符的显示宽度与 Tab 键插入的空格数，1..=16
-code_color = "cyan"     # 代码的颜色：black red green yellow blue magenta cyan white（大小写不敏感）
+code_color = "cyan"     # 代码的颜色：black red green yellow blue magenta cyan white（gray 同 white，大小写不敏感）
 ```
 
 ### 鼠标

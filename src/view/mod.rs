@@ -1,5 +1,6 @@
 pub mod layout;
 pub mod mouse;
+pub mod screen;
 pub mod theme;
 pub mod viewport;
 pub mod widgets;
@@ -14,12 +15,14 @@ use crate::io::file::IoError;
 use crate::status::StatusModel;
 use crate::text::wrap::line_text;
 use layout::compute_layout;
-use widgets::{BodyWidget, PromptWidget, StatusWidget, TitleWidget, text_width};
+use screen::{ScreenMap, TitleMap};
+use widgets::{BodyWidget, PromptWidget, StatusWidget, TitleWidget, text_width, title_placement};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
     let layout = compute_layout(area, app.measure());
     if layout.too_small {
+        app.screen = None;
         // 不设置光标位置 → ratatui 隐藏硬件光标
         frame.buffer_mut().set_stringn(
             area.x,
@@ -33,38 +36,41 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let body = layout.body;
     app.sync_body(body);
     let placeholder = app.placeholder();
+    let tab = app.tab_width;
     let ed = &app.editor;
     let mut cursor = None;
 
-    if let Some(r) = layout.title {
-        let focused = ed.focus == Focus::Title;
-        let text = ed.doc().title_text();
-        let title = if text.is_empty() && !focused {
-            TitleWidget {
-                text: &placeholder,
-                style: Modifier::DIM.into(),
-                cursor_col: None,
-            }
-        } else {
-            let before: String = text.chars().take(ed.title_cursor).collect();
-            TitleWidget {
-                text,
-                style: Modifier::BOLD.into(),
-                cursor_col: focused.then(|| text_width(&before)),
-            }
+    // 标题：放得下时居中，否则以光标为中心水平滚动；摆放结果记进 ScreenMap
+    let focused = ed.focus == Focus::Title;
+    let text = ed.doc().title_text();
+    let (title_text, title_style, title_col) = if text.is_empty() && !focused {
+        (placeholder.as_str(), Style::from(Modifier::DIM), None)
+    } else {
+        let before: String = text.chars().take(ed.title_cursor).collect();
+        let col = focused.then(|| text_width(&before, tab));
+        (text, Style::from(Modifier::BOLD), col)
+    };
+    let title_map = layout.title.map(|rect| {
+        let (pad, scroll) = title_placement(title_text, title_col, rect.width, tab);
+        TitleMap { rect, pad, scroll }
+    });
+    let map = ScreenMap::new(body, &app.viewport, title_map);
+    if let Some(t) = map.title {
+        let widget = TitleWidget {
+            text: title_text,
+            style: title_style,
+            pad: t.pad,
+            scroll: t.scroll,
+            tab_width: tab,
         };
-        if let Some(col) = title.cursor_col {
-            let (pad, scroll) = title.placement(r.width);
-            cursor = Some(Position::new(r.x + pad + col - scroll, r.y));
-        }
-        frame.render_widget(title, r);
+        frame.render_widget(widget, t.rect);
+        cursor = title_col.and_then(|col| map.title_screen(col));
     }
 
-    let top = app.viewport.top;
-    let padding = app.viewport.top_padding;
+    let top = map.top;
     let focus = ed.focus;
     let caret = ed.cursor;
-    let selection = ed.selection();
+    let selection = app.visible_selection();
     let paragraph = (app.focus_mode && focus == Focus::Body).then(|| {
         let rope = ed.doc().body();
         let visible_end = (top.line + body.height as usize + 1).min(rope.len_lines());
@@ -78,7 +84,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             wrap,
             highlight,
             top,
-            top_padding: padding,
+            top_padding: map.top_padding,
             selection,
             focus: paragraph,
             code_color,
@@ -88,14 +94,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     if focus == Focus::Body {
         let (doc, wrap, _) = app.editor.view();
         let pos = caret.visual(doc.body(), wrap);
-        let dy = padding as isize
-            + wrap.rows_between(doc.body(), (top.line, top.row), (pos.line, pos.row));
-        if (0..body.height as isize).contains(&dy) {
-            // 写满一行的行尾、悬挂空白之后：光标放在正文右侧第一格，不与最后一个字重叠
-            let x = (body.x + pos.col.min(body.width)).min(area.right() - 1);
-            cursor = Some(Position::new(x, body.y + dy as u16));
-        }
+        cursor = map.body_screen(pos, wrap, doc.body(), area.right());
     }
+    app.screen = Some(map);
 
     let ed = &app.editor;
     if let Some(r) = layout.status {
@@ -104,7 +105,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             let prompt = PromptWidget {
                 label: p.label(),
                 input: &p.input,
-                cursor_col: text_width(&before),
+                cursor_col: text_width(&before, tab),
+                tab_width: tab,
             };
             cursor = Some(Position::new(r.x + prompt.cursor_x(r.width), r.y));
             frame.render_widget(prompt, r);
@@ -136,6 +138,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     words: &status.words_label(),
                     position: &position,
                     hint: status.hint_until.map(|_| "^S 保存  ^Q 退出"),
+                    tab_width: tab,
                 },
                 r,
             );

@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn horizontal_crosses_lines_by_grapheme() {
         let rope = Rope::from_str("e\u{301}🇨🇳\n中");
-        let mut wrap = WrapCache::new(20);
+        let mut wrap = WrapCache::new(20, 4);
         let mut c = Cursor::default();
         let mut stops = vec![];
         for _ in 0..6 {
@@ -288,7 +288,7 @@ mod tests {
     fn vertical_keeps_preferred_col() {
         // 第 0 行 "abcdef"，第 1 行 "中文"，第 2 行 "abcdef"
         let rope = Rope::from_str("abcdef\n中文\nabcdef");
-        let mut wrap = WrapCache::new(20);
+        let mut wrap = WrapCache::new(20, 4);
         let mut c = Cursor {
             head: 3,
             ..Cursor::default()
@@ -306,7 +306,7 @@ mod tests {
     fn end_key_is_upstream_at_soft_wrap() {
         // 宽 6：第 0 视觉行「一二三」恰好写满，第 1 视觉行「四五」
         let rope = Rope::from_str("一二三四五");
-        let mut wrap = WrapCache::new(6);
+        let mut wrap = WrapCache::new(6, 4);
         let mut c = Cursor::default();
         c.move_row_end(&rope, &mut wrap);
         assert_eq!((c.head, c.affinity), (3, Affinity::Upstream));
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn left_right_flip_affinity_at_soft_wrap() {
         let rope = Rope::from_str("一二三四五");
-        let mut wrap = WrapCache::new(6);
+        let mut wrap = WrapCache::new(6, 4);
         let mut c = Cursor::default();
         c.move_row_end(&rope, &mut wrap); // (0, 6) Upstream
         c.move_right(&rope, &mut wrap);
@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn vertical_from_upstream_end() {
         let rope = Rope::from_str("一二三四五");
-        let mut wrap = WrapCache::new(6);
+        let mut wrap = WrapCache::new(6, 4);
         let mut c = Cursor::default();
         c.move_row_end(&rope, &mut wrap);
         c.move_vertical(&rope, &mut wrap, 1);

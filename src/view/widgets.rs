@@ -16,11 +16,22 @@ use crate::view::theme;
 use crate::view::viewport::ViewTop;
 
 /// 按 mustty 的宽度规则逐 grapheme 写入一行：跳过前 `scroll` 列，超出 `max_w` 的部分裁剪。
-fn draw_text(buf: &mut Buffer, x: u16, y: u16, max_w: u16, text: &str, style: Style, scroll: u16) {
-    draw_styled(buf, x, y, max_w, text, scroll, |_| style);
+#[allow(clippy::too_many_arguments)]
+fn draw_text(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    max_w: u16,
+    text: &str,
+    style: Style,
+    scroll: u16,
+    tab: u16,
+) {
+    draw_styled(buf, x, y, max_w, text, scroll, tab, |_| style);
 }
 
 /// 同 `draw_text`，样式按 grapheme 的行内 char 偏移决定。
+#[allow(clippy::too_many_arguments)]
 fn draw_styled(
     buf: &mut Buffer,
     x: u16,
@@ -28,11 +39,12 @@ fn draw_styled(
     max_w: u16,
     text: &str,
     scroll: u16,
+    tab: u16,
     style_at: impl Fn(usize) -> Style,
 ) {
     let mut col = 0;
     for (c, g) in graphemes(text) {
-        let w = grapheme_width(g, col);
+        let w = grapheme_width(g, col, tab);
         if col >= scroll {
             let at = col - scroll;
             if at + w > max_w {
@@ -52,8 +64,8 @@ fn draw_styled(
     }
 }
 
-pub fn text_width(text: &str) -> u16 {
-    graphemes(text).fold(0, |col, (_, g)| col + grapheme_width(g, col))
+pub fn text_width(text: &str, tab: u16) -> u16 {
+    graphemes(text).fold(0, |col, (_, g)| col + grapheme_width(g, col, tab))
 }
 
 /// 单行输入在宽度 `w` 内的水平滚动量：放得下（含行尾光标）时为 0，否则让光标尽量居中。
@@ -65,25 +77,26 @@ pub fn hscroll(text_w: u16, cursor_col: u16, w: u16) -> u16 {
     }
 }
 
+/// 标题在宽度 `w` 内的 `(左侧留白, 水平滚动量)`：放得下时居中，否则以光标为中心水平滚动。
+/// 渲染用它填 `ScreenMap`，标题文字与鼠标点击都按这一份结果换算。
+pub fn title_placement(text: &str, cursor_col: Option<u16>, w: u16, tab: u16) -> (u16, u16) {
+    let tw = text_width(text, tab);
+    let pad = if tw < w { (w - tw) / 2 } else { 0 };
+    (pad, hscroll(tw, cursor_col.unwrap_or(0), w))
+}
+
 pub struct TitleWidget<'a> {
     pub text: &'a str,
     pub style: Style,
-    /// 焦点在标题时的光标列。
-    pub cursor_col: Option<u16>,
-}
-
-impl TitleWidget<'_> {
-    /// `(左侧留白, 水平滚动量)`：放得下时居中，否则以光标为中心水平滚动。
-    pub fn placement(&self, w: u16) -> (u16, u16) {
-        let tw = text_width(self.text);
-        let pad = if tw < w { (w - tw) / 2 } else { 0 };
-        (pad, hscroll(tw, self.cursor_col.unwrap_or(0), w))
-    }
+    /// 来自 `ScreenMap` 的摆放
+    pub pad: u16,
+    pub scroll: u16,
+    pub tab_width: u16,
 }
 
 impl Widget for TitleWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let (pad, scroll) = self.placement(area.width);
+        let pad = self.pad.min(area.width);
         draw_text(
             buf,
             area.x + pad,
@@ -91,7 +104,8 @@ impl Widget for TitleWidget<'_> {
             area.width - pad,
             self.text,
             self.style,
-            scroll,
+            self.scroll,
+            self.tab_width,
         );
     }
 }
@@ -113,6 +127,7 @@ pub struct BodyWidget<'a> {
 impl Widget for BodyWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let (mut line, mut row) = (self.top.line, self.top.row);
+        let tab = self.wrap.tab_width();
         let code = self.code_color;
         let dimmed = |line: usize| self.focus.as_ref().is_some_and(|f| !f.contains(&line));
         let styles_of = |hl: &mut HighlightCache, line: usize, len: usize| {
@@ -137,7 +152,7 @@ impl Widget for BodyWidget<'_> {
             let seg: String = text.chars().skip(r.start).take(r.end - r.start).collect();
             let line_start = self.rope.line_to_char(line);
             let sel = self.selection.clone();
-            draw_styled(buf, area.x, y, area.width, &seg, 0, |c| {
+            draw_styled(buf, area.x, y, area.width, &seg, 0, tab, |c| {
                 let local = r.start + c;
                 let style = styles[local];
                 match &sel {
@@ -179,12 +194,14 @@ pub struct StatusWidget<'a> {
     pub position: &'a str,
     /// 启动键位提示：在提示期内取代右段
     pub hint: Option<&'a str>,
+    pub tab_width: u16,
 }
 
 impl Widget for StatusWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let dim = Style::from(Modifier::DIM);
-        let left_w = text_width(self.left);
+        let tab = self.tab_width;
+        let left_w = text_width(self.left, tab);
         // 宽度不足时先省略位置，再省略字数，最后从左截断左段
         let full = format!("{} · {}", self.words, self.position);
         let candidates = match self.hint {
@@ -193,16 +210,43 @@ impl Widget for StatusWidget<'_> {
         };
         let right = candidates
             .into_iter()
-            .find(|r| left_w + 1 + text_width(r) <= area.width);
+            .find(|r| left_w + 1 + text_width(r, tab) <= area.width);
         match right {
             Some(right) => {
-                let right_w = text_width(right);
-                draw_text(buf, area.x, area.y, left_w, self.left, self.left_style, 0);
-                draw_text(buf, area.right() - right_w, area.y, right_w, right, dim, 0);
+                let right_w = text_width(right, tab);
+                draw_text(
+                    buf,
+                    area.x,
+                    area.y,
+                    left_w,
+                    self.left,
+                    self.left_style,
+                    0,
+                    tab,
+                );
+                draw_text(
+                    buf,
+                    area.right() - right_w,
+                    area.y,
+                    right_w,
+                    right,
+                    dim,
+                    0,
+                    tab,
+                );
             }
             None => {
-                let left = truncate_left(self.left, area.width);
-                draw_text(buf, area.x, area.y, area.width, &left, self.left_style, 0);
+                let left = truncate_left(self.left, area.width, tab);
+                draw_text(
+                    buf,
+                    area.x,
+                    area.y,
+                    area.width,
+                    &left,
+                    self.left_style,
+                    0,
+                    tab,
+                );
             }
         }
     }
@@ -213,24 +257,27 @@ pub struct PromptWidget<'a> {
     pub label: &'a str,
     pub input: &'a str,
     pub cursor_col: u16,
+    pub tab_width: u16,
 }
 
 impl PromptWidget<'_> {
     /// 光标相对 status bar 左端的列。
     pub fn cursor_x(&self, w: u16) -> u16 {
-        let label_w = text_width(self.label).min(w);
+        let tab = self.tab_width;
+        let label_w = text_width(self.label, tab).min(w);
         let avail = w - label_w;
-        label_w + self.cursor_col - hscroll(text_width(self.input), self.cursor_col, avail)
+        label_w + self.cursor_col - hscroll(text_width(self.input, tab), self.cursor_col, avail)
     }
 }
 
 impl Widget for PromptWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let label_w = text_width(self.label).min(area.width);
+        let tab = self.tab_width;
+        let label_w = text_width(self.label, tab).min(area.width);
         let avail = area.width - label_w;
-        let scroll = hscroll(text_width(self.input), self.cursor_col, avail);
+        let scroll = hscroll(text_width(self.input, tab), self.cursor_col, avail);
         let style = Style::default();
-        draw_text(buf, area.x, area.y, label_w, self.label, style, 0);
+        draw_text(buf, area.x, area.y, label_w, self.label, style, 0, tab);
         draw_text(
             buf,
             area.x + label_w,
@@ -239,19 +286,20 @@ impl Widget for PromptWidget<'_> {
             self.input,
             style,
             scroll,
+            tab,
         );
     }
 }
 
 /// 从左侧截断为 `…tes.md`，使显示宽度不超过 `max_w`。
-fn truncate_left(text: &str, max_w: u16) -> String {
-    if text_width(text) <= max_w {
+fn truncate_left(text: &str, max_w: u16, tab: u16) -> String {
+    if text_width(text, tab) <= max_w {
         return text.to_owned();
     }
     let mut kept = Vec::new();
     let mut w = 1; // "…"
     for (_, g) in graphemes(text).collect::<Vec<_>>().into_iter().rev() {
-        let gw = grapheme_width(g, 0);
+        let gw = grapheme_width(g, 0, tab);
         if w + gw > max_w {
             break;
         }
@@ -267,23 +315,19 @@ mod tests {
 
     #[test]
     fn truncates_from_left() {
-        assert_eq!(truncate_left("notes.md", 8), "notes.md");
-        assert_eq!(truncate_left("notes.md", 7), "…tes.md");
-        assert_eq!(truncate_left("中文名.md", 6), "…名.md");
-        assert_eq!(truncate_left("long-name.md •", 8), "…me.md •");
+        assert_eq!(truncate_left("notes.md", 8, 4), "notes.md");
+        assert_eq!(truncate_left("notes.md", 7, 4), "…tes.md");
+        assert_eq!(truncate_left("中文名.md", 6, 4), "…名.md");
+        assert_eq!(truncate_left("long-name.md •", 8, 4), "…me.md •");
     }
 
     #[test]
     fn title_centers_then_scrolls() {
-        let t = |text, cursor_col| TitleWidget {
-            text,
-            style: Style::default(),
-            cursor_col,
-        };
-        assert_eq!(t("标题", None).placement(10), (3, 0));
+        let t = |text, cursor_col| title_placement(text, cursor_col, 10, 4);
+        assert_eq!(t("标题", None), (3, 0));
         // 放不下：以光标为中心滚动，且不超过「文本宽 + 行尾光标」
-        assert_eq!(t("abcdefghijklmnop", Some(12)).placement(10), (0, 7));
-        assert_eq!(t("abcdefghijklmnop", Some(16)).placement(10), (0, 7));
-        assert_eq!(t("abcdefghijklmnop", Some(2)).placement(10), (0, 0));
+        assert_eq!(t("abcdefghijklmnop", Some(12)), (0, 7));
+        assert_eq!(t("abcdefghijklmnop", Some(16)), (0, 7));
+        assert_eq!(t("abcdefghijklmnop", Some(2)), (0, 0));
     }
 }

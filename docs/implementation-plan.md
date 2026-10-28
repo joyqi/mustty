@@ -24,10 +24,10 @@
 - **不做所见即所得**：不隐藏 Markdown 标记，不渲染表格 / 图片 / 公式。
 - **不做文件浏览器、多 buffer、tab、分屏**：一次只编辑一个文件。
 - **默认非 modal、M4 提供 --vim**：`--vim` 只是一个最小的 vim-like 键位层（§7.4），只在 keymap 层实现，编辑内核不感知它。**不做**完整 vim 模拟（计数前缀 `3j`、`.` 重复、宏、具名寄存器、`:` 命令行、text object、`Ctrl+V` 块选择），不做 emacs 模式。
-- 不做可编程配置、插件、LSP。
+- **只提供 `~/.mustty.toml` 中的 10 个配置项**（§8.5）。不做自定义键位、主题配色、项目级配置、status line 开关、配置热重载；不做可编程配置、插件、LSP。
 - **不做预览 / 导出**（HTML、PDF）。
 - **不做语法高亮代码块内部**（fenced code 只整体着色）。
-- **不做鼠标交互**（理由见 §10.5）。
+- **鼠标默认关闭**：只有配置 `mouse = true` 或使用 `--mouse` 时，才启用单击定位、拖拽选区和滚轮滚动（M4，§10.5）。双击选词、右键菜单、拖放文本都不做。
 - **不做 GUI 级别的排版**（字体大小、行距）——终端做不到。
 - **不支持非 UTF-8 编码**的读写（见 §8.3）。
 
@@ -87,7 +87,10 @@
 | `tracing` | `0.1.44` | 调试日志宏 | 否决 `log`+`env_logger`：后者默认写 stderr，会污染 TUI |
 | `tracing-subscriber` | `0.3.23`，features `["env-filter", "fmt"]` | 日志过滤与格式化 | — |
 | `tracing-appender` | `0.2.5` | 写文件（非阻塞） | 日志**只在设置 `MUSTTY_LOG=<path>` 时启用**，永不写 stdout/stderr |
-| `clap` | `4.6.7`，features `["derive"]` | CLI：`mustty [FILE] [--width N] [--no-autosave] [--vim]`（`--vim` 在 M4 加入） | 免费获得 `--help/--version` 和参数校验；否决 `lexopt`/`pico-args`：省下的编译时间不值得手写 help |
+| `clap` | `4.6.7`，features `["derive"]` | CLI：`mustty [FILE] [--width N] [--[no-]autosave] [--[no-]vim] [--[no-]mouse]`，只有这四个覆盖项（M1 只有 `FILE`、`--width`、`--no-autosave`，其余在 M4 加入）。开关成对出现，是为了让"命令行 > 配置文件"能双向覆盖：配置里写了 `vim = true`，仍可用 `--no-vim` 关掉。成对开关用 clap 的 `overrides_with` 实现"后者生效" | 免费获得 `--help/--version` 和参数校验；否决 `lexopt`/`pico-args`：省下的编译时间不值得手写 help |
+| `serde` | `1.0.229`，features `["derive"]` | 给 `CodeColor` 等配置值类型派生 `Deserialize`（M4） | 事实标准，`toml` 的反序列化也建立在它之上 |
+| `toml` | `1.1.8`（默认 features） | 解析 `~/.mustty.toml`：先解析成 `toml::Table`，再逐个键 `Value::try_into::<T>()`，这样单个键类型错误不会拖垮整个文件（§8.5）（M4） | 否决 `serde_json` / `serde_yaml`：用户已拍板使用 TOML；否决 `toml_edit`：只读不写，不需要保留格式 |
+| `dirs` | `7.0.0` | `dirs::home_dir()` 定位 `~/.mustty.toml`（Windows 为 `%USERPROFILE%\.mustty.toml`）（M4） | 否决读 `$HOME`：Windows 上没有这个变量；否决 `directories` / `etcetera`：它们面向 XDG / AppData，而用户要求的路径固定在 home 根目录 |
 | `tempfile` | `3.27.0` | 原子保存：同目录临时文件 + `persist()`（Unix `rename`，Windows `MoveFileExW(REPLACE_EXISTING)`） | 否决 `atomic-write-file 0.3`：功能等价但用户少；`tempfile` 测试里也要用，复用一个依赖 |
 
 ### 3.2 开发依赖
@@ -102,7 +105,7 @@
 
 M4 的 `--vim` **不新增任何 crate**：Normal/Insert 状态机和按键序列（`gg`、`dd`）都在 `keymap.rs` 里手写（估计约 200 行），clap 只多一个 bool 参数。否决 `edtui` 的 vim 引擎：它和自己的 buffer 是绑在一起的（§2.3）。
 
-此外明确不引入：`pulldown-cmark`（理由 §6.3）、`syntect`（体积 + 非目标）、`arboard`（系统剪贴板在 SSH / Linux 无 X 下不可靠，改用 OSC 52，§7.3）、`tokio`（同步事件循环足够，§11.3）、`undo`（§4.5）、`dirs`（不读配置文件）。
+此外明确不引入：`pulldown-cmark`（理由 §6.3）、`syntect`（体积 + 非目标）、`arboard`（系统剪贴板在 SSH / Linux 无 X 下不可靠，改用 OSC 52，§7.3）、`tokio`（同步事件循环足够，§11.3）、`undo`（§4.5）、`notify`（配置不做热重载，§8.5）。`dirs` 已从这里移出，因为配置文件需要它（§3.1）。
 
 ---
 
@@ -117,6 +120,8 @@ M4 的 `--vim` **不新增任何 crate**：Normal/Insert 状态机和按键序�
   - Helix 已验证其在编辑器场景的稳健性。
 - **被否决：`Vec<String>`**。实现更简单，且散文单行通常 < 2k 字符，性能其实够用；否决原因是它把"行"作为一等公民，跨行删除 / 粘贴 / undo 的偏移计算都要手写 `(row, col)` 拆分合并逻辑，而 rope 把它们统一成区间替换。
 - **代价**：`RopeSlice` 不能直接喂给 `unicode-segmentation`。对策：**以逻辑行为单位** `rope.line(i).to_string()` 成 `String` 再做 grapheme / wrap，结果放进 `WrapCache`（§4.3），仅在该行被编辑或宽度变化时重算。
+
+**文件大小软上限 5 MB**（原 §14 风险 5，已定为规则）：超过这个大小的文件，打开时 status bar 提示一次，字数统计改为只在保存时刷新；不做异步计算。
 
 文本规范化：内存中**换行一律为 `\n`**，不含 BOM；原始换行符与 BOM 记在 `FileMeta`，保存时还原（§8.3）。
 
@@ -133,7 +138,7 @@ struct Cursor {
 规则（全部可单测）：
 
 1. **水平移动以 grapheme cluster 为单位**：`←/→`、Backspace、Delete 都通过 `grapheme::prev_boundary(line, idx)` / `next_boundary` 计算。`é`（e + 组合符）、`👨‍👩‍👧`、`🇨🇳` 都是一步。
-2. **显示宽度**：`grapheme_width(g) = if g == "\t" { TAB_WIDTH - col % TAB_WIDTH } else { max(1, UnicodeWidthStr::width(g)) }`，`TAB_WIDTH = 4`。对非控制字符最少计 1，避免零宽 grapheme 导致光标重叠。
+2. **显示宽度**：`grapheme_width(g) = if g == "\t" { TAB_WIDTH - col % TAB_WIDTH } else { max(1, UnicodeWidthStr::width(g)) }`，`TAB_WIDTH` 取配置 `tab_width`（默认 4，见 §8.5）。对非控制字符最少计 1，避免零宽 grapheme 导致光标重叠。
 3. **上下移动按视觉行**（软换行后的行）：取 `preferred_col.unwrap_or(当前视觉列)`，在目标视觉行上找"起始列 ≤ preferred_col 的最后一个 grapheme"。**CJK 宽字符**：若 preferred_col 落在宽字符的第二格，吸附到该字符左侧（与 VS Code / micro 一致）。
 4. **行尾位置**：光标可位于逻辑行末（`\n` 之前）。软换行处的"行尾 / 下一行行首"是同一个 char 索引，**一律显示在下一视觉行行首**（`Affinity::Downstream`），`End` 键例外：`End` 把光标放在本视觉行最后一个 grapheme 之后，并设置 `affinity = Upstream` 使其显示在本行末尾。
 5. Ambiguous-width 字符（`“”…—`）按 **narrow (1)** 计（unicode-width 默认、与 ratatui 一致），风险见 §14。
@@ -204,7 +209,7 @@ struct History { undo: Vec<Transaction>, redo: Vec<Transaction>, last_edit_at: I
 
 | 名称 | 值 | 说明 |
 |---|---|---|
-| `MEASURE` | **72** 列 | 正文最大宽度（= 72 个 ASCII 或 36 个汉字）。排版学推荐 60–75 字符/行；80 在中文下显得过宽。`--width N` 可覆盖，取值钳制在 `[40, 120]` |
+| `MEASURE` | **72** 列 | 正文最大宽度（= 72 个 ASCII 或 36 个汉字）。排版学推荐 60–75 字符/行；80 在中文下显得过宽。可用配置 `width` 或 `--width N` 覆盖（命令行优先），取值钳制在 `[40, 120]`（§8.5） |
 | `MIN_SIDE_MARGIN` | 2 列 | 窄终端时左右最少留白 |
 | `GAP` | 1 行 | 标题与正文、正文与 status bar 之间的空行 |
 | `V_PAD_RATIO` | 1/8 | 上下留白占终端高度的比例 |
@@ -289,8 +294,8 @@ pub struct Layout { pub title: Option<Rect>, pub body: Rect, pub status: Option<
 | ATX 标题 `## x` | `##␠` DIM | BOLD |
 | 强调 `*x*` / `_x_` | DIM | ITALIC |
 | 加粗 `**x**` / `__x__` | DIM | BOLD |
-| 行内代码 `` `x` `` | DIM | `Color::Cyan` |
-| fenced code ```` ``` ```` | 栅栏行 DIM | 整块 `Color::Cyan` |
+| 行内代码 `` `x` `` | DIM | 配置 `code_color`（默认 `cyan`） |
+| fenced code ```` ``` ```` | 栅栏行 DIM | 整块使用 `code_color` |
 | 引用 `> ` | DIM | ITALIC |
 | 列表 `- ` `* ` `1. ` `- [ ]` | DIM | 默认 |
 | 链接 `[t](url)` | `[ ]( )` 与 url DIM | 文本 UNDERLINED |
@@ -334,7 +339,7 @@ fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockState)
 | 可打印字符 / IME 提交文本 | 在光标处插入 | M1 |
 | `Enter` | 插入 `\n`（标题区：跳到正文） | M1 |
 | `Backspace` / `Delete` | 删除前 / 后一个 grapheme；有选区时删除选区 | M1 |
-| `Tab` | 插入 4 个空格 | M1 |
+| `Tab` | 插入 `tab_width` 个空格（默认 4，§8.5） | M1 |
 | `←` `→` | 按 grapheme 移动 | M0（只读滚动）/ M1 |
 | `↑` `↓` | 按视觉行移动（正文首行 `↑` 进入标题） | M0 / M1 |
 | `Home` / `End` | 视觉行首 / 尾 | M1 |
@@ -398,12 +403,15 @@ pub struct NormalState { pub pending: Option<char>, pub visual: bool }   // pend
 | `y`（visual 下） | `Copy` 并退出 visual |
 | `p` | `PasteRegister`（寄存器为行级时粘贴到下一行，否则粘贴到光标后） |
 | `u` | `Undo` |
+| `Ctrl+R` | `Redo`（仅 Normal 态绑定，与 vim 一致；Insert 态和默认模式下 `Ctrl+R` 不绑定，重做仍用 `Ctrl+Y`） |
 | 方向键、`Home/End`、`PageUp/PageDown` | 与 §7.2 相同 |
 | 其他可打印字符（含 IME 提交的文字） | 忽略，返回 `None`，status bar 不提示 |
 
 `pending` 规则：`g`、`d` 之后若下一个键不能组成合法序列（例如 `gx`），则丢弃 pending，第二个键也不执行。不设超时。
 
-**两种模式都生效**：所有 `Ctrl+` 组合键（`Ctrl+S/Q/Z/Y/C/X/V/T/F`）、bracketed paste。Normal 态收到 `Event::Paste` 时**仍然插入**，因为终端粘贴是用户的明确意图，不应被丢弃。
+**status bar 模式标识**：开启 vim 后，status bar 左段最前面显示 `NOR`（Normal）、`INS`（Insert）或 `VIS`（Normal 且 visual = true），后面跟一个空格，再是文件名（§9）。标识由 `App` 根据 `Mode` 生成，传给 `StatusModel`；不开启 vim 时不显示，也不占宽度。
+
+**两种模式都生效**：所有 `Ctrl+` 组合键（`Ctrl+S/Q/Z/Y/C/X/V/T/F`）、bracketed paste、鼠标事件（开启 `mouse` 时：Normal 态拖拽出选区会同时把 `visual` 置为 true，之后可以直接用 `d`/`y`）。Normal 态收到 `Event::Paste` 时**仍然插入**，因为终端粘贴是用户的明确意图，不应被丢弃。
 
 **冲突点说明**
 
@@ -455,8 +463,60 @@ fn save(doc: &Document, path: &Path) -> Result<SaveReport, IoError>
 - 实现：事件循环 `poll` 的超时取 `min(autosave_deadline, message_expiry)`，无需线程（§11.3）。
 - Untitled 文档不自动保存；退出时若有内容则要求确认。
 - 外部修改检测：保存前比较文件 `mtime` 与上次读/写时记录的值，若不同 → **放弃本次自动保存**，status bar 常驻提示 `文件已被外部修改，Ctrl+S 强制覆盖`。
-- `--no-autosave` 关闭。
+- 用配置 `autosave = false` 或 `--no-autosave` 关闭；空闲时长由 `autosave_idle_ms` 决定（默认 2000，§8.5）。
 - 否决 swap 文件：增加清理与恢复 UI 的复杂度；有原子保存 + 2 s 自动保存，最坏丢 2 s 输入。
+
+### 8.5 配置文件 `~/.mustty.toml`（M4）
+
+**路径**：`dirs::home_dir()/.mustty.toml`，即 macOS/Linux 的 `~/.mustty.toml` 和 Windows 的 `%USERPROFILE%\.mustty.toml`。路径固定，不能通过命令行或环境变量更换。只读这一个文件，不按 XDG 或 AppData 路径查找，也不向上搜索项目目录。
+
+**格式**：TOML，只有顶层键，没有表。示例：
+
+```toml
+width = 64
+vim = true
+code_color = "yellow"
+```
+
+**完整配置表**
+
+| 键 | 类型 | 默认值 | 合法范围 / 取值 | 对应命令行 | 说明 |
+|---|---|---|---|---|---|
+| `width` | 整数 | `72` | `40..=120`，越界钳制 | `--width N` | 正文最大宽度 `MEASURE`（§5.1） |
+| `vim` | 布尔 | `false` | — | `--vim` / `--no-vim` | 启用 vim-like 模式（§7.4） |
+| `mouse` | 布尔 | `false` | — | `--mouse` / `--no-mouse` | 启用鼠标（§10.5） |
+| `autosave` | 布尔 | `true` | — | `--autosave` / `--no-autosave` | 自动保存（§8.4） |
+| `autosave_idle_ms` | 整数 | `2000` | `500..=60000`，越界钳制 | — | 停止输入多久后自动保存 |
+| `typewriter` | 布尔 | `false` | — | — | Typewriter 模式的**初始状态**，运行中仍可用 `Ctrl+T` 切换（§4.4） |
+| `focus_mode` | 布尔 | `false` | — | — | Focus 模式的**初始状态**，运行中仍可用 `Ctrl+F` 切换 |
+| `scrolloff` | 整数 | `3` | `0..=10`，越界钳制；正文高度不足时仍按 §4.4 的 `(body_h - 1) / 2` 封顶；typewriter 开启时不生效 | — | 光标距视口上下边的最少行数 |
+| `tab_width` | 整数 | `4` | `1..=16`，越界钳制 | — | `Tab` 键插入的空格数，以及文件中已有 `\t` 的显示宽度（§4.2） |
+| `code_color` | 字符串 | `"cyan"` | 只接受 `black` `red` `green` `yellow` `blue` `magenta` `cyan` `white` 这 8 个标准 ANSI 名字（大小写不敏感），对应前景色 SGR 30–37。`gray` 作为 `white` 的别名同样接受（两者都映射到 ratatui 的 `Color::Gray`），其余名字（如 `grey`、`bright*`）一律非法。注意 ratatui 的命名有偏差：SGR 37 在 ratatui 里叫 `Color::Gray`，而 `Color::White` 是亮白 SGR 97。所以 `white` 映射到 `Color::Gray`，其余 7 个映射到 ratatui 的同名颜色 | — | 行内代码和 fenced code 的前景色（§6.1） |
+
+`autosave_idle_ms` 和 `scrolloff` 的取值范围是本方案定的，其余范围来自需求。
+
+**优先级**：命令行 > 配置文件 > 内置默认值，按键逐个合并：
+
+```text
+effective = Config::default().merge(file_layer).merge(cli_layer)   // 每层都是 PartialConfig（字段均为 Option）
+```
+
+**容错策略**（任何情况都不阻止启动）
+
+| 情况 | 行为 |
+|---|---|
+| 文件不存在 | 静默使用默认值 |
+| 文件存在但读不了（权限、不是 UTF-8） | 使用默认值，并显示启动警告 |
+| TOML 语法错误 | 整个文件作废，使用默认值；启动警告带行号（来自 `toml::de::Error::span()`），例如 `~/.mustty.toml 第 3 行语法错误，已使用默认配置` |
+| 某个键类型错误（如 `width = "wide"`）或 `code_color` 不是这 8 个名字 | 只有这个键回退到默认值，其他键照常生效，启动警告列出该键 |
+| 数值越界 | 钳制到边界值，启动警告列出该键，例如 `width=200 → 120` |
+| 未知键 | 忽略，不报错也不显示警告，只写一条 `tracing::debug!`（设置 `MUSTTY_LOG` 时可见） |
+
+**启动警告的显示方式**：TUI 一启动就进入 alternate screen，所以 stderr 上的输出用户看不到。警告改为汇总成**一条** status bar 错误消息，保留到用户第一次按键（§9）；同时写一条 `tracing::warn!`。
+
+**明确不做**：自定义键位、主题配色（除 `code_color` 外不开放任何颜色或样式）、项目级配置（如 `./.mustty.toml`）、status line 开关或布局定制、热重载（修改配置后需要重启 mustty）、写回配置（mustty 从不修改这个文件）、环境变量覆盖（`MUSTTY_LOG` 是日志开关，不属于配置）。
+
+**模块与边界**：`config.rs` 产出不可变的 `Config`，`main.rs` 合并完成后交给 `App`。`Editor`、`Document` 不读取 `Config`：`tab_width` 由 `Keymap` 用来生成 `Insert(" ".repeat(n))`，由 `WrapCache` 用来计算 `\t` 宽度；`width`、`scrolloff`、`typewriter`、`code_color` 只交给 view 层。
 
 ---
 
@@ -518,21 +578,41 @@ notes.md •                                    1,284 字 · 12:7
 
 启动 `SetCursorStyle::SteadyBar`（竖线，更像写作器），退出与 panic 时恢复 `DefaultUserShape`。不支持 DECSCUSR 的终端会忽略，无副作用。
 
-### 10.5 鼠标：不启用（结论）
+### 10.5 鼠标：配置项 `mouse`，默认关闭（M4）
 
-不执行 `EnableMouseCapture`。理由：开启后终端原生的拖选复制失效，而"用鼠标选一段文字复制出去"是写作者最常见的需求；滚轮在 alternate screen 下多数终端会转换为 `↑/↓` 键（alternate scroll mode），已能滚动。代价：无法点击定位光标——对键盘码字场景可接受。
+**默认关闭（`mouse = false`）**：行为与 M0–M3 完全一致，**不执行 `EnableMouseCapture`**。终端原生的拖选复制照常可用；滚轮在 alternate screen 下由多数终端转换成 `↑/↓` 键（alternate scroll mode），所以仍然能滚动。默认关闭的理由：用鼠标选一段文字复制出去，是写作者最常见的鼠标需求，而开启捕获后这项功能会失效。
+
+**开启后（`mouse = true` 或 `--mouse`）**：启动时 `EnableMouseCapture`，鼠标事件由 `view::mouse::map_mouse` 转换成 Action。它不走 `Keymap`，因为坐标映射需要用到 Layout 和 Viewport。
+
+| 鼠标事件 | 行为 |
+|---|---|
+| 左键单击正文 | 光标移到点击处：屏幕坐标 → `VisualPos`（`row = y - body.y - top_padding`，从 `ViewTop` 开始数视觉行；`col = x - body.x`）→ `WrapCache::visual_to_char`。点在行尾右侧时落到该视觉行行尾；点在宽字符第二格时吸附到左侧（与 §4.2 相同）。产出 `MoveTo(Target::Body(idx), false)`，有选区时清除选区 |
+| 左键单击标题区 | 焦点切到标题，按列位置定位标题光标（扣除居中偏移），产出 `MoveTo(Target::Title(idx), false)` |
+| 单击 status bar、左右留白、上下留白 | 忽略 |
+| 左键拖拽 | 以按下位置为 anchor 扩展选区：`MoveTo(_, true)`。拖到正文上方或下方时**自动滚动**：`App` 记住最后一次拖拽坐标，并设置 50 ms 的 deadline（§11.3）；每到一次 deadline，视口滚动 1 行，光标跟随到新的边缘行，直到鼠标回到视口内或松开。crossterm 在鼠标静止时不会发送事件，所以只能用定时器驱动 |
+| 左键松开 | 结束拖拽，取消自动滚动定时器 |
+| 滚轮上 / 下 | `ScrollView(∓3)`：只移动视口，不改动文档。若光标因此离开 scrolloff 区间，就把它拉回可见区域的边缘行，保持 `preferred_col`。光标必须始终在屏幕上，否则 IME 候选框会无处锚定（§10.1） |
+| 双击、右键、中键、修饰键 + 点击 | 不处理 |
+
+提示行（`prompt_active`）打开时，所有鼠标事件都被忽略。
+
+**代价（写进 README 和 `--help`）**：开启后，**终端原生的拖选复制失效**，因为鼠标事件全部交给 mustty 处理。需要原生选择时，**按住 Shift 再拖拽**即可绕过，这是 xterm、GNOME Terminal、Windows Terminal、WezTerm、Alacritty、kitty 等终端的通用约定。macOS 上 iTerm2 通常用 ⌥ Option，Terminal.app 用 Fn，具体以终端设置为准；手工清单（§13.3）会逐个核对。另外，mustty 内部选区的复制仍然走 `Ctrl+C` / OSC 52（§7.3）。
+
+**恢复**：退出时 `DisableMouseCapture`；panic 时也必须执行（见 §10.6）。否则用户 shell 里会充满鼠标转义序列。
 
 ### 10.6 终端生命周期
 
 ```text
 ratatui::init()                     // raw mode + alternate screen + panic hook
 execute!(EnableBracketedPaste, EnableFocusChange, SetCursorStyle::SteadyBar)   // Windows 跳过 BracketedPaste
+if config.mouse { execute!(EnableMouseCapture) }
 … run …
+if config.mouse { execute!(DisableMouseCapture) }
 execute!(DisableBracketedPaste, DisableFocusChange, SetCursorStyle::DefaultUserShape)
 ratatui::restore()
 ```
 
-用 `TerminalGuard`（`Drop` 中执行恢复）保证 `?` 早退路径也能恢复；panic 由 ratatui 安装的 hook 恢复后再打印信息。
+用 `TerminalGuard`（`Drop` 中执行恢复）保证 `?` 早退路径也能恢复。ratatui 的 panic hook 只负责恢复 raw mode 和 alternate screen，**不会关闭鼠标捕获和 bracketed paste**。因此 `TerminalGuard::enter` 会在 ratatui hook 之外再包一层自己的 hook：先 `execute!(DisableMouseCapture, DisableBracketedPaste, DisableFocusChange, SetCursorStyle::DefaultUserShape)`，再调用原 hook。所有 disable 命令都可以重复执行，没有副作用。
 
 ---
 
@@ -563,9 +643,11 @@ mustty/
 │   ├── view/
 │   │   ├── layout.rs        compute_layout（纯函数）
 │   │   ├── viewport.rs      ViewTop、scrolloff / typewriter 滚动
-│   │   ├── theme.rs         Token → Style 映射
+│   │   ├── theme.rs         Token → Style 映射（code_color 由此注入）
+│   │   ├── mouse.rs         map_mouse：屏幕坐标 → Target / ScrollView（M4，仅 mouse = true 时调用）
 │   │   └── widgets.rs       TitleWidget、BodyWidget、StatusWidget
-│   ├── status.rs            StatusModel：文件名、dirty、消息队列、提示行状态
+│   ├── config.rs            PartialConfig / Config：读取 ~/.mustty.toml、逐键容错、钳制、三层合并（M4）
+│   ├── status.rs            StatusModel：模式标识、文件名、dirty、消息队列、提示行状态
 │   └── io/
 │       ├── file.rs          load / save（原子写、BOM、换行、mtime）
 │       └── autosave.rs      AutosaveTimer（deadline 计算）
@@ -615,7 +697,7 @@ pub enum Effect { None, Redraw, Save, SaveAs, Quit, Message(String) }
 // text/wrap.rs
 pub struct VisualRow { pub start: usize, pub end: usize, pub width: u16 }
 pub struct VisualPos { pub line: usize, pub row: usize, pub col: u16 }
-pub fn wrap_line(line: &str, width: u16) -> Vec<VisualRow>;
+pub fn wrap_line(line: &str, width: u16, tab_width: u8) -> Vec<VisualRow>;   // tab_width 来自配置（§8.5）
 pub struct WrapCache { /* … */ }
 impl WrapCache {
     pub fn new(width: u16) -> Self;
@@ -659,7 +741,10 @@ pub enum Action { Insert(String), Paste(String), Newline, DeleteBack, DeleteForw
                   PasteRegister,          // Ctrl+V / vim p：粘贴内部寄存器（行级寄存器粘贴到下一行）
                   DeleteLine,             // vim dd：剪切整个逻辑行进寄存器（行级）
                   OpenLineBelow,          // vim o：移到逻辑行尾并插入 \n，作为一个 Transaction
+                  MoveTo(Target, /*extend*/ bool), // 鼠标单击 / 拖拽：直接定位到 char 索引（M3 随选区实现，M4 由 mouse 触发）
+                  ScrollView(i32),        // 鼠标滚轮：由 App/Viewport 消费，不进入 Editor::apply
                   ToggleTypewriter, ToggleFocusMode, PromptInput(KeyEvent) }
+pub enum Target { Body(usize), Title(usize) }   // 正文全局 char 索引 / 标题内 char 索引
 pub enum Motion { Left, Right, Up, Down, LineStart, LineEnd, PageUp, PageDown, DocStart, DocEnd,
                   WordLeft,   // 上一个词首（Ctrl+← / vim b）
                   WordRight,  // 下一个词首（Ctrl+→ / vim w）
@@ -668,18 +753,38 @@ pub enum Motion { Left, Right, Up, Down, LineStart, LineEnd, PageUp, PageDown, D
 // keymap.rs
 pub enum Mode { Normal(NormalState), Insert }                     // 定义见 §7.4；M1–M3 恒为 Insert
 pub struct NormalState { pub pending: Option<char>, pub visual: bool }
-pub struct Keymap { pub vim: bool }                               // 来自 --vim；M1–M3 恒为 false
+pub struct Keymap { pub vim: bool, pub tab_width: u8 }            // 均来自 Config；vim 在 M1–M3 恒为 false
 impl Keymap {
     // 签名从 M1 起固定。mode 用 &mut，是为了让模式切换在 keymap 内部完成，不经过 Action
     pub fn map_event(&self, ev: &crossterm::event::Event, mode: &mut Mode, prompt_active: bool) -> Option<Action>;
 }
+
+// view/mouse.rs（M4）
+pub struct DragState { pub last: Position, pub deadline: Option<Instant> }
+pub fn map_mouse(ev: &crossterm::event::MouseEvent, layout: &Layout, vp: &Viewport,
+                 wrap: &mut WrapCache, rope: &Rope, title: &str, drag: &mut Option<DragState>) -> Option<Action>;
+
+// config.rs（M4）
+#[derive(serde::Deserialize, Clone, Copy)] #[serde(rename_all = "lowercase")]
+pub enum CodeColor { Black, Red, Green, Yellow, Blue, Magenta, Cyan, White }
+#[derive(Default)]
+pub struct PartialConfig { pub width: Option<u16>, pub vim: Option<bool>, pub mouse: Option<bool>, pub autosave: Option<bool>,
+                           pub autosave_idle_ms: Option<u64>, pub typewriter: Option<bool>, pub focus_mode: Option<bool>,
+                           pub scrolloff: Option<u16>, pub tab_width: Option<u8>, pub code_color: Option<CodeColor> }
+pub struct Config { pub width: u16, pub vim: bool, pub mouse: bool, pub autosave: bool, pub autosave_idle_ms: u64,
+                    pub typewriter: bool, pub focus_mode: bool, pub scrolloff: u16, pub tab_width: u8, pub code_color: CodeColor }
+pub struct ConfigWarning { pub key: Option<&'static str>, pub message: String }
+impl PartialConfig {
+    pub fn from_toml_str(s: &str) -> (PartialConfig, Vec<ConfigWarning>);   // 永不失败：语法错误 → 空 Partial + 警告；未知键直接丢弃
+}
+pub fn load(cli: PartialConfig) -> (Config, Vec<ConfigWarning>);           // 读 ~/.mustty.toml；合并顺序：Default ← File ← Cli，然后钳制
 ```
 
 ### 11.3 事件循环（同步，单线程）
 
 ```text
 loop {
-    let timeout = app.next_deadline().map(|d| d.saturating_duration_since(now)); // autosave / 消息过期
+    let timeout = app.next_deadline().map(|d| d.saturating_duration_since(now)); // autosave / 消息过期 / 拖拽自动滚动（50 ms）
     if event::poll(timeout.unwrap_or(Duration::MAX))? {
         loop { app.handle(event::read()?); if !event::poll(Duration::ZERO)? { break } }   // 排空批次
     }
@@ -727,7 +832,7 @@ loop {
 
 ### M3 — Markdown 写作体验
 
-- 内容：标记变暗高亮（§6）与增量缓存；按词移动 / 删除；选区（Shift+移动、`Ctrl+A`）；`Ctrl+C/X/V` 内部寄存器 + OSC 52；视觉行 `Home/End` 的 affinity 细节。另外实现并单测为 M4 预留的、与模式无关的内核能力：`Motion::WordEnd`、`Action::DeleteLine`、`Action::OpenLineBelow`、行级 / 字符级寄存器与 `PasteRegister`。默认键位只绑定 `PasteRegister`（`Ctrl+V`），其余三个此时没有绑定按键。**不实现任何 modal 逻辑。**
+- 内容：标记变暗高亮（§6）与增量缓存；按词移动 / 删除；选区（Shift+移动、`Ctrl+A`）；`Ctrl+C/X/V` 内部寄存器 + OSC 52；视觉行 `Home/End` 的 affinity 细节。另外实现并单测为 M4 预留的、与模式无关的内核能力：`Motion::WordEnd`、`Action::DeleteLine`、`Action::OpenLineBelow`、行级 / 字符级寄存器与 `PasteRegister`，以及为鼠标预留的 `MoveTo(Target, extend)`。默认键位只绑定 `PasteRegister`（`Ctrl+V`），其余几个此时没有绑定按键。**不实现任何 modal 逻辑。**
 - 验收：
   1. `insta` 快照覆盖 §6.1 表中每一种元素以及未闭合标记；
   2. 输入 ```` ``` ```` 开启代码块时，只有其后的行变色，在 1 万行文档中输入延迟无可感知变化（< 16 ms/帧，`MUSTTY_LOG` 中记录帧耗时）；
@@ -735,7 +840,7 @@ loop {
 
 ### M4 — 打磨与发布
 
-- 内容：Typewriter 模式（`Ctrl+T`）；Focus 模式（`Ctrl+F`，当前段落外 DIM）；`--width`；**`--vim` 模式（§7.4）**：`keymap.rs` 中的 Normal/Insert 状态机、visual 子状态、`gg`/`dd` 序列、status bar 模式标识、按模式切换光标形状；启动 5 s 键位提示；GitHub Actions 三平台 CI（test + clippy + release 构建）；macOS/Linux/Windows 预编译二进制；README。
+- 内容：Typewriter 模式（`Ctrl+T`）；Focus 模式（`Ctrl+F`，当前段落外 DIM）；`--width`；**`--vim` 模式（§7.4）**：`keymap.rs` 中的 Normal/Insert 状态机、visual 子状态、`gg`/`dd` 序列、Normal 态 `Ctrl+R` 重做、status bar 的 `NOR/INS/VIS` 标识、按模式切换光标形状；**配置文件 `~/.mustty.toml`（§8.5）**：`config.rs` 实现 10 个键、逐键容错、钳制、命令行 > 配置 > 默认的合并，CLI 增加 `--vim/--no-vim`、`--mouse/--no-mouse`、`--autosave`（与已有的 `--width`、`--no-autosave` 一起，共四个覆盖项），`tab_width` 接入 Keymap 和 WrapCache，`code_color` 接入 theme，`typewriter` / `focus_mode` 作为初始状态；**鼠标（§10.5）**：`view/mouse.rs`，`mouse = true` 时启用单击定位、拖拽选区（出视口后以 50 ms 间隔自动滚动）、滚轮滚动，退出和 panic 时 `DisableMouseCapture`；README 写明"开启鼠标后，原生选择需按住 Shift"；启动 5 s 键位提示；GitHub Actions 三平台 CI（test + clippy + release 构建）；macOS/Linux/Windows 预编译二进制；README。
 - 验收：
   1. Typewriter 模式下连续输入 100 行，光标行始终在正文中线；
   2. CI 三平台全绿，Release 附带 4 个二进制，`mustty --version` 正确；
@@ -743,7 +848,17 @@ loop {
   4. **`--vim` 内核零改动**：M4 中加入 `--vim` 的那组提交，`git diff --stat` 只涉及 `keymap.rs`、`app.rs`（持有 Mode、切换光标形状）、`status.rs`、`main.rs`（clap 参数），以及测试文件和文档，`editor/`、`text/`、`markdown.rs`、`io/` 中没有任何改动；
   5. **`--vim` 功能**：带 `--vim` 启动后，依次执行 `i` 输入 → `Esc` → `gg` → `dd` → `G` → `p`，结果是第一行被移到文末；`v` + `w` + `d` 删除一个词；`u` 与 `Ctrl+Z` 效果相同；status bar 正确显示 `INS/NOR/VIS`，光标在块状与竖线之间切换；
   6. **默认行为不回退**：不带 `--vim` 时，M1–M3 的全部验收项重跑通过，`Esc` 仍然只取消选区；
-  7. `--vim` 下 Normal 态按 `j`，在 macOS 拼音、Windows 微软拼音"英文模式"下都正常移动。中文模式下的行为按 §14 风险 2 处理，并写进 README。
+  7. `--vim` 下 Normal 态按 `j`，在 macOS 拼音、Windows 微软拼音"英文模式"下都正常移动。中文模式下的行为按 §14 风险 2 处理，并写进 README；Normal 态 `Ctrl+R` 能撤回 `u`；
+  8. **配置**：在 200×50 的终端里，分别准备 6 份 `~/.mustty.toml` 启动，用界面上能直接看到的行为验证。宽度的测法：打开一行 200 个 `x` 的文件，数第一个视觉行有几个 `x`，或者看光标在 `End` 后的列号减去起始列：
+     ① 文件不存在 → 正文实测 72 列宽，status bar 没有警告，不显示 `NOR/INS` 标识，`Tab` 插入 4 个空格；
+     ② 10 个键全部写上合法值（`width = 64`、`vim = true`、`mouse = true`、`autosave = false`、`autosave_idle_ms = 5000`、`typewriter = true`、`focus_mode = true`、`scrolloff = 5`、`tab_width = 2`、`code_color = "yellow"`）→ 正文实测 64 列宽；status bar 显示 `INS`；单击可定位光标；停止输入 10 s 后文件仍未写盘；光标行固定在正文中线；非当前段落为 DIM；`Tab` 插入 2 个空格；行内代码显示为黄色；
+     ③ 配置 `width = 64`、`vim = true`，启动时带 `--width 90 --no-vim` → 正文实测 90 列宽，status bar 不显示模式标识，`Esc` 只取消选区；
+     ④ TOML 语法错误 → TUI 仍能正常启动，正文 72 列宽，status bar 显示含行号的警告（例如 `~/.mustty.toml 第 3 行语法错误，已使用默认配置`），按任意键后警告消失；
+     ⑤ `width = 200`、`tab_width = 0`、`code_color = "orange"` → 正文实测 120 列宽，`Tab` 插入 1 个空格，行内代码为默认的青色，status bar 显示一条汇总警告，列出这 3 个键；
+     ⑥ 写入未知键 `colour = "red"` 和 `width = 64` → 启动时没有任何警告，正文实测 64 列宽（未知键不影响其他键）；
+  9. **鼠标关闭（默认）**：与 M3 的行为逐项一致。可用 `script` 录制启动时输出的转义序列来验证：其中不出现 `\x1b[?1000h` / `\x1b[?1006h`；原生拖选复制可用；
+  10. **鼠标开启**：单击中文行中任意一个字的左半或右半格，光标都落在该字前面或后面的正确边界；拖拽选中跨 3 行的文字后 `Ctrl+X` 剪切正确；拖到正文下方并保持不动，视口持续滚动，松开后停止；滚轮滚动 30 行后，光标仍然可见且 IME 候选框跟随；按住 Shift（iTerm2 为 ⌥）可以原生选择；
+  11. **恢复**：在 `mouse = true` 的 debug 构建中触发 panic（§12 M0 验收 3），退出后在 shell 里移动、点击鼠标，不会出现转义字符乱码。
 
 ---
 
@@ -764,6 +879,9 @@ loop {
 | `text::count` | 中文 / 英文 / 混排 / 标点不计 | 表驱动 |
 | `keymap`（M1 起） | `vim = false`：任何事件都不改变 `mode`（恒为 Insert），`Esc` → `Cancel`，§7.2 每个键 → 预期 Action | 表驱动：`(Event, Mode, prompt_active) → (Option<Action>, Mode)` |
 | `keymap` mode 分支（M4） | Insert `Esc` → Normal + `Cancel`；`i/a/o` 进入 Insert 及其返回值；§7.4 映射表逐项覆盖；`v` 下 Motion 的 `extend = true`，`d/y/x` 后退出 visual；`gg`、`dd` 序列和非法序列（`gx`）丢弃 pending；`prompt_active = true` 时 `Esc` 不切换模式；Normal 态可打印字符返回 `None`；Normal 态 `Event::Paste` 仍然返回 `Paste`；Ctrl 组合键在两种模式下返回值相同 | 表驱动，同上；另用 `proptest` 生成随机按键序列，断言 `map_event` 不 panic，且 `vim = false` 时 mode 永远是 Insert |
+| `keymap` vim 键位表（M4） | 把 §7.4 的两张表原样写成一个 `const VIM_TABLE: &[(&str /*按键序列*/, ModeBefore, Option<Action>, ModeAfter)]`，测试逐行回放，保证文档和实现一一对应。新增或修改键位时，必须同时改表和文档。另外单独覆盖：`Ctrl+R` 只在 Normal 态返回 `Redo`；VIS 状态下 `Esc` 返回 `Cancel` 并回到 NOR；`StatusModel` 在三种状态下渲染出 `NOR`/`INS`/`VIS`，`vim = false` 时不渲染 | 表驱动 |
+| `config`（M4） | ① 空字符串 / 文件不存在 → `Config::default()` 且没有警告；② 10 个键全部合法 → 逐项相等；③ 每个数值键在边界值 −1、边界、边界 +1 上的钳制（`width` 39/40/120/121，`tab_width` 0/1/16/17，`autosave_idle_ms` 499/60001，`scrolloff` 11）；④ `code_color` 的 8 个合法名字、大小写变体和非法名字；⑤ 单个键类型错误时，只有该键回退；⑥ 语法错误时返回空 Partial，警告带行号；⑦ 未知键被忽略，不产生警告，也不影响其他键；⑧ 三层合并的优先级（default ← file ← cli），包括 `--no-vim`、`--no-mouse`、`--no-autosave` 能覆盖配置文件里的 `true`，以及同一开关出现两次时后者生效（`--vim --no-vim` 得到 false） | 表驱动 + `proptest`（随机 TOML 片段，断言 `from_toml_str` 永不 panic） |
+| `view::mouse`（M4） | 屏幕坐标 → Target：正文首行 / 末行、`top_padding > 0`（typewriter）、软换行的第 2 个视觉行、行尾右侧空白、宽字符左右两格、悬挂空白处、标题区（居中偏移）、status bar 和留白（返回 `None`）；拖拽时 `extend = true`，越过上下边界设置 50 ms deadline，回到视口内或松开后清除；滚轮返回 `ScrollView(±3)`；`prompt_active` 时一律返回 `None` | 表驱动：构造固定的 `Layout` + `Viewport` + 文本；另用 `proptest` 验证"对正文内任意坐标，`map_mouse` 得到的 idx，经 `char_to_visual` 后回到同一视觉行，列偏差 < 该处 grapheme 的宽度" |
 | `editor`：M4 预留动作（M3 起） | `DeleteLine` 在首行 / 末行 / 无末尾换行时的结果与寄存器内容；`PasteRegister` 行级与字符级；`OpenLineBelow` 是一次 undo；`WordEnd` 在中英混排中的落点 | 表驱动 |
 
 ### 13.2 渲染快照（无真实终端）
@@ -780,7 +898,8 @@ loop {
 4. 拖拽 resize 到极小再恢复；
 5. `Ctrl+S`、`Ctrl+Z`、`Ctrl+Q` 均被程序接收（未被终端或 shell 截获）；
 6. DIM / ITALIC 标记变暗可辨识；
-7. 退出后 shell 光标形状、回显、换行恢复正常。
+7. 退出后 shell 光标形状、回显、换行恢复正常；
+8. （M4 起）`mouse = true` 时：单击定位、拖拽选区、滚轮滚动都可用；记录该终端绕过鼠标捕获、进行原生选择所需的修饰键（Shift / ⌥ / Fn），并同步到 README；`mouse = false` 时原生拖选复制可用。
 
 结果记录在 `docs/manual-qa.md`（每个里程碑一张表）。
 
@@ -794,4 +913,4 @@ loop {
 | 2 | **`--vim` 下 Normal 态与中文 IME 冲突**：输入法处于中文状态时，`j`/`k`/`d` 等按键会被 IME 截获成拼音，程序收不到；IME 状态对终端程序不可见，无法自动切换 | 不尝试切换或探测 IME。Normal 态收到的可打印字符（包括 IME 提交的汉字）一律忽略，不会误插入；README 建议 vim 用户为终端单独设置英文输入源，或用 `Esc` 前先切到英文。这只影响主动加 `--vim` 的用户，默认模式不受影响 |
 | 3 | **自动保存覆盖用户不想保存的修改** | 默认 **开启**（2 s 空闲）；保留完整 undo 历史作为后悔药；提供 `--no-autosave`；不做 swap / 备份文件 |
 | 4 | **标题绑定 H1 的回写边界**（setext 标题 `===`、front matter、`# 标题 #`）可能让用户困惑"为什么这篇没有标题" | 只识别首行 `"# "` 且不以 `#` 结尾的 ATX 标题；其余情况 Unbound，标题区以 DIM 显示文件名作为提示；front matter 支持推迟到 M4 之后 |
-| 5 | **超大文件性能**：字数统计全量重算、高亮缓存在 > 5 MB 文件上可能出现输入卡顿 | 软上限 **5 MB**：超过时打开后 status bar 提示并关闭字数统计实时刷新（改为保存时刷新）；不做异步计算 |
+| 5 | **配置文件带来的不确定性**：① 非法值（越界、类型错、`code_color` 拼错）；② TOML 语法错误；③ 配置项变多后，同一个二进制在不同机器上行为不同，bug 报告难以复现（"我这里 Esc 不取消选区"其实是对方开了 `vim = true`） | ① 逐键回退默认或钳制，汇总成一条 status bar 警告，**永不阻止启动**；② 整个文件回退默认，并给出带行号的警告；③ 配置项**冻结为 10 个**，新增需要走方案评审；不加诊断类命令行参数。issue 模板要求附上 `~/.mustty.toml` 的内容和启动命令行；`MUSTTY_LOG` 日志的第一行写入最终生效的配置；需要纯默认行为来复现问题时，临时改名 `~/.mustty.toml` 即可 |

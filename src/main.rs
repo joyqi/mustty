@@ -10,7 +10,6 @@ use mustty::config::{self, Config, PartialConfig};
 use mustty::editor::document::{Document, FileMeta};
 use mustty::io::file::{IoError, load};
 use mustty::terminal::TerminalGuard;
-use mustty::text::grapheme::set_tab_width;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 
@@ -122,7 +121,6 @@ fn run(path: Option<&Path>, config: &Config, warning: Option<String>) -> anyhow:
         None => Document::parse("", FileMeta::new(None)),
     };
     tracing::info!(path = ?path, ?config, "start");
-    set_tab_width(config.tab_width);
     let mut guard = TerminalGuard::new(config.mouse)?;
     let mut app = App::with_config(doc, guard.terminal.size()?, config);
     app.show_startup_hint(Instant::now());
