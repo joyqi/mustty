@@ -24,8 +24,15 @@ pub struct FileMeta {
     pub path: Option<PathBuf>,
     pub line_ending: LineEnding,
     pub has_bom: bool,
-    /// 上次读 / 写时的修改时间，用于外部修改检测
-    pub mtime: Option<SystemTime>,
+    /// 上次读 / 写时磁盘上的修改时间与大小，用于外部修改检测
+    pub stamp: Option<DiskStamp>,
+}
+
+/// mtime 粒度粗（或被同步盘还原）时，大小变化仍能发现外部修改。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiskStamp {
+    pub mtime: SystemTime,
+    pub len: u64,
 }
 
 impl FileMeta {
@@ -34,7 +41,7 @@ impl FileMeta {
             path,
             line_ending: LineEnding::platform(),
             has_bom: false,
-            mtime: None,
+            stamp: None,
         }
     }
 }
@@ -235,7 +242,7 @@ mod tests {
             path: None,
             line_ending: LineEnding::CrLf,
             has_bom: true,
-            mtime: None,
+            stamp: None,
         };
         let doc = Document::parse("# T\n\na\nb", meta);
         assert_eq!(doc.serialize(), "\u{feff}# T\r\n\r\na\r\nb");

@@ -6,8 +6,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ropey::Rope;
 
-use crate::editor::document::Document;
-use crate::text::count::{count_words, thousands};
+use crate::text::count::thousands;
 use crate::text::grapheme::{graphemes, next_boundary, prev_boundary};
 use crate::text::wrap::line_text;
 
@@ -99,8 +98,8 @@ pub struct StatusModel {
     pub prompt: Option<Prompt>,
     /// 自动保存因外部修改被放弃；常驻提示，直到保存成功
     pub externally_modified: bool,
-    words: usize,
-    words_revision: Option<u64>,
+    /// 显示的字数（标题 + 正文）
+    pub words: usize,
 }
 
 impl StatusModel {
@@ -145,14 +144,6 @@ impl StatusModel {
             self.message = None;
         }
         expired
-    }
-
-    /// 标题 + 正文的字数，只在 revision 变化时重算；`force` 无视缓存（大文件保存时）。
-    pub fn refresh_words(&mut self, doc: &Document, force: bool) {
-        if force || self.words_revision != Some(doc.revision()) {
-            self.words = count_words(doc.title_text()) + count_words(&doc.body().to_string());
-            self.words_revision = Some(doc.revision());
-        }
     }
 
     pub fn words_label(&self) -> String {

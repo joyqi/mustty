@@ -82,10 +82,24 @@ fn external_modification_blocks_checked_save() {
     ));
     assert_eq!(fs::read_to_string(&path).unwrap(), "external");
     // 强制保存后记录新的 mtime，之后的检查保存恢复正常
-    let mtime = save(&doc, &path, false).unwrap();
+    let stamp = save(&doc, &path, false).unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), "v1");
-    doc.meta.mtime = Some(mtime);
-    assert!(save(&doc, &path, true).is_ok());
+    doc.meta.stamp = Some(stamp);
+    doc.meta.stamp = Some(save(&doc, &path, true).unwrap());
+    // mtime 被还原（粒度粗、同步盘）但大小变了：仍判定为外部修改
+    let original = doc.meta.stamp.unwrap().mtime;
+    fs::write(&path, "changed by sync").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(original)
+        .unwrap();
+    assert!(matches!(
+        save(&doc, &path, true),
+        Err(IoError::ExternallyModified)
+    ));
+    doc.meta.stamp = Some(save(&doc, &path, false).unwrap());
     // 被外部删除也视为外部修改
     fs::remove_file(&path).unwrap();
     assert!(matches!(

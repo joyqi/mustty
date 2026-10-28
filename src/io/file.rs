@@ -3,9 +3,8 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
-use crate::editor::document::{Document, FileMeta, LineEnding};
+use crate::editor::document::{DiskStamp, Document, FileMeta, LineEnding};
 
 #[derive(thiserror::Error, Debug)]
 pub enum IoError {
@@ -25,7 +24,7 @@ pub fn load(path: &Path) -> Result<Document, IoError> {
         Ok(m) if m.is_dir() => Err(IoError::IsDirectory),
         Ok(m) => {
             let mut doc = decode(&fs::read(path)?, Some(path.to_path_buf()))?;
-            doc.meta.mtime = m.modified().ok();
+            doc.meta.stamp = stamp_of(&m);
             Ok(doc)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -51,23 +50,30 @@ pub fn decode(bytes: &[u8], path: Option<PathBuf>) -> Result<Document, IoError> 
         path,
         line_ending,
         has_bom,
-        mtime: None,
+        stamp: None,
     };
     Ok(Document::parse(&raw.replace("\r\n", "\n"), meta))
 }
 
-/// 当前磁盘上的修改时间；文件不存在为 None。
-fn disk_mtime(path: &Path) -> Option<SystemTime> {
-    fs::metadata(path).and_then(|m| m.modified()).ok()
+fn stamp_of(m: &fs::Metadata) -> Option<DiskStamp> {
+    Some(DiskStamp {
+        mtime: m.modified().ok()?,
+        len: m.len(),
+    })
+}
+
+/// 当前磁盘上的 mtime 与大小；文件不存在为 None。
+fn disk_stamp(path: &Path) -> Option<DiskStamp> {
+    stamp_of(&fs::metadata(path).ok()?)
 }
 
 /// 同目录临时文件写入 → fsync → 原子替换；保留原文件权限（Unix）。
-/// `check_mtime` 时若磁盘上的 mtime 与 `doc.meta.mtime` 不同则放弃。返回保存后的 mtime。
-pub fn save(doc: &Document, path: &Path, check_mtime: bool) -> Result<SystemTime, IoError> {
+/// `check_disk` 时若磁盘上的 mtime 或大小与 `doc.meta.stamp` 不同则放弃。返回保存后的 stamp。
+pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, IoError> {
     if path.is_dir() {
         return Err(IoError::IsDirectory);
     }
-    if check_mtime && disk_mtime(path) != doc.meta.mtime {
+    if check_disk && disk_stamp(path) != doc.meta.stamp {
         return Err(IoError::ExternallyModified);
     }
     let dir = match path.parent() {
@@ -89,7 +95,7 @@ pub fn save(doc: &Document, path: &Path, check_mtime: bool) -> Result<SystemTime
         fs::set_permissions(tmp.path(), meta.permissions())?;
     }
     tmp.persist(path).map_err(|e| e.error)?;
-    Ok(fs::metadata(path)?.modified()?)
+    disk_stamp(path).ok_or_else(|| std::io::Error::other("无法读取保存后的文件信息").into())
 }
 
 #[cfg(test)]

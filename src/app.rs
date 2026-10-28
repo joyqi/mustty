@@ -1,5 +1,6 @@
 //! App 状态与同步事件循环（方案 §11.3）。
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -8,12 +9,11 @@ use ratatui::DefaultTerminal;
 use ratatui::layout::{Rect, Size};
 
 use crate::action::{Action, Motion};
-use crate::editor::Editor;
 use crate::editor::document::Document;
+use crate::editor::{Editor, Effect};
 use crate::io::file::{self, IoError};
 use crate::keymap::{Keymap, Mode};
 use crate::status::{Prompt, StatusModel};
-use crate::text::wrap::WrapCache;
 use crate::view;
 use crate::view::layout::{Layout, MEASURE, compute_layout};
 use crate::view::viewport::Viewport;
@@ -34,7 +34,6 @@ pub struct App {
     keymap: Keymap,
     mode: Mode,
     pub(crate) status: StatusModel,
-    pub(crate) wrap: WrapCache,
     pub(crate) viewport: Viewport,
     area: Rect,
     autosave: bool,
@@ -44,6 +43,11 @@ pub struct App {
     last_edit: Option<Instant>,
     /// 有未保存修改时按过一次 Ctrl+Q
     quit_armed: bool,
+    /// 待写给终端的 OSC 52 序列（由事件循环写出）
+    osc52: Vec<String>,
+    /// 终端支持 OSC 52（macOS Terminal 不支持）
+    osc52_supported: bool,
+    osc52_warned: bool,
     pub should_quit: bool,
     pub needs_redraw: bool,
 }
@@ -52,8 +56,8 @@ impl App {
     pub fn new(doc: Document, size: Size, autosave: bool) -> Self {
         let area = Rect::new(0, 0, size.width, size.height);
         let large = doc.body().len_bytes() > LARGE_FILE;
+        let editor = Editor::new(doc, compute_layout(area, MEASURE).body.width);
         let mut status = StatusModel::default();
-        status.refresh_words(&doc, true);
         if large {
             status.info(
                 "文件超过 5 MB，字数改为保存时更新",
@@ -61,18 +65,21 @@ impl App {
                 INFO_TTL,
             );
         }
+        status.words = editor.word_count();
         Self {
-            editor: Editor::new(doc),
+            editor,
             keymap: Keymap { vim: false },
             mode: Mode::Insert,
             status,
-            wrap: WrapCache::new(compute_layout(area, MEASURE).body.width),
             viewport: Viewport::default(),
             area,
             autosave,
             large,
             last_edit: None,
             quit_armed: false,
+            osc52: Vec::new(),
+            osc52_supported: std::env::var_os("TERM_PROGRAM").is_none_or(|t| t != "Apple_Terminal"),
+            osc52_warned: false,
             should_quit: false,
             needs_redraw: true,
         }
@@ -136,7 +143,7 @@ impl App {
         let revision = self.editor.doc().revision();
         match action {
             Action::Quit => self.quit(armed, now),
-            Action::Cancel => self.status.prompt = None,
+            Action::Cancel if self.status.prompt.is_some() => self.status.prompt = None,
             Action::Save => match self.editor.doc().meta.path.clone() {
                 Some(path) => {
                     self.save(path, false, now);
@@ -171,14 +178,35 @@ impl App {
         }
         self.sync_body(layout.body);
         let page = (layout.body.height as isize - 2).max(1);
-        self.editor.apply(action, &mut self.wrap, page, now);
-        let rope = self.editor.doc().body();
+        let effect = self.editor.apply(action, page, now);
+        let (doc, wrap, _) = self.editor.view();
         match action {
-            Action::Move(Motion::PageUp, _) => self.viewport.scroll(-page, &mut self.wrap, rope),
-            Action::Move(Motion::PageDown, _) => self.viewport.scroll(page, &mut self.wrap, rope),
+            Action::Move(Motion::PageUp, _) => self.viewport.scroll(-page, wrap, doc.body()),
+            Action::Move(Motion::PageDown, _) => self.viewport.scroll(page, wrap, doc.body()),
             _ => {}
         }
         self.sync_body(layout.body);
+        if let Effect::Copied(text) = effect {
+            self.copy_to_clipboard(&text, now);
+        }
+    }
+
+    /// 内部寄存器已由 Editor 写入；这里再通过 OSC 52 写系统剪贴板（可穿透 SSH / tmux）。
+    fn copy_to_clipboard(&mut self, text: &str, now: Instant) {
+        if self.osc52_supported {
+            self.osc52.push(crate::terminal::osc52(text));
+        } else if !std::mem::replace(&mut self.osc52_warned, true) {
+            self.status.info(
+                "此终端不支持 OSC 52：已复制到内部寄存器，Ctrl+V 可粘贴",
+                now,
+                INFO_TTL,
+            );
+        }
+    }
+
+    /// 取出待写给终端的控制序列。
+    pub fn take_terminal_output(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.osc52)
     }
 
     fn prompt_input(&mut self, key: KeyEvent, now: Instant) {
@@ -221,7 +249,7 @@ impl App {
                 self.status
                     .info(if auto { "已自动保存" } else { "已保存" }, now, SAVED_TTL);
                 if self.large {
-                    self.status.refresh_words(self.editor.doc(), true);
+                    self.status.words = self.editor.word_count();
                 }
                 true
             }
@@ -264,14 +292,16 @@ impl App {
 
     /// 绘制前调用：让换行宽度与视口适配当前正文区域，保证光标可见；刷新字数。
     pub(crate) fn sync_body(&mut self, body: Rect) {
-        let rope = self.editor.doc().body();
-        if self.wrap.width() != body.width {
-            self.viewport.rewrap(body.width, &mut self.wrap, rope);
+        let cursor = self.editor.cursor;
+        let (doc, wrap, _) = self.editor.view();
+        let rope = doc.body();
+        if wrap.width() != body.width {
+            self.viewport.rewrap(body.width, wrap, rope);
         }
-        let pos = self.editor.cursor.visual(rope, &mut self.wrap);
-        self.viewport.follow(pos, body.height, &mut self.wrap, rope);
+        let pos = cursor.visual(rope, wrap);
+        self.viewport.follow(pos, body.height, wrap, rope);
         if !self.large {
-            self.status.refresh_words(self.editor.doc(), false);
+            self.status.words = self.editor.word_count();
         }
     }
 }
@@ -319,10 +349,23 @@ fn typed_char(k: &KeyEvent) -> Option<char> {
 }
 
 pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> {
+    // 上一批事件的处理耗时，与随后的绘制耗时一起记为一帧
+    let mut handle_us = 0;
     loop {
+        let output = app.take_terminal_output();
+        if !output.is_empty() {
+            let backend = terminal.backend_mut();
+            for seq in output {
+                backend.write_all(seq.as_bytes())?;
+            }
+            backend.flush()?;
+        }
         if app.needs_redraw {
+            let start = Instant::now();
             terminal.draw(|frame| view::render(frame, app))?;
             app.needs_redraw = false;
+            let draw_us = start.elapsed().as_micros() as u64;
+            tracing::debug!(target: "mustty::frame", handle_us, draw_us, total_us = handle_us + draw_us, "frame");
         }
         let timeout = app
             .next_deadline()
@@ -342,9 +385,11 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
         if cfg!(windows) {
             batch = coalesce_paste(batch);
         }
+        let start = Instant::now();
         for ev in batch {
             app.handle(ev);
         }
+        handle_us = start.elapsed().as_micros() as u64;
         app.tick(Instant::now());
         if app.should_quit {
             return Ok(());

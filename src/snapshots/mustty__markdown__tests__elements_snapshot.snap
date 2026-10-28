@@ -1,0 +1,75 @@
+---
+source: src/markdown.rs
+expression: lines.map(show).concat()
+---
+# 一级标题
+  HeadingMark "# "
+  Heading(1) "一级标题"
+### 三级 *强调* 标题
+  HeadingMark "### "
+  Heading(3) "三级 *强调* 标题"
+  EmphMark "*"
+  Emph "强调"
+  EmphMark "*"
+*强调* 与 _下划线强调_
+  EmphMark "*"
+  Emph "强调"
+  EmphMark "*"
+  EmphMark "_"
+  Emph "下划线强调"
+  EmphMark "_"
+**加粗** 与 __加粗__
+  StrongMark "**"
+  Strong "加粗"
+  StrongMark "**"
+  StrongMark "__"
+  Strong "加粗"
+  StrongMark "__"
+行内 `code` 和 ``含 ` 的代码``
+  CodeMark "`"
+  Code "code"
+  CodeMark "`"
+  CodeMark "``"
+  Code "含 ` 的代码"
+  CodeMark "``"
+> 引用的一段话
+  Quote "引用的一段话"
+  QuoteMark "> "
+> > 嵌套引用
+  Quote "嵌套引用"
+  QuoteMark "> "
+  QuoteMark "> "
+- 无序列表
+  ListMark "- "
+* 星号列表
+  ListMark "* "
+12. 有序列表
+  ListMark "12. "
+- [ ] 待办
+  ListMark "- [ ] "
+- [x] 已完成
+  ListMark "- [x] "
+[链接文字](https://example.com/a_b_c)
+  LinkPunct "["
+  LinkText "链接文字"
+  LinkPunct "]("
+  LinkUrl "https://example.com/a_b_c"
+  LinkPunct ")"
+---
+  Rule "---"
+* * *
+  Rule "* * *"
+**加粗里有 *强调* 嵌套**
+  StrongMark "**"
+  Strong "加粗里有 *强调* 嵌套"
+  StrongMark "**"
+  EmphMark "*"
+  Emph "强调"
+  EmphMark "*"
+*强调里有 **加粗** 嵌套*
+  StrongMark "**"
+  Strong "加粗"
+  StrongMark "**"
+  EmphMark "*"
+  Emph "强调里有 **加粗** 嵌套"
+  EmphMark "*"

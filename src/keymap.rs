@@ -43,24 +43,34 @@ impl Keymap {
                 _ => Action::PromptInput(*key),
             });
         }
-        let mv = |m| Some(Action::Move(m, false));
+        let alt = key.modifiers.contains(KeyModifiers::ALT) && !altgr;
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        // Shift + 移动键扩展选区
+        let mv = |m| Some(Action::Move(m, shift));
         match key.code {
-            KeyCode::Char(c) if !ctrl || altgr => {
-                if key.modifiers.contains(KeyModifiers::ALT) && !altgr {
-                    None
-                } else {
-                    Some(Action::Insert(c.to_string()))
-                }
-            }
+            // Alt+B / Alt+F：macOS 终端的 Option 键按词移动
+            KeyCode::Char('b' | 'B') if alt => Some(Action::Move(Motion::WordLeft, false)),
+            KeyCode::Char('f' | 'F') if alt => Some(Action::Move(Motion::WordRight, false)),
+            KeyCode::Char(_) if alt => None,
+            KeyCode::Char(c) if !ctrl || altgr => Some(Action::Insert(c.to_string())),
             KeyCode::Char('s' | 'S') => Some(Action::Save),
             KeyCode::Char('q' | 'Q') => Some(Action::Quit),
             KeyCode::Char('z' | 'Z') => Some(Action::Undo),
             KeyCode::Char('y' | 'Y') => Some(Action::Redo),
+            KeyCode::Char('a' | 'A') => Some(Action::SelectAll),
+            KeyCode::Char('c' | 'C') => Some(Action::Copy),
+            KeyCode::Char('x' | 'X') => Some(Action::Cut),
+            KeyCode::Char('v' | 'V') => Some(Action::PasteRegister),
+            // Unix 终端把 Ctrl+Backspace 发成 0x08，crossterm 报为 Ctrl+H
+            KeyCode::Char('w' | 'W' | 'h' | 'H') => Some(Action::DeleteWordBack),
+            KeyCode::Backspace if ctrl => Some(Action::DeleteWordBack),
             KeyCode::Enter => Some(Action::Newline),
             KeyCode::Backspace => Some(Action::DeleteBack),
             KeyCode::Delete => Some(Action::DeleteForward),
             KeyCode::Tab => Some(Action::Insert("    ".into())),
             KeyCode::Esc => Some(Action::Cancel),
+            KeyCode::Left if ctrl => mv(Motion::WordLeft),
+            KeyCode::Right if ctrl => mv(Motion::WordRight),
             KeyCode::Left => mv(Motion::Left),
             KeyCode::Right => mv(Motion::Right),
             KeyCode::Up => mv(Motion::Up),
@@ -90,14 +100,35 @@ mod tests {
         use KeyCode::*;
         let none = KeyModifiers::NONE;
         let ctrl = KeyModifiers::CONTROL;
+        let shift = KeyModifiers::SHIFT;
         let mv = |m| Some(Action::Move(m, false));
+        let ext = |m| Some(Action::Move(m, true));
         let ins = |s: &str| Some(Action::Insert(s.into()));
         let cases = [
             (key(Char('a'), none), ins("a")),
             (key(Char('A'), KeyModifiers::SHIFT), ins("A")),
             (key(Char('中'), none), ins("中")),
             (key(Char('@'), ctrl | KeyModifiers::ALT), ins("@")),
-            (key(Char('b'), KeyModifiers::ALT), None),
+            (key(Char('x'), KeyModifiers::ALT), None),
+            (key(Char('b'), KeyModifiers::ALT), mv(Motion::WordLeft)),
+            (key(Char('f'), KeyModifiers::ALT), mv(Motion::WordRight)),
+            (key(Left, ctrl), mv(Motion::WordLeft)),
+            (key(Right, ctrl), mv(Motion::WordRight)),
+            (key(Left, shift), ext(Motion::Left)),
+            (key(Right, shift), ext(Motion::Right)),
+            (key(Up, shift), ext(Motion::Up)),
+            (key(Down, shift), ext(Motion::Down)),
+            (key(Home, shift), ext(Motion::LineStart)),
+            (key(End, shift), ext(Motion::LineEnd)),
+            (key(Right, ctrl | shift), ext(Motion::WordRight)),
+            (key(End, ctrl | shift), ext(Motion::DocEnd)),
+            (key(Backspace, ctrl), Some(Action::DeleteWordBack)),
+            (key(Char('h'), ctrl), Some(Action::DeleteWordBack)),
+            (key(Char('w'), ctrl), Some(Action::DeleteWordBack)),
+            (key(Char('a'), ctrl), Some(Action::SelectAll)),
+            (key(Char('c'), ctrl), Some(Action::Copy)),
+            (key(Char('x'), ctrl), Some(Action::Cut)),
+            (key(Char('v'), ctrl), Some(Action::PasteRegister)),
             (key(Enter, none), Some(Action::Newline)),
             (key(Backspace, none), Some(Action::DeleteBack)),
             (key(Delete, none), Some(Action::DeleteForward)),
@@ -121,8 +152,9 @@ mod tests {
                 Event::Paste("a\r\nb".into()),
                 Some(Action::Paste("a\r\nb".into())),
             ),
-            // M3+ 的键位尚未绑定
-            (key(Char('v'), ctrl), None),
+            // M4 的键位尚未绑定
+            (key(Char('t'), ctrl), None),
+            (key(Char('f'), ctrl), None),
             (key(F(1), none), None),
             (Event::FocusLost, None),
         ];

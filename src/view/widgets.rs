@@ -1,5 +1,7 @@
 //! 标题 / 正文 / status bar 三个 Widget，直接写 Buffer，不画边框、不设背景。
 
+use std::ops::Range;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -7,20 +9,36 @@ use ratatui::widgets::Widget;
 use ropey::Rope;
 use unicode_width::UnicodeWidthStr;
 
+use crate::markdown::{HighlightCache, StyledRange};
 use crate::text::grapheme::{grapheme_width, graphemes};
 use crate::text::wrap::{WrapCache, line_text};
+use crate::view::theme;
 use crate::view::viewport::ViewTop;
 
 /// 按 mustty 的宽度规则逐 grapheme 写入一行：跳过前 `scroll` 列，超出 `max_w` 的部分裁剪。
 fn draw_text(buf: &mut Buffer, x: u16, y: u16, max_w: u16, text: &str, style: Style, scroll: u16) {
+    draw_styled(buf, x, y, max_w, text, scroll, |_| style);
+}
+
+/// 同 `draw_text`，样式按 grapheme 的行内 char 偏移决定。
+fn draw_styled(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    max_w: u16,
+    text: &str,
+    scroll: u16,
+    style_at: impl Fn(usize) -> Style,
+) {
     let mut col = 0;
-    for (_, g) in graphemes(text) {
+    for (c, g) in graphemes(text) {
         let w = grapheme_width(g, col);
         if col >= scroll {
             let at = col - scroll;
             if at + w > max_w {
                 break;
             }
+            let style = style_at(c);
             // Tab、控制字符、零宽字符 ratatui 不会占格，用空格补齐以保持列对齐
             if g == "\t" || g.contains(char::is_control) || g.width() == 0 {
                 for i in 0..w {
@@ -81,29 +99,54 @@ impl Widget for TitleWidget<'_> {
 pub struct BodyWidget<'a> {
     pub rope: &'a Rope,
     pub wrap: &'a mut WrapCache,
+    pub highlight: &'a mut HighlightCache,
     pub top: ViewTop,
+    /// 全局 char 区间
+    pub selection: Option<Range<usize>>,
 }
 
 impl Widget for BodyWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let (mut line, mut row) = (self.top.line, self.top.row);
         let mut text = line_text(self.rope, line);
+        let mut styles = line_styles(self.highlight.ranges(self.rope, line), text.chars().count());
         for y in area.top()..area.bottom() {
             let rows = self.wrap.rows(self.rope, line);
             let r = rows[row];
             let last_row = row + 1 == rows.len();
             let seg: String = text.chars().skip(r.start).take(r.end - r.start).collect();
-            draw_text(buf, area.x, y, area.width, &seg, Style::default(), 0);
+            let line_start = self.rope.line_to_char(line);
+            let sel = self.selection.clone();
+            draw_styled(buf, area.x, y, area.width, &seg, 0, |c| {
+                let local = r.start + c;
+                let style = styles[local];
+                match &sel {
+                    Some(s) if s.contains(&(line_start + local)) => style.patch(theme::selection()),
+                    _ => style,
+                }
+            });
             if !last_row {
                 row += 1;
             } else if line + 1 < self.rope.len_lines() {
                 (line, row) = (line + 1, 0);
                 text = line_text(self.rope, line);
+                styles = line_styles(self.highlight.ranges(self.rope, line), text.chars().count());
             } else {
                 break;
             }
         }
     }
+}
+
+/// 把一行的样式区间按顺序叠加成每个 char 的样式（外层在前，内层覆盖）。
+fn line_styles(ranges: &[StyledRange], len: usize) -> Vec<Style> {
+    let mut styles = vec![Style::default(); len];
+    for r in ranges {
+        for s in &mut styles[r.start.min(len)..r.end.min(len)] {
+            *s = s.patch(theme::style(r.token));
+        }
+    }
+    styles
 }
 
 pub struct StatusWidget<'a> {

@@ -92,3 +92,57 @@ fn untitled_save_as_prompt() {
     events.remove(3); // 去掉空格：输入的是 "a.md"
     insta::assert_snapshot!(snapshot(draw(None, "", 40, 10, &events)));
 }
+
+/// 每行按样式分段：`"文本" 样式`，跳过无样式的空白，便于快照审阅高亮与选区。
+fn styled(backend: &TestBackend) -> String {
+    let buf = backend.buffer();
+    let mut out = String::new();
+    for y in 0..buf.area.height {
+        let mut runs: Vec<(String, String)> = Vec::new();
+        for x in 0..buf.area.width {
+            let cell = &buf[(x, y)];
+            let mut style = format!("{:?}", cell.modifier);
+            if cell.fg != ratatui::style::Color::Reset {
+                style += &format!(" fg={:?}", cell.fg);
+            }
+            if cell.bg != ratatui::style::Color::Reset {
+                style += &format!(" bg={:?}", cell.bg);
+            }
+            match runs.last_mut() {
+                Some((text, s)) if *s == style => text.push_str(cell.symbol()),
+                _ => runs.push((cell.symbol().to_owned(), style)),
+            }
+        }
+        let shown: Vec<String> = runs
+            .into_iter()
+            .filter(|(t, s)| !(t.trim().is_empty() && s == "NONE"))
+            .map(|(t, s)| format!("{:?} {s}", t.trim_end()))
+            .collect();
+        if !shown.is_empty() {
+            out += &format!("{y:2}: {}\n", shown.join(" | "));
+        }
+    }
+    out
+}
+
+const MARKDOWN: &str = "# 高亮演示\n\n## 二级 **标题**\n普通 *强调* 与 **加粗** 与 `code`\n**未闭合的加粗 后文不应变粗\n> 引用\n- [ ] 列表 [链接](https://x.io)\n---\n```rust\nlet a = 1; // **不是加粗**\n```\n栅栏之后恢复正常\n";
+
+#[test]
+fn markdown_highlight_styles() {
+    insta::assert_snapshot!(styled(&draw(Some("hl.md"), MARKDOWN, 60, 24, &[])));
+}
+
+#[test]
+fn selection_is_reversed() {
+    let shift = |code| Event::Key(KeyEvent::new(code, KeyModifiers::SHIFT));
+    let events = [
+        key(KeyCode::Down),
+        Event::Key(KeyEvent::new(
+            KeyCode::Right,
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        )),
+        shift(KeyCode::Down),
+    ];
+    let b = draw(Some("hl.md"), MARKDOWN, 60, 24, &events);
+    insta::assert_snapshot!(format!("{}\n{}", styled(&b), snapshot(b.clone())));
+}

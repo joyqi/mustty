@@ -1,0 +1,17 @@
+---
+source: src/markdown.rs
+expression: lines.map(show).concat()
+---
+**未闭合的加粗
+*未闭合的强调
+`未闭合的代码
+[未闭合链接](http://x
+snake_case_name 不是强调
+2 * 3 * 4 不是强调
+** 两侧有空格 ** 不是加粗
+`*代码里*不是强调`
+  CodeMark "`"
+  Code "*代码里*不是强调"
+  CodeMark "`"
+#不是标题
+-不是列表

@@ -3,6 +3,7 @@ pub mod app;
 pub mod editor;
 pub mod io;
 pub mod keymap;
+pub mod markdown;
 pub mod status;
 pub mod terminal;
 pub mod text;

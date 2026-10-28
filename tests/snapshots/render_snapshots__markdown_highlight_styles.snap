@@ -1,0 +1,16 @@
+---
+source: tests/render_snapshots.rs
+expression: "styled(&draw(Some(\"hl.md\"), MARKDOWN, 60, 24, &[]))"
+---
+ 3: "高" BOLD | "亮" BOLD | "演" BOLD | "示" BOLD
+ 5: "##" DIM | "二" BOLD | "级" BOLD | "" BOLD | "**" BOLD | DIM | "标" BOLD | "题" BOLD | "**" BOLD | DIM
+ 6: "  普 通" NONE | "*" DIM | "强" ITALIC | "调" ITALIC | "*" DIM | " 与" NONE | "**" DIM | "加" BOLD | "粗" BOLD | "**" DIM | " 与" NONE | "`" DIM | "code" NONE fg=Cyan | "`" DIM
+ 7: "  **未 闭 合 的 加 粗  后 文 不 应 变 粗" NONE
+ 8: ">" DIM | "引" ITALIC | "用" ITALIC
+ 9: "- [ ]" DIM | "列 表" NONE | "[" DIM | "链" UNDERLINED | "接" UNDERLINED | "](https://x.io)" DIM
+10: "---" DIM
+11: "```rust" DIM
+12: "let a = 1; // **不" NONE fg=Cyan | "是" NONE fg=Cyan | "加" NONE fg=Cyan | "粗" NONE fg=Cyan | "**" NONE fg=Cyan
+13: "```" DIM
+14: "  栅 栏 之 后 恢 复 正 常" NONE
+20: "hl.md" DIM | "53 字" DIM | " · 1:1" DIM

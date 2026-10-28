@@ -1,4 +1,5 @@
 pub mod layout;
+pub mod theme;
 pub mod viewport;
 pub mod widgets;
 
@@ -58,19 +59,24 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
 
     let top = app.viewport.top;
+    let focus = ed.focus;
+    let caret = ed.cursor;
+    let selection = ed.selection();
+    let (doc, wrap, highlight) = app.editor.view();
     frame.render_widget(
         BodyWidget {
-            rope: ed.doc().body(),
-            wrap: &mut app.wrap,
+            rope: doc.body(),
+            wrap,
+            highlight,
             top,
+            selection,
         },
         body,
     );
-    if ed.focus == Focus::Body {
-        let pos = ed.cursor.visual(ed.doc().body(), &mut app.wrap);
-        let dy = app
-            .wrap
-            .rows_between(ed.doc().body(), (top.line, top.row), (pos.line, pos.row));
+    if focus == Focus::Body {
+        let (doc, wrap, _) = app.editor.view();
+        let pos = caret.visual(doc.body(), wrap);
+        let dy = wrap.rows_between(doc.body(), (top.line, top.row), (pos.line, pos.row));
         if (0..body.height as isize).contains(&dy) {
             // 写满一行的行尾、悬挂空白之后：光标放在正文右侧第一格，不与最后一个字重叠
             let x = (body.x + pos.col.min(body.width)).min(area.right() - 1);
@@ -78,6 +84,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         }
     }
 
+    let ed = &app.editor;
     if let Some(r) = layout.status {
         if let Some(p) = &app.status.prompt {
             let before: String = p.input.chars().take(p.cursor).collect();
