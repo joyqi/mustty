@@ -14,10 +14,10 @@ categories = ["command-line-utilities", "text-editors"]
 [dependencies]
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
 crossterm = "0.29.0"
-# 只把 \n 当作换行：孤立的 \r 作为普通字符保留（方案 §8.3）
+# 只把 \n 当作换行：孤立的 \r 作为普通字符保留
 ropey = { version = "1.6.1", default-features = false, features = ["simd"] }
 unicode-segmentation = "1.13.3"
-# 必须与 ratatui-core 解析到同一版本（方案 §3.1）
+# 必须与 ratatui-core 解析到同一版本
 unicode-width = "=0.2.2"
 unicode-linebreak = "0.1.5"
 anyhow = "1.0.104"
@@ -28,7 +28,7 @@ toml = "1.1.8"
 dirs = "7.0.0"
 # 系统语言（Windows 上不设 LANG 也能取到）；环境变量优先，见 src/i18n.rs
 sys-locale = "0.3.2"
-# 设置面板写回 ~/.mustty.toml：保留注释与键顺序，只改变化的键（方案 §8.5）
+# 设置面板写回 ~/.mustty.toml：保留注释与键顺序，只改变化的键
 toml_edit = "0.25.17"
 
 [dev-dependencies]

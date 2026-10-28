@@ -1,4 +1,4 @@
-//! 视口：scrolloff 滚动与 Typewriter 模式（方案 §4.4）。
+//! 视口：scrolloff 滚动与 Typewriter 模式。
 
 use ropey::Rope;
 

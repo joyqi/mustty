@@ -1,4 +1,4 @@
-//! undo / redo：线性栈 + 合并规则（方案 §4.5）。
+//! undo / redo：线性栈 + 合并规则。
 //! History 只记录编辑；撤销时由 Editor 经正文唯一写入口回放。
 
 use std::collections::VecDeque;

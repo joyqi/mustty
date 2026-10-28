@@ -1,5 +1,5 @@
-//! 与按键解耦的编辑语义（方案 §11.2）。全部变体在 M1 定稿，M4 不再增删；
-//! 有意的修订只有两处：设置面板的 `OpenSettings`（方案 §8.6）与键位帮助的 `OpenHelp`（方案 §7.5）。
+//! 与按键解耦的编辑语义。全部变体在 M1 定稿，M4 不再增删；
+//! 有意的修订只有两处：设置面板的 `OpenSettings` 与键位帮助的 `OpenHelp`。
 //! M1 未绑定按键或未实现的变体由 `Editor::apply` 忽略。
 
 use crossterm::event::KeyEvent;

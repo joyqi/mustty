@@ -42,8 +42,6 @@ Pass a file to open or create it on first save, or omit `FILE` to start an Untit
 - Press `Ctrl+G` inside the app (or `?` in vim Normal mode) to browse every keybinding.
 - Press `Ctrl+P` to open the live settings panel. Changes apply immediately and write back to `~/.mustty.toml` (`width`, `vim`, `mouse`, `autosave`, `autosave_idle_ms`, `typewriter`, `focus_mode`, `scrolloff`, `tab_width`, `code_color`, `lang`).
 
-See [docs/implementation-plan.md](docs/implementation-plan.md) for the architecture and design invariants.
-
 ## License
 
 [MIT](LICENSE)

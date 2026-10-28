@@ -1,4 +1,4 @@
-//! 字数统计（方案 §9）：每个汉字计 1，英文按词计，标点不计。
+//! 字数统计：每个汉字计 1，英文按词计，标点不计。
 
 use unicode_segmentation::UnicodeSegmentation;
 

@@ -1,4 +1,4 @@
-//! 文档模型：标题（首行 H1）与正文分离（方案 §4.1、§5.5、§8.3）。
+//! 文档模型：标题（首行 H1）与正文分离。
 
 use std::ops::Range;
 use std::path::PathBuf;
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn new_documents_use_platform_line_ending() {
-        // 方案 §8.3：新文件按平台默认换行（Windows CRLF，其余 LF）
+        // 新文件按平台默认换行（Windows CRLF，其余 LF）
         assert_eq!(FileMeta::new(None).line_ending, LineEnding::platform());
         let meta = FileMeta {
             line_ending: LineEnding::platform(),

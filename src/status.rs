@@ -1,4 +1,4 @@
-//! status bar 的状态：消息与「保存为: 」提示行（方案 §9）。
+//! status bar 的状态：消息与「保存为: 」提示行。
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -79,7 +79,7 @@ impl Prompt {
     }
 }
 
-/// 文件名后的保存状态标记（方案 §9）。
+/// 文件名后的保存状态标记。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveMark {
     /// 有未保存修改：`*`，默认前景色
@@ -104,7 +104,7 @@ impl SaveMark {
     pub fn symbol(self) -> &'static str {
         match self {
             Self::Dirty => "*",
-            // East Asian Width 为 Ambiguous，按 narrow（1 列）计，与方案 §14 风险 1 一致
+            // East Asian Width 为 Ambiguous，按 narrow（1 列）计
             Self::Saved => "\u{25CF}",
         }
     }

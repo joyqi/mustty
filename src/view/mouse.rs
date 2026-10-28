@@ -1,4 +1,4 @@
-//! 鼠标（方案 §10.5，仅 `mouse = true` 时调用）：屏幕坐标 → `Action::MoveTo` / `ScrollView`。
+//! 鼠标（仅 `mouse = true` 时调用）：屏幕坐标 → `Action::MoveTo` / `ScrollView`。
 //! 坐标换算只查渲染层给出的 `ScreenMap`，不自己重算布局；与键盘共用 Action，不另开编辑路径。
 
 use std::time::{Duration, Instant};

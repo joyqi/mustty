@@ -1,4 +1,4 @@
-//! 键位帮助（Ctrl+G，vim Normal 态 `?`，方案 §7.5）：内容表与面板状态机。渲染见 `view::help`。
+//! 键位帮助（Ctrl+G，vim Normal 态 `?`）：内容表与面板状态机。渲染见 `view::help`。
 //!
 //! 每一条 `Entry` 都写明它在 `Keymap::map_event` 里应当得到什么（`Expect`），由测试逐条喂给
 //! keymap 核对；反过来，keymap 能产生的每种 Action、Motion 与模式切换也必须出现在这张表里。

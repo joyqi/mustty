@@ -1,4 +1,4 @@
-//! App 状态与同步事件循环（方案 §11.3）。
+//! App 状态与同步事件循环。
 
 use std::io::Write;
 use std::ops::Range;
@@ -642,7 +642,7 @@ impl App {
         }
     }
 
-    /// 鼠标（方案 §10.5）：由 `view::mouse::map_mouse` 转成 Action，与键盘共用同一条编辑路径。
+    /// 鼠标：由 `view::mouse::map_mouse` 转成 Action，与键盘共用同一条编辑路径。
     fn on_mouse(&mut self, m: MouseEvent, now: Instant) {
         if self.status.prompt.is_some() {
             return;
@@ -939,7 +939,7 @@ mod tests {
 
     #[test]
     fn vim_flow_moves_first_line_to_end() {
-        // 方案 §12 M4 验收 5：i 输入 → Esc → gg → dd → G → p
+        // M4 验收：i 输入 → Esc → gg → dd → G → p
         let mut app = vim_app("");
         typed(&mut app, "\x1bione");
         app.handle(press(KeyCode::Enter));

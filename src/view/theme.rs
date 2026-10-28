@@ -1,4 +1,4 @@
-//! Token → Style（方案 §6.1）：只用 Modifier 与一个 ANSI 基本色，不写死 RGB、不设背景。
+//! Token → Style：只用 Modifier 与一个 ANSI 基本色，不写死 RGB、不设背景。
 
 use ratatui::style::{Color, Modifier, Style};
 

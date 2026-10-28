@@ -1,10 +1,10 @@
-//! KeyEvent → Action（方案 §7）。`vim` 为 false 时 `mode` 恒为 Insert；vim 状态机只存在于本文件。
+//! KeyEvent → Action。`vim` 为 false 时 `mode` 恒为 Insert；vim 状态机只存在于本文件。
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::action::{Action, Motion};
 
-/// 定义见方案 §7.4。
+/// 编辑模式；`vim` 为 false 时恒为 Insert。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Normal(NormalState),
@@ -113,7 +113,7 @@ fn default_map(key: &KeyEvent, extend: bool, tab_width: u16) -> Option<Action> {
     }
 }
 
-/// vim Normal 态（方案 §7.4）。返回动作与新的 Mode；visual 与 g/d 前缀都是 NormalState 的子状态。
+/// vim Normal 态。返回动作与新的 Mode；visual 与 g/d 前缀都是 NormalState 的子状态。
 fn map_normal(key: &KeyEvent, mut st: NormalState, tab_width: u16) -> (Option<Action>, Mode) {
     use Motion::*;
     let pending = st.pending.take();
@@ -356,7 +356,7 @@ mod tests {
         }
     }
 
-    // ---- vim（方案 §7.4、§13.1） ----
+    // ---- vim ----
 
     fn normal(pending: Option<char>, visual: bool) -> Mode {
         Mode::Normal(NormalState { pending, visual })
@@ -569,8 +569,8 @@ mod tests {
         Some(Action::Move(m, extend))
     }
 
-    /// 方案 §7.4 的两张表逐行写成 (按键序列, 起始状态, 最后一个键的动作, 结束状态)。
-    /// `<Esc>` 表示 Esc 键，其余为字符键。新增或修改键位时，必须同时改这张表和文档。
+    /// vim 键位表逐行写成 (按键序列, 起始状态, 最后一个键的动作, 结束状态)。
+    /// `<Esc>` 表示 Esc 键，其余为字符键。新增或修改键位时，必须同时改这张表和帮助表。
     const VIM_TABLE: &[(&str, Mode, Option<Action>, Mode)] = &[
         // 模式切换
         ("<Esc>", INS, Some(Action::Cancel), NOR),
