@@ -4,49 +4,58 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use anyhow::anyhow;
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser};
 use mustty::app::{self, App};
 use mustty::config::{self, Config, PartialConfig};
 use mustty::editor::document::{Document, FileMeta};
+use mustty::i18n::{self, t, t_args};
 use mustty::io::file::{IoError, load};
 use mustty::terminal::TerminalGuard;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 
-/// 终端里的极简 Markdown 写作器
+// 说明文字按界面语言在运行时填入（见 `command`），这里不写 doc comment
 #[derive(Parser)]
-#[command(
-    version,
-    about,
-    after_help = "配置文件：~/.mustty.toml（Windows 为用户主目录下的 .mustty.toml）。\n优先级：命令行参数 > 配置文件 > 内置默认值。"
-)]
+#[command(version)]
 struct Cli {
-    /// 要编辑的文件；不存在则在首次保存时创建，省略则为 Untitled
     file: Option<PathBuf>,
-    /// 正文宽度（列），钳制在 40..=120，默认 72
     #[arg(long, value_name = "N")]
     width: Option<u16>,
-    /// 自动保存（默认开启：停手 2 秒后保存）
     #[arg(long, overrides_with = "no_autosave")]
     autosave: bool,
-    /// 关闭自动保存
     #[arg(long, overrides_with = "autosave")]
     no_autosave: bool,
-    /// 启用 vim 风格的 Normal / Insert 键位
     #[arg(long, overrides_with = "no_vim")]
     vim: bool,
-    /// 关闭 vim 键位（覆盖配置文件）
     #[arg(long, overrides_with = "vim")]
     no_vim: bool,
-    /// 启用鼠标：单击定位、拖拽选择、滚轮滚动。开启后终端原生拖选复制需按住 Shift
     #[arg(long, overrides_with = "no_mouse")]
     mouse: bool,
-    /// 关闭鼠标（覆盖配置文件）
     #[arg(long, overrides_with = "mouse")]
     no_mouse: bool,
 }
 
 impl Cli {
+    /// 带本地化说明的 clap 命令。clap 自带的 Usage: / Options: 与解析错误无法本地化。
+    fn command() -> clap::Command {
+        let help = [
+            ("file", t("cli-file")),
+            ("width", t("cli-width")),
+            ("autosave", t("cli-autosave")),
+            ("no_autosave", t("cli-no-autosave")),
+            ("vim", t("cli-vim")),
+            ("no_vim", t("cli-no-vim")),
+            ("mouse", t("cli-mouse")),
+            ("no_mouse", t("cli-no-mouse")),
+        ];
+        help.into_iter().fold(
+            <Self as CommandFactory>::command()
+                .about(t("cli-about"))
+                .after_help(t("cli-after-help")),
+            |cmd, (id, text)| cmd.mut_arg(id, |a| a.help(text)),
+        )
+    }
+
     /// 命令行这一层配置：成对开关里后出现的生效（clap 的 overrides_with 已处理）。
     fn layer(&self) -> PartialConfig {
         let switch = |on: bool, off: bool| match (on, off) {
@@ -65,7 +74,8 @@ impl Cli {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    i18n::init();
+    let cli = Cli::from_arg_matches(&Cli::command().get_matches()).unwrap_or_else(|e| e.exit());
     let _log = match init_log() {
         Ok(guard) => guard,
         Err(e) => {
@@ -100,7 +110,13 @@ fn init_log() -> anyhow::Result<Option<WorkerGuard>> {
         .create(true)
         .append(true)
         .open(&path)
-        .map_err(|e| anyhow!("无法打开日志文件 {}：{e}", Path::new(&path).display()))?;
+        .map_err(|e| {
+            let path = Path::new(&path).display().to_string();
+            anyhow!(t_args(
+                "startup-log-file",
+                &[("path", &path), ("error", &e.to_string())]
+            ))
+        })?;
     let (writer, guard) = tracing_appender::non_blocking(file);
     tracing_subscriber::fmt()
         .with_writer(writer)
@@ -115,7 +131,13 @@ fn init_log() -> anyhow::Result<Option<WorkerGuard>> {
 fn run(path: Option<&Path>, config: &Config, warning: Option<String>) -> anyhow::Result<()> {
     let doc = match path {
         Some(path) => load(path).map_err(|e| match e {
-            IoError::Io(e) => anyhow!("无法打开 {}：{e}", path.display()),
+            IoError::Io(e) => {
+                let path = path.display().to_string();
+                anyhow!(t_args(
+                    "startup-open",
+                    &[("path", &path), ("error", &e.to_string())]
+                ))
+            }
             e => e.into(),
         })?,
         None => Document::parse("", FileMeta::new(None)),
@@ -137,6 +159,28 @@ mod tests {
     fn layer(args: &[&str]) -> PartialConfig {
         let argv = std::iter::once("mustty").chain(args.iter().copied());
         Cli::try_parse_from(argv).unwrap().layer()
+    }
+
+    #[test]
+    fn every_arg_is_localized() {
+        for tag in ["en", "zh-CN"] {
+            i18n::init_for_test(tag);
+            let cmd = Cli::command();
+            assert_eq!(
+                cmd.get_about().map(|s| s.to_string()).as_deref(),
+                Some(t("cli-about"))
+            );
+            for arg in cmd
+                .get_arguments()
+                .filter(|a| !matches!(a.get_id().as_str(), "help" | "version"))
+            {
+                assert!(
+                    arg.get_help().is_some(),
+                    "{tag}: --{} 没有说明",
+                    arg.get_id()
+                );
+            }
+        }
     }
 
     #[test]

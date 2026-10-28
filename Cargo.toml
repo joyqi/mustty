@@ -15,7 +15,6 @@ unicode-segmentation = "1.13.3"
 unicode-width = "=0.2.2"
 unicode-linebreak = "0.1.5"
 anyhow = "1.0.104"
-thiserror = "2.0.21"
 tempfile = "3.27.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
@@ -24,6 +23,8 @@ clap = { version = "4.6.7", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"
 dirs = "7.0.0"
+# 系统语言（Windows 上不设 LANG 也能取到）；环境变量优先，见 src/i18n.rs
+sys-locale = "0.3.2"
 
 [dev-dependencies]
 insta = "1.49.0"

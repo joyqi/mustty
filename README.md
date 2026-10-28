@@ -19,6 +19,8 @@ mustty [FILE] [--width N] [--[no-]autosave] [--[no-]vim] [--[no-]mouse]
 停手 2 秒自动保存，切走窗口（FocusLost）与退出时也会保存；保存为原子写入，BOM / CRLF / 末尾换行原样保留。
 status bar 里文件名后的标记表示保存状态：`*` 为有未保存修改，绿色 `●` 为已与磁盘一致，空的 Untitled 不显示。
 另一个程序改了文件时不会自动覆盖，status bar 会常驻提示，`Ctrl+S` 强制覆盖。
+界面语言依次取 `MUSTTY_LANG`、`LC_ALL`、`LC_MESSAGES`、`LANG`，都没有时用系统语言，目前有 `en` 和 `zh-CN`（例：`MUSTTY_LANG=en mustty`）。
+clap 自带的 `Usage:` / `Options:` 和参数解析错误始终是英文。
 设置 `MUSTTY_LOG=<path>` 时把调试日志（含帧耗时）写到该文件，永不写 stdout / stderr。
 
 ## 键位
@@ -89,3 +91,13 @@ code_color = "cyan"     # 代码的颜色：black red green yellow blue magenta 
 `mouse = true` 或 `--mouse` 开启后：单击正文定位光标（单击标题进入标题）、拖拽选择（拖到正文上下边缘之外会持续滚动）、滚轮滚动视口。
 开启后终端原生的拖选复制会失效；需要原生选择时**按住 Shift 再拖拽**（xterm、GNOME Terminal、Windows Terminal、WezTerm、Alacritty、kitty 通用；
 iTerm2 通常是 ⌥ Option，macOS Terminal 是 Fn，以终端设置为准）。`--vim` 的 Normal 态里拖拽会直接进入 visual，之后可以按 `d` / `y`。
+
+## Translating
+
+1. 复制 `locales/en.toml` 为 `locales/<tag>.toml`（如 `ja.toml`、`zh-TW.toml`），只翻译等号右边，`{n}` 这类占位符原样保留。
+   缺的条目会自动用英文顶上，所以不必一次翻完。
+2. 在 `src/i18n.rs` 的 `LOCALES` 表里加一行：`("<tag>", include_str!("../locales/<tag>.toml")),`。
+3. 运行 `cargo test`：测试会检查文件能否解析、有没有 en 里不存在的 key、占位符是否与 en 一致。
+4. 用 `MUSTTY_LANG=<tag> cargo run -- notes.md` 看效果。
+
+英文只在字数处区分单复数（`status-words-one` / `status-words-other`），其他语言两条可以填同一个译文。

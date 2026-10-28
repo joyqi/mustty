@@ -11,6 +11,7 @@ use ratatui::style::{Modifier, Style};
 
 use crate::app::App;
 use crate::editor::Focus;
+use crate::i18n::t;
 use crate::io::file::IoError;
 use crate::status::{SaveMark, StatusModel};
 use crate::text::wrap::line_text;
@@ -27,7 +28,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         frame.buffer_mut().set_stringn(
             area.x,
             area.y,
-            "窗口太小",
+            t("status-window-too-small"),
             area.width as usize,
             Style::default(),
         );
@@ -131,7 +132,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 None => left,
             };
             let position = match ed.focus {
-                Focus::Title => "标题".to_owned(),
+                Focus::Title => t("status-title").to_owned(),
                 Focus::Body => StatusModel::position(ed.doc().body(), ed.cursor.head),
             };
             frame.render_widget(
@@ -141,7 +142,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     mark: mark.map(|m| (m.symbol(), m.style())),
                     words: &status.words_label(),
                     position: &position,
-                    hint: status.hint_until.map(|_| "^S 保存  ^Q 退出"),
+                    hint: status.hint_until.map(|_| t("status-hint")),
                     tab_width: tab,
                 },
                 r,

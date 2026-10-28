@@ -1,21 +1,48 @@
 //! 加载与原子保存：UTF-8 校验、BOM、换行符（方案 §8.1–§8.3）。
 
+use std::fmt;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::editor::document::{DiskStamp, Document, FileMeta, LineEnding};
+use crate::i18n::{t, t_args};
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug)]
 pub enum IoError {
-    #[error("不是 UTF-8 文件（第 {offset} 字节）")]
     NotUtf8 { offset: usize },
-    #[error("mustty 只编辑文件")]
     IsDirectory,
-    #[error("文件已被外部修改，Ctrl+S 强制覆盖")]
     ExternallyModified,
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(std::io::Error),
+}
+
+// 文案按界面语言取，thiserror 的 #[error] 只收字面量，所以手写
+impl fmt::Display for IoError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotUtf8 { offset } => {
+                f.write_str(&t_args("io-not-utf8", &[("offset", &offset.to_string())]))
+            }
+            Self::IsDirectory => f.write_str(t("io-is-directory")),
+            Self::ExternallyModified => f.write_str(t("io-externally-modified")),
+            Self::Io(e) => e.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for IoError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => e.source(),
+            _ => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for IoError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 
 /// 打开文件；不存在则返回记住路径的空文档。
@@ -95,7 +122,7 @@ pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, 
         fs::set_permissions(tmp.path(), meta.permissions())?;
     }
     tmp.persist(path).map_err(|e| e.error)?;
-    disk_stamp(path).ok_or_else(|| std::io::Error::other("无法读取保存后的文件信息").into())
+    disk_stamp(path).ok_or_else(|| std::io::Error::other(t("io-stat-after-save")).into())
 }
 
 #[cfg(test)]

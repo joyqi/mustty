@@ -83,7 +83,6 @@
 | `unicode-width` | `0.2.2` | 显示宽度（CJK = 2） | **必须与 ratatui-core 使用同一版本**（其约束为 `>=0.2.0, <=0.2.2`），否则我们算的列宽与 ratatui 写入 Buffer 的宽度不一致，会出现光标错位 |
 | `unicode-linebreak` | `0.1.5` | UAX #14 断行机会（中英混排软换行、避头尾） | 否决 `textwrap 0.16`：它返回 `Cow<str>` 行而非源偏移，我们需要的是 char 区间映射；否决自写"空格 + CJK 任意断"规则：不处理 `，。」` 等避头尾 |
 | `anyhow` | `1.0.104` | `main` / `App` 层错误聚合 | 应用层惯例 |
-| `thiserror` | `2.0.21` | `io` 模块的结构化错误（`NotUtf8`、`Io`…） | 让 status bar 能按错误类型给出中文提示 |
 | `tracing` | `0.1.44` | 调试日志宏 | 否决 `log`+`env_logger`：后者默认写 stderr，会污染 TUI |
 | `tracing-subscriber` | `0.3.23`，features `["env-filter", "fmt"]` | 日志过滤与格式化 | — |
 | `tracing-appender` | `0.2.5` | 写文件（非阻塞） | 日志**只在设置 `MUSTTY_LOG=<path>` 时启用**，永不写 stdout/stderr |
@@ -91,6 +90,7 @@
 | `serde` | `1.0.229`，features `["derive"]` | 给 `CodeColor` 等配置值类型派生 `Deserialize`（M4） | 事实标准，`toml` 的反序列化也建立在它之上 |
 | `toml` | `1.1.8`（默认 features） | 解析 `~/.mustty.toml`：先解析成 `toml::Table`，再逐个键 `Value::try_into::<T>()`，这样单个键类型错误不会拖垮整个文件（§8.5）（M4） | 否决 `serde_json` / `serde_yaml`：用户已拍板使用 TOML；否决 `toml_edit`：只读不写，不需要保留格式 |
 | `dirs` | `7.0.0` | `dirs::home_dir()` 定位 `~/.mustty.toml`（Windows 为 `%USERPROFILE%\.mustty.toml`）（M4） | 否决读 `$HOME`：Windows 上没有这个变量；否决 `directories` / `etcetera`：它们面向 XDG / AppData，而用户要求的路径固定在 home 根目录 |
+| `sys-locale` | `0.3.2` | 环境变量都没设时取系统语言（主要为 Windows），见 §11.4 | 体积约为 0、无传递依赖；否决 fluent / rust-i18n：几十条字符串用不上复数引擎和宏，见 §11.4 |
 | `tempfile` | `3.27.0` | 原子保存：同目录临时文件 + `persist()`（Unix `rename`，Windows `MoveFileExW(REPLACE_EXISTING)`） | 否决 `atomic-write-file 0.3`：功能等价但用户少；`tempfile` 测试里也要用，复用一个依赖 |
 
 ### 3.2 开发依赖
@@ -106,6 +106,7 @@
 M4 的 `--vim` **不新增任何 crate**：Normal/Insert 状态机和按键序列（`gg`、`dd`）都在 `keymap.rs` 里手写（估计约 200 行），clap 只多一个 bool 参数。否决 `edtui` 的 vim 引擎：它和自己的 buffer 是绑在一起的（§2.3）。
 
 此外明确不引入：`pulldown-cmark`（理由 §6.3）、`syntect`（体积 + 非目标）、`arboard`（系统剪贴板在 SSH / Linux 无 X 下不可靠，改用 OSC 52，§7.3）、`tokio`（同步事件循环足够，§11.3）、`undo`（§4.5）、`notify`（配置不做热重载，§8.5）。`dirs` 已从这里移出，因为配置文件需要它（§3.1）。
+`thiserror` 已移除：`IoError` 的文案要按界面语言取，`#[error]` 只收字面量，改为手写 `Display`（§11.4）。
 
 ---
 
@@ -624,7 +625,7 @@ ratatui::restore()
 mustty/
 ├── Cargo.toml
 ├── src/
-│   ├── main.rs              CLI 解析(clap)、日志初始化、调用 app::run，错误转退出码
+│   ├── main.rs              语言初始化、CLI 解析(clap)、日志初始化、调用 app::run，错误转退出码
 │   ├── lib.rs               re-export 各模块，供集成测试使用
 │   ├── app.rs               App 状态机 + 事件循环 + Action 分发
 │   ├── terminal.rs          TerminalGuard：进入/恢复终端模式
@@ -648,9 +649,13 @@ mustty/
 │   │   └── widgets.rs       TitleWidget、BodyWidget、StatusWidget
 │   ├── config.rs            PartialConfig / Config：读取 ~/.mustty.toml、逐键容错、钳制、三层合并（M4）
 │   ├── status.rs            StatusModel：模式标识、文件名、dirty、消息队列、提示行状态
+│   ├── i18n.rs              LOCALES 表、语言协商、t / t_args、缺 key 回退 en（§11.4）
 │   └── io/
 │       ├── file.rs          load / save（原子写、BOM、换行、mtime）
 │       └── autosave.rs      AutosaveTimer（deadline 计算）
+├── locales/
+│   ├── en.toml              源语言 + 回退语言，扁平的 id = "文案"
+│   └── zh-CN.toml           首份译文
 └── tests/
     ├── file_roundtrip.rs
     └── render_snapshots.rs
@@ -729,8 +734,8 @@ pub struct Viewport { pub top: ViewTop, pub top_padding: u16, pub typewriter: bo
 impl Viewport { pub fn follow(&mut self, cursor: VisualPos, body_h: u16, wrap: &mut WrapCache, rope: &Rope); }
 
 // io/file.rs
-#[derive(thiserror::Error, Debug)]
-pub enum IoError { #[error("…")] NotUtf8 { offset: usize }, #[error("…")] IsDirectory, #[error("…")] ExternallyModified, #[error(transparent)] Io(#[from] std::io::Error) }
+#[derive(Debug)]                                             // Display 手写，文案经 i18n::t 取（§11.4）
+pub enum IoError { NotUtf8 { offset: usize }, IsDirectory, ExternallyModified, Io(std::io::Error) }
 pub fn load(path: &Path) -> Result<Document, IoError>;       // 不存在 → Ok(空文档 + path)
 pub fn save(doc: &Document, path: &Path, check_mtime: bool) -> Result<SystemTime, IoError>;
 
@@ -795,6 +800,24 @@ loop {
 ```
 
 否决 `tokio` + `EventStream`：没有网络 / 并发 IO，异步运行时只增加编译时间和二进制体积。保存在主线程同步执行（典型文件 < 1 MB，fsync 数毫秒，用户无感）。
+
+### 11.4 界面文案（i18n）
+
+评估见 `docs/feasibility-i18n-and-settings-panel.md` 议题一；实现采用手写 TOML 表，与评估推荐的 fluent 不同。
+
+- **文件**：`locales/<tag>.toml` 是扁平的 `id = "文案"` 表，`include_str!` 编译期嵌入。`en` 是源语言和回退语言，id 用英文 kebab-case。
+- **API**：只有 `t("id") -> &'static str` 和 `t_args("id", &[("name", value)]) -> String`，没有宏。第一个参数必须是字符串字面量。占位符写成 `{name}`，做简单替换；缺参数时原样保留并 `debug_assert`。
+- **复数**：只有英文字数一处，拆成 `status-words-one` / `status-words-other` 两条 key，不做复数规则。
+- **回退**：当前语言缺 key 时取 `en`，每个 (语言, id) 只 `tracing::warn!` 一次；`en` 也没有则返回 id 本身。
+- **协商**：依次取 `MUSTTY_LANG` → `LC_ALL` → `LC_MESSAGES` → `LANG` 中第一个非空值，都没有时用 `sys-locale`，再没有用 `en`。环境变量必须排在前面，因为 macOS 的 `sys-locale` 返回 `zh-Hans-CN`，且忽略 `LANG`。
+- **匹配**：先比较语言 + 地区，再只比较语言。`C` / `POSIX` → `en`。`zh` 的 script 为 `Hant` 或地区为 TW / HK / MO 时请求 `zh-TW`，目前没有这份译文，所以回退到 `zh-CN`。不设 `lang` 配置键。
+- **初始化**：`i18n::init()` 在 `main()` 第一行调用，早于 clap 解析，因为 `--help` 也要翻译。clap 保留 derive，用 `Cli::command()` + `mut_arg` 在运行时填入 about / after_help / 各参数说明。clap 自带的 `Usage:` / `Options:` 和解析错误无法本地化。
+- **测试**：
+  - 每份 toml 都能解析，且与 `LOCALES` 表一一对应；
+  - 译文的 key 必须是 `en` 的子集，占位符集合与 `en` 一致；
+  - 扫描 `src/**/*.rs` 中非测试部分的 `t(` / `t_args(` 字面量，`en` 必须恰好覆盖这些 id；
+  - 语言协商用表驱动测试。
+  - 测试通过 `i18n::init_for_test(tag)` 按线程固定语言；快照按 `zh-CN` 录制。
 
 ---
 

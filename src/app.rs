@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::editor::cursor::Cursor;
 use crate::editor::document::Document;
 use crate::editor::{Editor, Effect};
+use crate::i18n::{t, t_args};
 use crate::io::file::{self, IoError};
 use crate::keymap::{Keymap, Mode};
 use crate::status::{Prompt, StatusModel};
@@ -94,11 +95,7 @@ impl App {
         );
         let mut status = StatusModel::default();
         if large {
-            status.info(
-                "文件超过 5 MB，字数改为保存时更新",
-                Instant::now(),
-                INFO_TTL,
-            );
+            status.info(t("msg-large-file"), Instant::now(), INFO_TTL);
         }
         status.words = editor.word_count();
         Self {
@@ -191,7 +188,7 @@ impl App {
             .as_deref()
             .and_then(Path::file_stem)
             .map_or_else(
-                || "Untitled".to_owned(),
+                || t("status-untitled").to_owned(),
                 |s| s.to_string_lossy().into_owned(),
             )
     }
@@ -294,21 +291,18 @@ impl App {
             Action::ScrollView(delta) => self.scroll_view(delta, now),
             Action::ToggleTypewriter => {
                 self.viewport.typewriter = !self.viewport.typewriter;
-                let state = if self.viewport.typewriter {
-                    "开"
-                } else {
-                    "关"
-                };
-                self.status
-                    .info(format!("Typewriter 模式：{state}"), now, TOGGLE_TTL);
+                let msg = t_args(
+                    "msg-typewriter",
+                    &[("state", on_off(self.viewport.typewriter))],
+                );
+                self.status.info(msg, now, TOGGLE_TTL);
                 let body = self.layout().body;
                 self.sync_body(body);
             }
             Action::ToggleFocusMode => {
                 self.focus_mode = !self.focus_mode;
-                let state = if self.focus_mode { "开" } else { "关" };
-                self.status
-                    .info(format!("Focus 模式：{state}"), now, TOGGLE_TTL);
+                let msg = t_args("msg-focus", &[("state", on_off(self.focus_mode))]);
+                self.status.info(msg, now, TOGGLE_TTL);
             }
             Action::Paste(s) => match &mut self.status.prompt {
                 Some(prompt) => prompt.paste(&s),
@@ -326,7 +320,7 @@ impl App {
             self.should_quit = true;
         } else {
             self.quit_armed = true;
-            self.status.error("未保存，再按 Ctrl+Q 放弃");
+            self.status.error(t("msg-quit-unsaved"));
         }
     }
 
@@ -355,11 +349,7 @@ impl App {
         if self.osc52_supported {
             self.output.push(crate::terminal::osc52(text));
         } else if !std::mem::replace(&mut self.osc52_warned, true) {
-            self.status.info(
-                "此终端不支持 OSC 52：已复制到内部寄存器，Ctrl+V 可粘贴",
-                now,
-                INFO_TTL,
-            );
+            self.status.info(t("msg-osc52-unsupported"), now, INFO_TTL);
         }
     }
 
@@ -418,7 +408,8 @@ impl App {
             }
             Err(e) => {
                 tracing::warn!(path = %path.display(), error = %e, "save failed");
-                self.status.error(format!("保存失败：{e}"));
+                self.status
+                    .error(t_args("msg-save-failed", &[("error", &e.to_string())]));
                 false
             }
         }
@@ -552,6 +543,10 @@ impl App {
             self.status.words = self.editor.word_count();
         }
     }
+}
+
+fn on_off(on: bool) -> &'static str {
+    if on { t("msg-on") } else { t("msg-off") }
 }
 
 /// Windows 不产生 `Event::Paste`：把同一批里连续 ≥ `PASTE_MIN_CHARS` 个字符输入合并为一次粘贴。

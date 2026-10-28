@@ -2,6 +2,7 @@ pub mod action;
 pub mod app;
 pub mod config;
 pub mod editor;
+pub mod i18n;
 pub mod io;
 pub mod keymap;
 pub mod markdown;

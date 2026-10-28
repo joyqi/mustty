@@ -11,6 +11,8 @@ fn key(code: KeyCode) -> Event {
 }
 
 fn draw(path: Option<&str>, raw: &str, w: u16, h: u16, events: &[Event]) -> TestBackend {
+    // 快照按中文界面录制
+    mustty::i18n::init_for_test("zh-CN");
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     let meta = FileMeta::new(path.map(Into::into));
     let mut app = App::new(Document::parse(raw, meta), Size::new(w, h), false);
@@ -155,6 +157,7 @@ fn draw_with(
     events: &[Event],
     hint: bool,
 ) -> TestBackend {
+    mustty::i18n::init_for_test("zh-CN");
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     let meta = FileMeta::new(Some("notes.md".into()));
     let mut app = App::with_config(Document::parse(raw, meta), Size::new(w, h), config);
@@ -205,6 +208,7 @@ fn focus_mode_dims_other_paragraphs_and_vim_label() {
 }
 
 fn draw_meta(meta: FileMeta, raw: &str, w: u16, h: u16, events: &[Event]) -> TestBackend {
+    mustty::i18n::init_for_test("zh-CN");
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     let mut app = App::new(Document::parse(raw, meta), Size::new(w, h), false);
     for ev in events {
@@ -316,4 +320,32 @@ fn prompt_hides_save_mark() {
         &[key(KeyCode::Char('x')), ctrl_s, key(KeyCode::Esc)],
     );
     assert!(status_line(&b, 9).contains('*'), "{}", status_line(&b, 9));
+}
+
+#[test]
+fn english_status_bar() {
+    mustty::i18n::init_for_test("en");
+    let text = |events: &[Event]| {
+        let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+        let mut app = App::new(
+            Document::parse("", FileMeta::new(None)),
+            Size::new(60, 10),
+            false,
+        );
+        for ev in events {
+            app.handle(ev.clone());
+        }
+        terminal.draw(|f| view::render(f, &mut app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        buf.content.iter().map(|c| c.symbol()).collect::<String>()
+    };
+    let empty = text(&[]);
+    assert!(
+        empty.contains("Untitled") && empty.contains("0 words"),
+        "{empty}"
+    );
+    let one = text(&[key(KeyCode::Down), key(KeyCode::Char('a'))]);
+    assert!(one.contains("1 word ") && !one.contains("1 words"), "{one}");
+    let title = text(&[key(KeyCode::Up)]);
+    assert!(title.contains("Title"), "{title}");
 }

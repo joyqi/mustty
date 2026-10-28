@@ -1,0 +1,54 @@
+# mustty 界面文案：简体中文。只翻译等号右边，{占位符} 原样保留。
+
+# status bar
+status-words-one = "{n} 字"
+status-words-other = "{n} 字"
+status-untitled = "Untitled"
+status-title = "标题"
+status-window-too-small = "窗口太小"
+status-hint = "^S 保存  ^Q 退出"
+
+# 保存提示行
+prompt-save-as = "保存为: "
+prompt-overwrite = "文件已存在，Enter 覆盖: "
+
+# 消息
+msg-save-failed = "保存失败：{error}"
+msg-typewriter = "Typewriter 模式：{state}"
+msg-focus = "Focus 模式：{state}"
+msg-on = "开"
+msg-off = "关"
+msg-quit-unsaved = "未保存，再按 Ctrl+Q 放弃"
+msg-osc52-unsupported = "此终端不支持 OSC 52：已复制到内部寄存器，Ctrl+V 可粘贴"
+msg-large-file = "文件超过 5 MB，字数改为保存时更新"
+
+# 文件错误
+io-not-utf8 = "不是 UTF-8 文件（第 {offset} 字节）"
+io-is-directory = "mustty 只编辑文件"
+io-externally-modified = "文件已被外部修改，Ctrl+S 强制覆盖"
+io-stat-after-save = "无法读取保存后的文件信息"
+
+# 配置警告
+config-syntax-error = "~/.mustty.toml 第 {line} 行语法错误，已使用默认配置"
+config-expected-integer = "{key} 应为整数，已用默认值"
+config-expected-bool = "{key} 应为 true 或 false，已用默认值"
+config-invalid-color = "code_color={value} 无效（可选 black red green yellow blue magenta cyan white），已用 cyan"
+config-unreadable = "无法读取 ~/.mustty.toml（{error}），已使用默认配置"
+config-corrected = "配置已修正：{list}"
+config-separator = "；"
+
+# 启动错误
+startup-log-file = "无法打开日志文件 {path}：{error}"
+startup-open = "无法打开 {path}：{error}"
+
+# --help
+cli-about = "终端里的极简 Markdown 写作器"
+cli-after-help = "配置文件：~/.mustty.toml（Windows 为用户主目录下的 .mustty.toml）。\n优先级：命令行参数 > 配置文件 > 内置默认值。\n界面语言：MUSTTY_LANG，其次 LC_ALL、LC_MESSAGES、LANG，最后是系统语言（例：MUSTTY_LANG=en）。"
+cli-file = "要编辑的文件；不存在则在首次保存时创建，省略则为 Untitled"
+cli-width = "正文宽度（列），钳制在 40..=120，默认 72"
+cli-autosave = "自动保存（默认开启：停手 2 秒后保存）"
+cli-no-autosave = "关闭自动保存"
+cli-vim = "启用 vim 风格的 Normal / Insert 键位"
+cli-no-vim = "关闭 vim 键位（覆盖配置文件）"
+cli-mouse = "启用鼠标：单击定位、拖拽选择、滚轮滚动。开启后终端原生拖选复制需按住 Shift"
+cli-no-mouse = "关闭鼠标（覆盖配置文件）"

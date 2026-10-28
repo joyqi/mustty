@@ -1,0 +1,55 @@
+# mustty UI strings. Source language and fallback for every other locale.
+# Translate the right-hand side only; keep every {placeholder} unchanged.
+
+# status bar
+status-words-one = "{n} word"
+status-words-other = "{n} words"
+status-untitled = "Untitled"
+status-title = "Title"
+status-window-too-small = "Window too small"
+status-hint = "^S save  ^Q quit"
+
+# save prompt
+prompt-save-as = "Save as: "
+prompt-overwrite = "File exists, Enter to overwrite: "
+
+# messages
+msg-save-failed = "Save failed: {error}"
+msg-typewriter = "Typewriter mode: {state}"
+msg-focus = "Focus mode: {state}"
+msg-on = "on"
+msg-off = "off"
+msg-quit-unsaved = "Unsaved changes, press Ctrl+Q again to discard"
+msg-osc52-unsupported = "This terminal doesn't support OSC 52: copied to the internal register, Ctrl+V pastes"
+msg-large-file = "File is over 5 MB: word count updates on save"
+
+# file errors
+io-not-utf8 = "Not a UTF-8 file (byte {offset})"
+io-is-directory = "mustty only edits files"
+io-externally-modified = "File changed on disk, Ctrl+S to overwrite"
+io-stat-after-save = "Could not read file info after saving"
+
+# config warnings
+config-syntax-error = "~/.mustty.toml line {line}: syntax error, using defaults"
+config-expected-integer = "{key} should be an integer, using default"
+config-expected-bool = "{key} should be true or false, using default"
+config-invalid-color = "code_color={value} is invalid (one of black red green yellow blue magenta cyan white), using cyan"
+config-unreadable = "Cannot read ~/.mustty.toml ({error}), using defaults"
+config-corrected = "Config corrected: {list}"
+config-separator = "; "
+
+# startup errors
+startup-log-file = "Cannot open log file {path}: {error}"
+startup-open = "Cannot open {path}: {error}"
+
+# --help
+cli-about = "A distraction-free Markdown writer for the terminal"
+cli-after-help = "Config file: ~/.mustty.toml (.mustty.toml in the user's home directory on Windows).\nPriority: command line > config file > built-in defaults.\nLanguage: MUSTTY_LANG, then LC_ALL, LC_MESSAGES, LANG, then the system locale (e.g. MUSTTY_LANG=zh-CN)."
+cli-file = "File to edit; created on first save if missing, Untitled if omitted"
+cli-width = "Body width in columns, clamped to 40..=120, default 72"
+cli-autosave = "Autosave (on by default: saves after 2 s idle)"
+cli-no-autosave = "Turn off autosave"
+cli-vim = "Enable vim-style Normal / Insert keys"
+cli-no-vim = "Turn off vim keys (overrides the config file)"
+cli-mouse = "Enable the mouse: click to place, drag to select, wheel to scroll. Hold Shift for the terminal's own selection"
+cli-no-mouse = "Turn off the mouse (overrides the config file)"

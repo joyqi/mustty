@@ -7,6 +7,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Style};
 use ropey::Rope;
 
+use crate::i18n::{t, t_args};
 use crate::text::count::thousands;
 use crate::text::grapheme::{graphemes, next_boundary, prev_boundary};
 use crate::text::wrap::line_text;
@@ -24,9 +25,9 @@ pub struct Prompt {
 impl Prompt {
     pub fn label(&self) -> &'static str {
         if self.confirm_overwrite {
-            "文件已存在，Enter 覆盖: "
+            t("prompt-overwrite")
         } else {
-            "保存为: "
+            t("prompt-save-as")
         }
     }
 
@@ -189,17 +190,23 @@ impl StatusModel {
     }
 
     pub fn words_label(&self) -> String {
-        format!("{} 字", thousands(self.words))
+        let n = thousands(self.words);
+        // 英文单复数：只有这一处，用两条 key 解决，不引入复数规则
+        if self.words == 1 {
+            t_args("status-words-one", &[("n", &n)])
+        } else {
+            t_args("status-words-other", &[("n", &n)])
+        }
     }
 
-    /// basename；无路径时为 `Untitled`。
+    /// basename；无路径时为 `Untitled`（按界面语言）。
     pub fn file_name(path: Option<&Path>) -> String {
         match path {
             Some(p) => p.file_name().map_or_else(
                 || p.display().to_string(),
                 |n| n.to_string_lossy().into_owned(),
             ),
-            None => "Untitled".into(),
+            None => t("status-untitled").into(),
         }
     }
 

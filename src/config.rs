@@ -7,6 +7,8 @@ use std::time::Duration;
 use ratatui::style::Color;
 use serde::Deserialize;
 
+use crate::i18n::{t, t_args};
+
 pub const WIDTH_RANGE: (u16, u16) = (40, 120);
 pub const TAB_WIDTH_RANGE: (u16, u16) = (1, 16);
 pub const AUTOSAVE_IDLE_RANGE: (u64, u64) = (500, 60_000);
@@ -124,7 +126,7 @@ impl PartialConfig {
                 let line = e
                     .span()
                     .map_or(1, |r| s[..r.start.min(s.len())].matches('\n').count() + 1);
-                let msg = format!("~/.mustty.toml 第 {line} 行语法错误，已使用默认配置");
+                let msg = t_args("config-syntax-error", &[("line", &line.to_string())]);
                 return (Self::default(), vec![ConfigWarning::file(msg)]);
             }
         };
@@ -143,7 +145,7 @@ impl PartialConfig {
             };
             let int = |range: (i64, i64), warn: &mut dyn FnMut(String)| -> Option<i64> {
                 let Some(v) = value.as_integer() else {
-                    warn(format!("{key} 应为整数，已用默认值"));
+                    warn(t_args("config-expected-integer", &[("key", key)]));
                     return None;
                 };
                 let c = v.clamp(range.0, range.1);
@@ -155,7 +157,7 @@ impl PartialConfig {
             let boolean = |warn: &mut dyn FnMut(String)| -> Option<bool> {
                 let b = value.as_bool();
                 if b.is_none() {
-                    warn(format!("{key} 应为 true 或 false，已用默认值"));
+                    warn(t_args("config-expected-bool", &[("key", key)]));
                 }
                 b
             };
@@ -184,9 +186,8 @@ impl PartialConfig {
                         .map(|s| toml::Value::String(s.to_lowercase()));
                     p.code_color = lowered.and_then(|v| v.try_into().ok());
                     if p.code_color.is_none() {
-                        warn(format!(
-                            "code_color={value} 无效（可选 black red green yellow blue magenta cyan white），已用 cyan"
-                        ));
+                        let value = value.to_string();
+                        warn(t_args("config-invalid-color", &[("value", &value)]));
                     }
                 }
                 _ => unreachable!("KEYS 与 match 分支一一对应"),
@@ -245,7 +246,7 @@ fn read_file(path: &Path) -> (PartialConfig, Vec<ConfigWarning>) {
         Ok(text) => PartialConfig::from_toml_str(&text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (PartialConfig::default(), vec![]),
         Err(e) => {
-            let msg = format!("无法读取 ~/.mustty.toml（{e}），已使用默认配置");
+            let msg = t_args("config-unreadable", &[("error", &e.to_string())]);
             (PartialConfig::default(), vec![ConfigWarning::file(msg)])
         }
     }
@@ -257,10 +258,11 @@ pub fn summarize(warnings: &[ConfigWarning]) -> Option<String> {
         return None;
     }
     let parts: Vec<&str> = warnings.iter().map(|w| w.message.as_str()).collect();
+    let list = parts.join(t("config-separator"));
     if warnings.iter().all(|w| w.key.is_some()) {
-        Some(format!("配置已修正：{}", parts.join("；")))
+        Some(t_args("config-corrected", &[("list", &list)]))
     } else {
-        Some(parts.join("；"))
+        Some(list)
     }
 }
 
@@ -404,11 +406,19 @@ mod tests {
 
     #[test]
     fn syntax_error_reports_line() {
+        crate::i18n::init_for_test("zh-CN");
         let (p, w) = PartialConfig::from_toml_str("width = 64\nvim = true\nmouse = = 1\n");
         assert_eq!(p, PartialConfig::default());
         assert_eq!(w.len(), 1);
         assert_eq!(w[0].key, None);
         assert!(w[0].message.contains("第 3 行语法错误"), "{}", w[0].message);
+        crate::i18n::init_for_test("en");
+        let (_, w) = PartialConfig::from_toml_str("width = 64\nvim = true\nmouse = = 1\n");
+        assert!(
+            w[0].message.contains("line 3: syntax error"),
+            "{}",
+            w[0].message
+        );
     }
 
     #[test]
@@ -451,6 +461,7 @@ mod tests {
 
     #[test]
     fn summary_lists_keys() {
+        crate::i18n::init_for_test("zh-CN");
         let (_, w) =
             PartialConfig::from_toml_str("width = 200\ntab_width = 0\ncode_color = \"orange\"");
         let s = summarize(&w).unwrap();
