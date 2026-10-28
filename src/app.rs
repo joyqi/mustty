@@ -10,16 +10,16 @@ use crossterm::cursor::SetCursorStyle;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
 use ratatui::DefaultTerminal;
 use ratatui::layout::{Rect, Size};
-use ratatui::style::Color;
 
 use crate::action::{Action, Motion, Target};
-use crate::config::Config;
+use crate::config::{self, Config, PartialConfig};
 use crate::editor::cursor::Cursor;
 use crate::editor::document::Document;
 use crate::editor::{Editor, Effect};
 use crate::i18n::{t, t_args};
 use crate::io::file::{self, IoError};
 use crate::keymap::{Keymap, Mode};
+use crate::settings::{Outcome, Settings};
 use crate::status::{Prompt, StatusModel};
 use crate::view;
 use crate::view::layout::{Layout, compute_layout};
@@ -47,19 +47,22 @@ pub struct App {
     pub(crate) status: StatusModel,
     pub(crate) viewport: Viewport,
     area: Rect,
-    /// 正文宽度（配置项 width / --width）
-    measure: u16,
-    autosave: bool,
-    autosave_idle: Duration,
-    /// 处理鼠标事件（配置项 mouse / --mouse；关闭时终端不会送来鼠标事件）
-    mouse: bool,
+    /// 当前生效的配置，唯一的真值来源；只经 `apply_config` 修改。
+    /// 它的一部分还复制在子对象里：Keymap（vim、tab_width）、Viewport（typewriter、scrolloff）、
+    /// Editor 的 WrapCache（tab_width），由 `apply_config` 同步
+    pub(crate) config: Config,
+    /// 启动时命令行这一层：设置面板用它标出「下次启动仍会被命令行覆盖」的项
+    cli: PartialConfig,
+    /// 设置面板写回的配置文件；None 时只在本次会话生效（测试默认如此，不会碰到真实的 ~/.mustty.toml）
+    config_path: Option<PathBuf>,
+    /// 设置面板（Ctrl+P）；打开时吞掉所有按键
+    pub(crate) settings: Option<Settings>,
+    /// 待执行的鼠标捕获开关，由事件循环用 `execute!` 执行（Windows 上走 WinAPI）
+    mouse_capture: Option<bool>,
     /// 左键拖拽中（仅鼠标开启时）
     drag: Option<DragState>,
     /// 上一帧渲染输出的屏幕 ↔ 文档坐标换算，鼠标只查它
     pub(crate) screen: Option<ScreenMap>,
-    pub(crate) focus_mode: bool,
-    pub(crate) tab_width: u16,
-    pub(crate) code_color: Color,
     /// 大文件：字数只在保存时刷新
     large: bool,
     /// 最后一次改动内容的时刻；自动保存尝试后清空，避免失败时反复重试
@@ -85,42 +88,42 @@ impl App {
         Self::with_config(doc, size, &config)
     }
 
+    /// 先按默认配置搭好，再经 `apply_config` 应用 `config`：初始化与运行中修改走同一条路径。
     pub fn with_config(doc: Document, size: Size, config: &Config) -> Self {
         let area = Rect::new(0, 0, size.width, size.height);
         let large = doc.body().len_bytes() > LARGE_FILE;
+        let base = Config::default();
         let editor = Editor::new(
             doc,
-            compute_layout(area, config.width).body.width,
-            config.tab_width,
+            compute_layout(area, base.width).body.width,
+            base.tab_width,
         );
         let mut status = StatusModel::default();
         if large {
             status.info(t("msg-large-file"), Instant::now(), INFO_TTL);
         }
         status.words = editor.word_count();
-        Self {
+        let mut app = Self {
             editor,
             keymap: Keymap {
-                vim: config.vim,
-                tab_width: config.tab_width,
+                vim: base.vim,
+                tab_width: base.tab_width,
             },
-            tab_width: config.tab_width,
             mode: Mode::Insert,
             status,
             viewport: Viewport {
-                typewriter: config.typewriter,
-                scrolloff: config.scrolloff,
+                typewriter: base.typewriter,
+                scrolloff: base.scrolloff,
                 ..Viewport::default()
             },
             area,
-            measure: config.width,
-            autosave: config.autosave,
-            autosave_idle: config.autosave_idle,
-            mouse: config.mouse,
+            config: base,
+            cli: PartialConfig::default(),
+            config_path: None,
+            settings: None,
+            mouse_capture: None,
             drag: None,
             screen: None,
-            focus_mode: config.focus_mode,
-            code_color: config.code_color,
             large,
             last_edit: None,
             quit_armed: false,
@@ -129,15 +132,91 @@ impl App {
             osc52_warned: false,
             should_quit: false,
             needs_redraw: true,
+        };
+        app.apply_config(config);
+        // 启动时的终端状态（鼠标捕获、竖线光标）已由 TerminalGuard 设好，不再重复输出
+        app.output.clear();
+        app.mouse_capture = None;
+        app
+    }
+
+    /// 应用一份配置：逐项与当前值比较，把差异分发到各自的存放位置。
+    /// 启动（`with_config`）和设置面板的每次调整都只走这里。
+    pub fn apply_config(&mut self, new: &Config) {
+        self.apply_config_at(new, Instant::now());
+    }
+
+    fn apply_config_at(&mut self, new: &Config, now: Instant) {
+        let old = std::mem::replace(&mut self.config, new.clone());
+        self.needs_redraw = true;
+        // width：sync_body 发现正文宽度变了会 rewrap，这里不用做什么
+        self.viewport.typewriter = new.typewriter;
+        self.viewport.scrolloff = new.scrolloff;
+        if new.tab_width != old.tab_width {
+            // tab_width 的另外两份副本：Tab 键插入的空格数、换行与渲染用的 Tab 宽度
+            self.keymap.tab_width = new.tab_width;
+            let (doc, wrap, _) = self.editor.view();
+            self.viewport.retab(new.tab_width, wrap, doc.body());
+        }
+        if new.typewriter != old.typewriter || new.width != old.width {
+            let layout = self.layout();
+            if !layout.too_small {
+                self.sync_body(layout.body);
+            }
+        }
+        self.keymap.vim = new.vim;
+        if old.vim && !new.vim {
+            self.leave_vim(now);
+        }
+        if new.mouse != old.mouse {
+            self.drag = None;
+            self.mouse_capture = Some(new.mouse);
+        }
+        // 从关切到开：有未保存修改时从现在起计时，空闲后照常自动保存
+        if new.autosave && !old.autosave && self.editor.is_dirty() {
+            self.last_edit = Some(now);
         }
     }
 
+    /// vim 被关掉：Normal 态强制回 Insert（换回竖线光标），清掉 pending / visual 与选区。
+    fn leave_vim(&mut self, now: Instant) {
+        if matches!(self.mode, Mode::Insert) {
+            return;
+        }
+        self.mode = Mode::Insert;
+        self.push_cursor_style(SetCursorStyle::SteadyBar);
+        if self.editor.selection().is_some() {
+            self.editor.apply(&Action::Cancel, 1, now);
+        }
+    }
+
+    fn push_cursor_style(&mut self, style: SetCursorStyle) {
+        let mut seq = String::new();
+        if style.write_ansi(&mut seq).is_ok() {
+            self.output.push(seq);
+        }
+    }
+
+    /// 命令行这一层（main 启动时设置），设置面板据此标出被命令行覆盖的项。
+    pub fn set_cli_layer(&mut self, cli: PartialConfig) {
+        self.cli = cli;
+    }
+
+    pub(crate) fn cli_layer(&self) -> &PartialConfig {
+        &self.cli
+    }
+
+    /// 设置面板按 Enter 时写回的配置文件。
+    pub fn set_config_path(&mut self, path: Option<PathBuf>) {
+        self.config_path = path;
+    }
+
     pub fn layout(&self) -> Layout {
-        compute_layout(self.area, self.measure)
+        compute_layout(self.area, self.config.width)
     }
 
     pub fn measure(&self) -> u16 {
-        self.measure
+        self.config.width
     }
 
     /// 启动后 5 s 在 status bar 右段显示键位提示。
@@ -212,12 +291,23 @@ impl App {
                 return;
             }
             Event::Mouse(m) => {
-                if self.mouse {
+                // 面板不做点击 hit-test
+                if self.config.mouse && self.settings.is_none() {
                     self.on_mouse(m, now);
                 }
                 return;
             }
             _ => {}
+        }
+        // 两个抢占输入的浮层同一时刻最多一个：提示行打开时 Ctrl+P 进了 PromptInput，
+        // 面板打开时 Ctrl+S 被吞掉
+        debug_assert!(!(self.settings.is_some() && self.status.prompt.is_some()));
+        if self.settings.is_some() {
+            // 面板吞掉所有按键，不经过 Keymap，mode 保持原样；粘贴丢弃
+            if let Event::Key(key) = ev {
+                self.settings_key(key, now);
+            }
+            return;
         }
         #[cfg(debug_assertions)]
         if let Event::Key(key) = &ev
@@ -238,15 +328,11 @@ impl App {
         }
         if before != after {
             // Normal 态块状光标，Insert 态竖线
-            let style = if after {
+            self.push_cursor_style(if after {
                 SetCursorStyle::SteadyBlock
             } else {
                 SetCursorStyle::SteadyBar
-            };
-            let mut seq = String::new();
-            if style.write_ansi(&mut seq).is_ok() {
-                self.output.push(seq);
-            }
+            });
         }
         // 进入 visual：选区从光标所在的字开始
         if is_visual && !was_visual {
@@ -290,20 +376,30 @@ impl App {
             Action::PromptInput(key) => self.prompt_input(key),
             Action::ScrollView(delta) => self.scroll_view(delta, now),
             Action::ToggleTypewriter => {
-                self.viewport.typewriter = !self.viewport.typewriter;
-                let msg = t_args(
-                    "msg-typewriter",
-                    &[("state", on_off(self.viewport.typewriter))],
+                let on = !self.config.typewriter;
+                self.apply_config_at(
+                    &Config {
+                        typewriter: on,
+                        ..self.config.clone()
+                    },
+                    now,
                 );
+                let msg = t_args("msg-typewriter", &[("state", on_off(on))]);
                 self.status.info(msg, now, TOGGLE_TTL);
-                let body = self.layout().body;
-                self.sync_body(body);
             }
             Action::ToggleFocusMode => {
-                self.focus_mode = !self.focus_mode;
-                let msg = t_args("msg-focus", &[("state", on_off(self.focus_mode))]);
+                let on = !self.config.focus_mode;
+                self.apply_config_at(
+                    &Config {
+                        focus_mode: on,
+                        ..self.config.clone()
+                    },
+                    now,
+                );
+                let msg = t_args("msg-focus", &[("state", on_off(on))]);
                 self.status.info(msg, now, TOGGLE_TTL);
             }
+            Action::OpenSettings => self.settings = Some(Settings::open(&self.config)),
             Action::Paste(s) => match &mut self.status.prompt {
                 Some(prompt) => prompt.paste(&s),
                 None => self.edit(&Action::Paste(s), now),
@@ -313,6 +409,62 @@ impl App {
         if self.editor.doc().revision() != revision {
             self.last_edit = Some(now);
         }
+    }
+
+    fn settings_key(&mut self, key: KeyEvent, now: Instant) {
+        let Some(settings) = &mut self.settings else {
+            return;
+        };
+        let outcome = settings.handle_key(&key, &self.config);
+        if outcome != Outcome::Ignored {
+            self.needs_redraw = true;
+            self.status.on_input();
+        }
+        match outcome {
+            Outcome::Ignored | Outcome::Moved => {}
+            Outcome::Changed(config) => self.apply_config_at(&config, now),
+            Outcome::Save => {
+                let snapshot = self.settings.take().map(|s| s.snapshot);
+                if let (Some(snapshot), Some(path)) = (snapshot, self.config_path.clone()) {
+                    self.write_settings(&path, &snapshot);
+                }
+            }
+            Outcome::Cancel => self.close_settings(now),
+            Outcome::Quit => {
+                self.close_settings(now);
+                self.dispatch(Action::Quit, now);
+            }
+        }
+    }
+
+    /// Esc：恢复打开面板时的快照并关闭，不写文件。
+    fn close_settings(&mut self, now: Instant) {
+        if let Some(settings) = self.settings.take() {
+            self.apply_config_at(&settings.snapshot, now);
+        }
+    }
+
+    /// Enter：只写与快照不同的键。失败时修改仍在本次会话生效。
+    fn write_settings(&mut self, path: &Path, snapshot: &Config) {
+        match config::write_back(path, snapshot, &self.config) {
+            Ok(()) => {}
+            Err(config::WriteBackError::Syntax) => {
+                tracing::warn!(path = %path.display(), "config has a syntax error, not written");
+                self.status.error(t("settings-syntax-error"));
+            }
+            Err(config::WriteBackError::Io(e)) => {
+                tracing::warn!(path = %path.display(), error = %e, "config write failed");
+                self.status.error(t_args(
+                    "settings-write-failed",
+                    &[("error", &e.to_string())],
+                ));
+            }
+        }
+    }
+
+    /// 取出待执行的鼠标捕获开关。
+    pub fn take_mouse_capture(&mut self) -> Option<bool> {
+        self.mouse_capture.take()
     }
 
     fn quit(&mut self, armed: bool) {
@@ -376,7 +528,9 @@ impl App {
     }
 
     fn can_autosave(&self) -> bool {
-        self.autosave && self.editor.doc().meta.path.is_some() && !self.status.externally_modified
+        self.config.autosave
+            && self.editor.doc().meta.path.is_some()
+            && !self.status.externally_modified
     }
 
     /// 立即自动保存（检查外部修改）；返回是否成功。
@@ -418,7 +572,7 @@ impl App {
     fn autosave_deadline(&self) -> Option<Instant> {
         self.last_edit
             .filter(|_| self.can_autosave() && self.editor.is_dirty())
-            .map(|t| t + self.autosave_idle)
+            .map(|t| t + self.config.autosave_idle)
     }
 
     /// 下一次需要醒来的时刻：自动保存与消息过期中较早者。
@@ -595,6 +749,9 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
     // 上一批事件的处理耗时，与随后的绘制耗时一起记为一帧
     let mut handle_us = 0;
     loop {
+        if let Some(on) = app.take_mouse_capture() {
+            crate::terminal::set_mouse_capture(terminal.backend_mut(), on)?;
+        }
         let output = app.take_terminal_output();
         if !output.is_empty() {
             let backend = terminal.backend_mut();
@@ -1077,7 +1234,7 @@ mod tests {
         };
         let mut app = App::with_config(doc, Size::new(120, 40), &config);
         assert_eq!(app.layout().body.width, 50);
-        assert_eq!(app.autosave_idle, Duration::from_millis(500));
+        assert_eq!(app.config.autosave_idle, Duration::from_millis(500));
         let t0 = Instant::now();
         app.show_startup_hint(t0);
         assert_eq!(app.next_deadline(), Some(t0 + HINT_TTL));
@@ -1114,5 +1271,310 @@ mod tests {
         // Ctrl 组合键不是输入
         let ctrl_s = Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         assert_eq!(coalesce_paste(vec![ctrl_s.clone()]), vec![ctrl_s]);
+    }
+
+    fn ctrl(c: char) -> Event {
+        Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+    }
+
+    fn lf_doc(text: &str) -> Document {
+        Document::parse(text, crate::editor::document::FileMeta::lf())
+    }
+
+    /// 让 WrapCache 把每一行都重新算一遍，并确认三份 tab_width 副本一致、缓存与重新换行的结果一致。
+    fn assert_tab_width_synced(app: &mut App, tab: u16) {
+        assert_eq!(app.config.tab_width, tab, "App 的配置");
+        assert_eq!(app.keymap.tab_width, tab, "Keymap：Tab 键插入的空格数");
+        let (doc, wrap, _) = app.editor.view();
+        let rope = doc.body();
+        assert_eq!(wrap.tab_width(), tab, "WrapCache：换行与渲染");
+        for l in 0..rope.len_lines() {
+            let rows = wrap.rows(rope, l).to_vec();
+            let fresh = crate::text::wrap::wrap_line(
+                &crate::text::wrap::line_text(rope, l),
+                wrap.width(),
+                tab,
+            );
+            assert_eq!(rows, fresh, "line {l}");
+        }
+        assert!(wrap.is_consistent(rope, 0..rope.len_lines()));
+    }
+
+    #[test]
+    fn apply_config_syncs_all_tab_width_copies() {
+        let text = "a\tb\tc\td\te\tf\tg\th\ti\tj\tk\tl\tm\tn\to\tp\tq\tr\ts\tt\n\tindented\n";
+        let mut app = App::new(lf_doc(text), Size::new(80, 24), false);
+        let body = app.layout().body;
+        app.sync_body(body);
+        assert_tab_width_synced(&mut app, 4);
+        app.apply_config(&Config {
+            tab_width: 8,
+            ..app.config.clone()
+        });
+        assert_tab_width_synced(&mut app, 8);
+        // Tab 键按新的宽度插入空格
+        app.handle(press(KeyCode::Tab));
+        assert!(body_text(&app).starts_with("        a\t"));
+        app.apply_config(&Config {
+            tab_width: 1,
+            ..app.config.clone()
+        });
+        assert_tab_width_synced(&mut app, 1);
+    }
+
+    fn body_text(app: &App) -> String {
+        app.editor.doc().body().to_string()
+    }
+
+    proptest::proptest! {
+        /// 随机文本（含 Tab）+ 随机改 tab_width：缓存始终与重新换行一致，光标的屏幕位置往返不变。
+        #[test]
+        fn retab_keeps_cache_consistent(
+            text in "[a-z \t中]{0,60}(\n[a-z \t中]{0,60}){0,4}",
+            tabs in proptest::collection::vec(1u16..=16, 1..5),
+            at in 0usize..200,
+        ) {
+            let mut app = App::new(lf_doc(&text), Size::new(60, 20), false);
+            let len = app.editor.doc().body().len_chars();
+            app.editor.apply(&Action::MoveTo(Target::Body(at.min(len)), false), 1, Instant::now());
+            for tab in tabs {
+                app.apply_config(&Config { tab_width: tab, ..app.config.clone() });
+                assert_tab_width_synced(&mut app, tab);
+                let head = app.editor.cursor.head;
+                let cursor = app.editor.cursor;
+                let (doc, wrap, _) = app.editor.view();
+                let pos = cursor.visual(doc.body(), wrap);
+                let back = wrap.visual_to_char(doc.body(), pos);
+                proptest::prop_assert_eq!(back, head);
+            }
+        }
+    }
+
+    #[test]
+    fn turning_vim_off_resets_normal_mode() {
+        let mut app = vim_app("hello");
+        typed(&mut app, "\x1bvl");
+        assert_eq!(app.mode_label(), Some("VIS"));
+        assert!(app.visible_selection().is_some());
+        app.take_terminal_output();
+        app.apply_config(&Config {
+            vim: false,
+            ..app.config.clone()
+        });
+        assert_eq!(app.mode, Mode::Insert);
+        assert_eq!(app.mode_label(), None);
+        assert_eq!(app.editor.selection(), None, "选区清掉");
+        assert_eq!(
+            app.take_terminal_output(),
+            vec!["\x1b[6 q".to_owned()],
+            "换回竖线光标"
+        );
+        // 关闭时本来就在 Insert：不推光标序列
+        let mut app = vim_app("hello");
+        app.apply_config(&Config {
+            vim: false,
+            ..app.config.clone()
+        });
+        assert!(app.take_terminal_output().is_empty());
+        // 再打开：保持 Insert
+        app.apply_config(&Config {
+            vim: true,
+            ..app.config.clone()
+        });
+        assert_eq!(app.mode_label(), Some("INS"));
+    }
+
+    #[test]
+    fn mouse_toggle_requests_capture_change() {
+        let mut app = mouse_app("x", false);
+        assert_eq!(
+            app.take_mouse_capture(),
+            None,
+            "启动时由 TerminalGuard 处理"
+        );
+        let on = Config {
+            mouse: true,
+            ..app.config.clone()
+        };
+        app.apply_config(&on);
+        assert_eq!(app.take_mouse_capture(), Some(true));
+        app.apply_config(&on);
+        assert_eq!(app.take_mouse_capture(), None, "没有变化不重复发送");
+        app.drag = Some(DragState {
+            last: ratatui::layout::Position::new(0, 0),
+            deadline: None,
+        });
+        app.apply_config(&Config {
+            mouse: false,
+            ..app.config.clone()
+        });
+        assert_eq!(app.take_mouse_capture(), Some(false));
+        assert!(app.drag.is_none(), "拖拽状态清掉");
+        let mouse = mouse_app("x", true);
+        assert!(mouse.config.mouse);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn mouse_capture_sequences() {
+        let mut out = Vec::new();
+        crate::terminal::set_mouse_capture(&mut out, true).unwrap();
+        let on = String::from_utf8(out).unwrap();
+        assert!(
+            on.contains("\x1b[?1000h") && on.contains("\x1b[?1006h"),
+            "{on:?}"
+        );
+        let mut out = Vec::new();
+        crate::terminal::set_mouse_capture(&mut out, false).unwrap();
+        let off = String::from_utf8(out).unwrap();
+        assert!(
+            off.contains("\x1b[?1000l") && off.contains("\x1b[?1006l"),
+            "{off:?}"
+        );
+    }
+
+    #[test]
+    fn enabling_autosave_with_unsaved_changes_starts_the_timer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "v1").unwrap();
+        let t0 = Instant::now();
+        let mut app = App::new(file::load(&path).unwrap(), Size::new(80, 24), false);
+        app.handle_at(press(KeyCode::Char('x')), t0);
+        assert_eq!(app.next_deadline(), None);
+        let t1 = t0 + Duration::from_secs(10);
+        app.apply_config_at(
+            &Config {
+                autosave: true,
+                ..app.config.clone()
+            },
+            t1,
+        );
+        assert_eq!(app.next_deadline(), Some(t1 + AUTOSAVE_IDLE));
+        app.tick(t1 + AUTOSAVE_IDLE);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "xv1");
+    }
+
+    #[test]
+    fn settings_panel_applies_live_and_esc_restores() {
+        let mut app = vim_app("hello");
+        typed(&mut app, "\x1b");
+        assert_eq!(app.mode_label(), Some("NOR"));
+        app.handle(ctrl('p'));
+        assert!(app.settings.is_some());
+        // width：→ 一次加 2，立即生效
+        app.handle(press(KeyCode::Right));
+        assert_eq!(app.config.width, 74);
+        assert_eq!(app.layout().body.width, 74);
+        // 面板吞掉所有按键：x 不删字、mode 不变；粘贴丢弃；鼠标忽略
+        typed(&mut app, "xi");
+        app.handle(Event::Paste("pasted".into()));
+        app.handle(ctrl('s'));
+        assert_eq!(body(&app), "hello");
+        assert_eq!(app.mode_label(), Some("NOR"));
+        assert!(app.status.prompt.is_none());
+        // 下到 tab_width，改成 5
+        for _ in 0..8 {
+            app.handle(press(KeyCode::Down));
+        }
+        app.handle(press(KeyCode::Right));
+        assert_eq!(app.keymap.tab_width, 5);
+        app.handle(press(KeyCode::Esc));
+        assert!(app.settings.is_none());
+        assert_eq!(app.config, vim_app("").config, "回滚到快照");
+        assert_eq!(app.keymap.tab_width, 4);
+        assert_eq!(app.mode_label(), Some("NOR"), "Esc 只关面板，不切换模式");
+        // Ctrl+P 再按一次同样是取消
+        app.handle(ctrl('p'));
+        app.handle(press(KeyCode::Left));
+        assert_eq!(app.config.width, 70);
+        app.handle(ctrl('p'));
+        assert!(app.settings.is_none());
+        assert_eq!(app.config.width, 72);
+    }
+
+    #[test]
+    fn settings_enter_writes_only_the_diff() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        std::fs::write(&path, "# mine\nwidth = 64 # narrow\n").unwrap();
+        let cli = PartialConfig {
+            width: Some(90),
+            ..PartialConfig::default()
+        };
+        let config = Config::default()
+            .merge(&PartialConfig::from_toml_str("width = 64").0)
+            .merge(&cli);
+        let mut app = App::with_config(lf_doc(""), Size::new(120, 30), &config);
+        app.set_cli_layer(cli);
+        app.set_config_path(Some(path.clone()));
+        app.handle(ctrl('p'));
+        app.handle(press(KeyCode::Down));
+        app.handle(press(KeyCode::Char(' ')));
+        assert!(app.config.vim);
+        app.handle(press(KeyCode::Enter));
+        assert!(app.settings.is_none());
+        assert!(app.config.vim, "Enter 保留修改");
+        assert_eq!(app.config.width, 90);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "# mine\nwidth = 64 # narrow\nvim = true\n"
+        );
+        assert!(app.status.message.is_none());
+    }
+
+    #[test]
+    fn settings_write_errors_keep_the_session_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        std::fs::write(&path, "width = = 1\n").unwrap();
+        let mut app = App::new(lf_doc(""), Size::new(80, 24), false);
+        app.set_config_path(Some(path.clone()));
+        crate::i18n::init_for_test("zh-CN");
+        app.handle(ctrl('p'));
+        app.handle(press(KeyCode::Right));
+        app.handle(press(KeyCode::Enter));
+        assert!(app.settings.is_none(), "面板照常关闭");
+        assert_eq!(app.config.width, 74, "修改仍在本次会话生效");
+        assert_eq!(
+            app.status.message.as_ref().map(|m| m.text.as_str()),
+            Some("配置文件有语法错误，修改仅本次有效")
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "width = = 1\n");
+    }
+
+    #[test]
+    fn ctrl_q_in_settings_rolls_back_then_quits() {
+        let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
+        app.handle(ctrl('p'));
+        app.handle(press(KeyCode::Right));
+        assert_eq!(app.config.width, 74);
+        app.handle(ctrl('q'));
+        assert!(app.settings.is_none());
+        assert_eq!(app.config.width, 72, "先回滚");
+        assert!(app.should_quit);
+        // 有未保存修改：回滚后照常要求再按一次
+        let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
+        typed(&mut app, "y");
+        app.handle(ctrl('p'));
+        app.handle(press(KeyCode::Right));
+        app.handle(ctrl('q'));
+        assert!(app.settings.is_none() && !app.should_quit);
+        assert_eq!(app.config.width, 72);
+        app.handle(ctrl('q'));
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn settings_and_save_prompt_are_exclusive() {
+        let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
+        app.handle(ctrl('s'));
+        assert!(app.status.prompt.is_some());
+        app.handle(ctrl('p'));
+        assert!(app.settings.is_none(), "提示行打开时 Ctrl+P 进了输入框");
+        app.handle(press(KeyCode::Esc));
+        app.handle(ctrl('p'));
+        app.handle(ctrl('s'));
+        assert!(app.status.prompt.is_none(), "面板打开时 Ctrl+S 被吞掉");
     }
 }

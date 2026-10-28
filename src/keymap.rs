@@ -89,6 +89,7 @@ fn default_map(key: &KeyEvent, extend: bool, tab_width: u16) -> Option<Action> {
         KeyCode::Char('w' | 'W' | 'h' | 'H') => Some(Action::DeleteWordBack),
         KeyCode::Char('t' | 'T') => Some(Action::ToggleTypewriter),
         KeyCode::Char('f' | 'F') => Some(Action::ToggleFocusMode),
+        KeyCode::Char('p' | 'P') => Some(Action::OpenSettings),
         KeyCode::Backspace if ctrl => Some(Action::DeleteWordBack),
         KeyCode::Enter => Some(Action::Newline),
         KeyCode::Backspace => Some(Action::DeleteBack),
@@ -270,6 +271,7 @@ mod tests {
             ),
             (key(Char('t'), ctrl), Some(Action::ToggleTypewriter)),
             (key(Char('f'), ctrl), Some(Action::ToggleFocusMode)),
+            (key(Char('p'), ctrl), Some(Action::OpenSettings)),
             (key(Char('r'), ctrl), None), // 只在 vim Normal 态重做
             (key(F(1), none), None),
             (Event::FocusLost, None),
@@ -533,7 +535,7 @@ mod tests {
         assert_eq!(one(NOR, paste), (Some(Action::Paste("文本".into())), NOR));
         // Ctrl 组合键在两种模式下返回值相同（visual 下移动类扩展选区）
         let ctrl = KeyModifiers::CONTROL;
-        for c in ['s', 'q', 'z', 'y', 'c', 'x', 'v', 't', 'f', 'a', 'w'] {
+        for c in ['s', 'q', 'z', 'y', 'c', 'x', 'v', 't', 'f', 'p', 'a', 'w'] {
             let ev = key(KeyCode::Char(c), ctrl);
             let insert = vim(Mode::Insert, std::slice::from_ref(&ev), false)[0]
                 .0
@@ -544,6 +546,9 @@ mod tests {
         let ctrl_r = key(KeyCode::Char('r'), ctrl);
         assert_eq!(one(NOR, ctrl_r.clone()), (Some(Action::Redo), NOR));
         assert_eq!(one(Mode::Insert, ctrl_r), (None, Mode::Insert));
+        // 设置面板在 Normal 态也能打开
+        let ctrl_p = key(KeyCode::Char('p'), ctrl);
+        assert_eq!(one(NOR, ctrl_p), (Some(Action::OpenSettings), NOR));
         // Insert 态与默认模式完全相同
         let typed = one(Mode::Insert, ch('j'));
         assert_eq!(typed, (Some(Action::Insert("j".into())), Mode::Insert));

@@ -191,6 +191,14 @@ impl WrapCache {
         }
     }
 
+    /// 改 Tab 宽度：所有行的换行结果都可能变，整体清空（配置面板运行时修改 tab_width）。
+    pub fn set_tab_width(&mut self, tab_width: u16) {
+        if tab_width != self.tab_width {
+            self.tab_width = tab_width;
+            self.lines.fill(None);
+        }
+    }
+
     /// 编辑后标脏：`lines` 为编辑前受影响的逻辑行，`inserted` 为行数净增量。
     pub fn invalidate(&mut self, lines: Range<usize>, inserted: isize) {
         if lines.end > self.lines.len() {

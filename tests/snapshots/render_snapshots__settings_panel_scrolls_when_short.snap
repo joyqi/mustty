@@ -1,0 +1,27 @@
+---
+source: tests/render_snapshots.rs
+expression: "settings_panel(72, 80, 12, 7)"
+---
+ 1: "设" BOLD | "置" BOLD
+ 3: "    自 动 保 存" NONE | "关" DIM
+ 4: "    自 动 保 存 延 迟                                                ‹ 2000 ›" NONE | " 毫" DIM | "秒" DIM
+ 5: "    Typewriter 模 式" NONE | "关" DIM
+ 6: "    Focus 模 式" NONE | "关" DIM
+ 7: "上" REVERSED | "下" REVERSED | "留" REVERSED | "白" REVERSED | "                                                        ‹ 3 ›" REVERSED | " 行" DIM | REVERSED
+ 8: "光" DIM | "标" DIM | "上" DIM | "下" DIM | "至" DIM | "少" DIM | "留" DIM | "出" DIM | "几" DIM | "行" DIM | "可" DIM | "见" DIM
+10: "↑↓ 选" DIM | "择" DIM | "  ←→ 调" DIM | "整" DIM | "  Enter 保" DIM | "存" DIM | "  Esc 取" DIM | "消" DIM
+
+"                                                                                "
+"                                      设置                                      " Hidden by multi-width symbols: [(39, " "), (41, " ")]
+"                                                                                "
+"    自动保存                                                              关    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
+"    自动保存延迟                                               ‹ 2000 › 毫秒    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (73, " "), (75, " ")]
+"    Typewriter 模式                                                       关    " Hidden by multi-width symbols: [(16, " "), (18, " "), (75, " ")]
+"    Focus 模式                                                            关    " Hidden by multi-width symbols: [(11, " "), (13, " "), (75, " ")]
+"    上下留白                                                        ‹ 3 › 行    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
+"    光标上下至少留出几行可见                                                    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " "), (19, " "), (21, " "), (23, " "), (25, " "), (27, " ")]
+"                                                                                "
+"    ↑↓ 选择  ←→ 调整  Enter 保存  Esc 取消                                      " Hidden by multi-width symbols: [(8, " "), (10, " "), (17, " "), (19, " "), (29, " "), (31, " "), (39, " "), (41, " ")]
+"                                                                                "
+
+cursor: Position { x: 0, y: 0 } visible: false

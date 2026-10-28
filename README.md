@@ -28,6 +28,7 @@ mustty opens one Markdown file and gives you a quiet place to write it. The scre
 - **Live word count and position** in the status bar.
 - **Typewriter mode** keeps the cursor line in the middle of the screen; **Focus mode** dims everything outside the current paragraph.
 - **Optional vim keys** (`--vim`) and **optional mouse** support (`--mouse`).
+- **A settings panel** (`Ctrl+P`) that applies changes as you make them and saves them back to your config file.
 - **Clipboard over SSH** through OSC 52, with an internal register as fallback.
 - **English and Simplified Chinese UI**, chosen from your locale.
 - Runs on Linux, macOS and Windows.
@@ -87,6 +88,7 @@ When you save an Untitled document, mustty asks for a path in the status bar: `E
 | `Ctrl+S`                                            | Save (asks for a path when Untitled)                                                             |
 | `Ctrl+T`                                            | Toggle Typewriter mode                                                                           |
 | `Ctrl+F`                                            | Toggle Focus mode                                                                                |
+| `Ctrl+P`                                            | Open the settings panel                                                                          |
 | `Esc`                                               | Clear the selection / close the save prompt                                                      |
 | `Ctrl+Q`                                            | Quit; press twice if there are unsaved changes that cannot be autosaved                          |
 
@@ -124,6 +126,24 @@ The mouse is off by default, so your terminal's own drag-to-select keeps working
 - scroll with the wheel.
 
 Native terminal selection then needs a modifier, usually `Shift` (xterm, GNOME Terminal, Windows Terminal, WezTerm, Alacritty, kitty), `Option` in iTerm2 and `Fn` in macOS Terminal. In vim Normal mode a drag starts a visual selection, ready for `d` or `y`.
+
+## Settings
+
+`Ctrl+P` replaces the body with a list of all ten options from the [config file](#configuration). The title line reads *Settings*, and the status bar shows the keys:
+
+| Key                        | Action                                                     |
+|----------------------------|------------------------------------------------------------|
+| `↑` `↓`, `Tab` `Shift+Tab` | Select an option (the list does not wrap around)           |
+| `←` `→`                    | Adjust the value; on/off options also toggle with `Space`  |
+| `PageUp` / `PageDown`      | Change a number ten steps at a time                        |
+| `Enter`                    | Keep the changes, write them to `~/.mustty.toml` and close |
+| `Esc` / `Ctrl+P`           | Undo every change made since the panel opened and close    |
+
+Every change takes effect immediately: widen the body and the panel widens with it. Numbers move in fixed steps (width by 2 columns, autosave delay by 500 ms) and stop at their limits; colors cycle.
+
+Only the options you changed are written, so `--width 90` on the command line never ends up in the file. Comments, key order, unknown keys and other tables are left as they are, and if `~/.mustty.toml` is a symlink, mustty updates the file it points to. A file with a syntax error is never rewritten; your changes then last only until you quit. An option set on the command line is marked *(command line)*, because the command line will override it again next time.
+
+While the panel is open it takes every key, so vim mode does not change; `Ctrl+Q` closes it without saving and then quits as usual.
 
 ## Configuration
 

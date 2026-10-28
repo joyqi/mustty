@@ -25,7 +25,8 @@ pub struct Config {
     pub focus_mode: bool,
     pub scrolloff: u16,
     pub tab_width: u16,
-    pub code_color: Color,
+    /// 存选项本身而不是 `Color`：`white` 与 `gray` 都映射到 `Color::Gray`，反推不回来
+    pub code_color: CodeColor,
 }
 
 impl Default for Config {
@@ -40,7 +41,7 @@ impl Default for Config {
             focus_mode: false,
             scrolloff: 3,
             tab_width: 4,
-            code_color: Color::Cyan,
+            code_color: CodeColor::Cyan,
         }
     }
 }
@@ -62,6 +63,32 @@ pub enum CodeColor {
 }
 
 impl CodeColor {
+    /// 设置面板里的循环顺序 = SGR 30–37 的顺序。
+    pub const ALL: [CodeColor; 8] = [
+        Self::Black,
+        Self::Red,
+        Self::Green,
+        Self::Yellow,
+        Self::Blue,
+        Self::Magenta,
+        Self::Cyan,
+        Self::White,
+    ];
+
+    /// 配置文件里的写法。
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Black => "black",
+            Self::Red => "red",
+            Self::Green => "green",
+            Self::Yellow => "yellow",
+            Self::Blue => "blue",
+            Self::Magenta => "magenta",
+            Self::Cyan => "cyan",
+            Self::White => "white",
+        }
+    }
+
     pub fn color(self) -> Color {
         match self {
             Self::Black => Color::Black,
@@ -104,7 +131,7 @@ impl ConfigWarning {
     }
 }
 
-const KEYS: [&str; 10] = [
+pub const KEYS: [&str; 10] = [
     "width",
     "vim",
     "mouse",
@@ -213,7 +240,7 @@ impl Config {
         self.focus_mode = p.focus_mode.unwrap_or(self.focus_mode);
         self.scrolloff = p.scrolloff.unwrap_or(self.scrolloff);
         self.tab_width = p.tab_width.unwrap_or(self.tab_width);
-        self.code_color = p.code_color.map_or(self.code_color, CodeColor::color);
+        self.code_color = p.code_color.unwrap_or(self.code_color);
         self
     }
 }
@@ -250,6 +277,88 @@ fn read_file(path: &Path) -> (PartialConfig, Vec<ConfigWarning>) {
             (PartialConfig::default(), vec![ConfigWarning::file(msg)])
         }
     }
+}
+
+/// 一个键在配置文件里的取值。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Scalar {
+    Int(i64),
+    Bool(bool),
+    Str(&'static str),
+}
+
+impl Config {
+    fn scalar(&self, key: &str) -> Scalar {
+        match key {
+            "width" => Scalar::Int(self.width.into()),
+            "vim" => Scalar::Bool(self.vim),
+            "mouse" => Scalar::Bool(self.mouse),
+            "autosave" => Scalar::Bool(self.autosave),
+            "autosave_idle_ms" => Scalar::Int(self.autosave_idle.as_millis() as i64),
+            "typewriter" => Scalar::Bool(self.typewriter),
+            "focus_mode" => Scalar::Bool(self.focus_mode),
+            "scrolloff" => Scalar::Int(self.scrolloff.into()),
+            "tab_width" => Scalar::Int(self.tab_width.into()),
+            "code_color" => Scalar::Str(self.code_color.name()),
+            _ => unreachable!("不在 KEYS 里的键 {key}"),
+        }
+    }
+}
+
+/// 两份配置之间取值不同的键，按 `KEYS` 的顺序。
+pub fn changed_keys(old: &Config, new: &Config) -> Vec<&'static str> {
+    KEYS.into_iter()
+        .filter(|k| old.scalar(k) != new.scalar(k))
+        .collect()
+}
+
+#[derive(Debug)]
+pub enum WriteBackError {
+    /// 现有文件有语法错误：拒绝写入，不尝试修复用户的文件
+    Syntax,
+    Io(std::io::Error),
+}
+
+/// 把 `old` → `new` 之间变化的键写回配置文件（方案 §8.5）。
+///
+/// 写入时重新读取文件，在最新内容上只改这些键：已有键原地改值（保留注释与键顺序），
+/// 新键追加到顶层末尾，未知键和其他表不动。符号链接解析到真实目标后再原子替换，链接本身保留。
+pub fn write_back(path: &Path, old: &Config, new: &Config) -> Result<(), WriteBackError> {
+    let keys = changed_keys(old, new);
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let not_found = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
+    let target = match std::fs::canonicalize(path) {
+        Ok(p) => p,
+        Err(e) if not_found(&e) => path.to_path_buf(),
+        Err(e) => return Err(WriteBackError::Io(e)),
+    };
+    let text = match std::fs::read_to_string(&target) {
+        Ok(text) => text,
+        Err(e) if not_found(&e) => String::new(),
+        Err(e) => return Err(WriteBackError::Io(e)),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|_| WriteBackError::Syntax)?;
+    for key in keys {
+        let value: toml_edit::Value = match new.scalar(key) {
+            Scalar::Int(i) => i.into(),
+            Scalar::Bool(b) => b.into(),
+            Scalar::Str(s) => s.into(),
+        };
+        match doc.get_mut(key).and_then(toml_edit::Item::as_value_mut) {
+            Some(slot) => {
+                // 换值不换装饰：等号两侧的空白与行尾注释原样保留
+                let decor = slot.decor().clone();
+                *slot = value;
+                *slot.decor_mut() = decor;
+            }
+            None => {
+                doc.insert(key, toml_edit::Item::Value(value));
+            }
+        }
+    }
+    crate::io::file::atomic_write(&target, doc.to_string().as_bytes()).map_err(WriteBackError::Io)
 }
 
 /// 把所有警告汇总成一行，用于 status bar 与 stderr。
@@ -312,7 +421,7 @@ mod tests {
             focus_mode: true,
             scrolloff: 5,
             tab_width: 2,
-            code_color: Color::Yellow,
+            code_color: CodeColor::Yellow,
         };
         assert_eq!(parse(text), (want, vec![]));
     }
@@ -355,31 +464,33 @@ mod tests {
 
     #[test]
     fn code_color_names() {
+        use CodeColor::*;
         let names = [
-            ("black", Color::Black),
-            ("red", Color::Red),
-            ("green", Color::Green),
-            ("yellow", Color::Yellow),
-            ("blue", Color::Blue),
-            ("magenta", Color::Magenta),
-            ("cyan", Color::Cyan),
-            ("white", Color::Gray), // SGR 37
-            ("gray", Color::Gray),  // 需求中的写法，同为 SGR 37
-            ("YELLOW", Color::Yellow),
-            ("Magenta", Color::Magenta),
+            ("black", Black, Color::Black),
+            ("red", Red, Color::Red),
+            ("green", Green, Color::Green),
+            ("yellow", Yellow, Color::Yellow),
+            ("blue", Blue, Color::Blue),
+            ("magenta", Magenta, Color::Magenta),
+            ("cyan", Cyan, Color::Cyan),
+            ("white", White, Color::Gray), // SGR 37
+            ("gray", White, Color::Gray),  // 需求中的写法，同为 SGR 37
+            ("YELLOW", Yellow, Color::Yellow),
+            ("Magenta", Magenta, Color::Magenta),
         ];
-        for (name, color) in names {
+        for (name, choice, color) in names {
             assert_eq!(
                 parse(&format!("code_color = {name:?}")),
                 (
                     Config {
-                        code_color: color,
+                        code_color: choice,
                         ..Config::default()
                     },
                     vec![]
                 ),
                 "{name}"
             );
+            assert_eq!(choice.color(), color, "{name}");
         }
         for bad in [
             "\"orange\"",
@@ -391,7 +502,7 @@ mod tests {
             let (c, w) = parse(&format!("code_color = {bad}"));
             assert_eq!(
                 (c.code_color, keys(&w)),
-                (Color::Cyan, vec![Some("code_color")]),
+                (CodeColor::Cyan, vec![Some("code_color")]),
                 "{bad}"
             );
         }
@@ -470,6 +581,114 @@ mod tests {
             assert!(s.contains(key), "{s}");
         }
         assert_eq!(summarize(&[]), None);
+    }
+
+    /// 先按文件内容（再叠加命令行层）算出打开面板时的配置。
+    fn loaded(text: &str, cli: &PartialConfig) -> Config {
+        Config::default()
+            .merge(&PartialConfig::from_toml_str(text).0)
+            .merge(cli)
+    }
+
+    #[test]
+    fn write_back_keeps_comments_order_and_unknown_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        let text = "# my config\nwidth = 72   # my width\nvim = true # keep\ncolour = \"red\"\n\n[keys]\nsave = \"C-s\"\n";
+        std::fs::write(&path, text).unwrap();
+        let old = loaded(text, &PartialConfig::default());
+        let new = Config {
+            width: 64,
+            tab_width: 8,
+            code_color: CodeColor::White,
+            ..old.clone()
+        };
+        write_back(&path, &old, &new).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            written,
+            "# my config\nwidth = 64   # my width\nvim = true # keep\ncolour = \"red\"\ntab_width = 8\ncode_color = \"white\"\n\n[keys]\nsave = \"C-s\"\n"
+        );
+        assert_eq!(loaded(&written, &PartialConfig::default()), new);
+    }
+
+    #[test]
+    fn write_back_only_writes_changed_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        std::fs::write(&path, "width = 64\n").unwrap();
+        // 用 --width 90 启动：面板打开时 width 是 90，用户只改了 vim
+        let cli = PartialConfig {
+            width: Some(90),
+            ..PartialConfig::default()
+        };
+        let old = loaded("width = 64\n", &cli);
+        assert_eq!(old.width, 90);
+        let new = Config {
+            vim: true,
+            ..old.clone()
+        };
+        assert_eq!(changed_keys(&old, &new), vec!["vim"]);
+        write_back(&path, &old, &new).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "width = 64\nvim = true\n",
+            "命令行的 width 没有泄漏进文件"
+        );
+        // 没有变化：不写，也不创建不存在的文件
+        let missing = dir.path().join("none.toml");
+        write_back(&missing, &old, &old).unwrap();
+        assert!(!missing.exists());
+        // 文件不存在而有变化：新建，只含变化的键
+        write_back(&missing, &old, &new).unwrap();
+        assert_eq!(std::fs::read_to_string(&missing).unwrap(), "vim = true\n");
+    }
+
+    #[test]
+    fn write_back_refuses_files_with_syntax_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        let text = "width = = 64\n# 用户自己的笔记\n";
+        std::fs::write(&path, text).unwrap();
+        let old = Config::default();
+        let new = Config {
+            vim: true,
+            ..old.clone()
+        };
+        assert!(matches!(
+            write_back(&path, &old, &new),
+            Err(WriteBackError::Syntax)
+        ));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "原样不动");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_back_follows_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let dotfiles = dir.path().join("dotfiles");
+        std::fs::create_dir(&dotfiles).unwrap();
+        let real = dotfiles.join("mustty.toml");
+        std::fs::write(&real, "# tracked in git\nvim = false\n").unwrap();
+        let link = dir.path().join(".mustty.toml");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let old = Config::default();
+        let new = Config {
+            vim: true,
+            ..old.clone()
+        };
+        write_back(&link, &old, &new).unwrap();
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "链接本身保留"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&real).unwrap(),
+            "# tracked in git\nvim = true\n"
+        );
     }
 
     proptest! {

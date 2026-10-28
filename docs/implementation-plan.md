@@ -359,6 +359,7 @@ fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockState)
 | `Ctrl+V` | 粘贴内部寄存器（系统剪贴板粘贴走终端 bracketed paste） | M3 |
 | `Ctrl+T` | 切换 Typewriter 模式 | M4 |
 | `Ctrl+F` | 切换 Focus 模式（非当前段落 DIM） | M4 |
+| `Ctrl+P` | 打开设置面板（§8.6） | 设置面板 |
 | `Esc` | 取消选区 / 关闭提示行（`--vim` 下的含义见 §7.4） | M1 |
 
 说明：crossterm raw mode 通过 `cfmakeraw` 关闭了 `ISIG` 与 `IXON`，因此 `Ctrl+Z` 不会挂起进程、`Ctrl+S` 不会触发 XOFF 流控，可安全占用。
@@ -515,9 +516,36 @@ effective = Config::default().merge(file_layer).merge(cli_layer)   // 每层都�
 
 **启动警告的显示方式**：TUI 一启动就进入 alternate screen，所以 stderr 上的输出用户看不到。警告改为汇总成**一条** status bar 错误消息，保留到用户第一次按键（§9）；同时写一条 `tracing::warn!`。
 
-**明确不做**：自定义键位、主题配色（除 `code_color` 外不开放任何颜色或样式）、项目级配置（如 `./.mustty.toml`）、status line 开关或布局定制、热重载（修改配置后需要重启 mustty）、写回配置（mustty 从不修改这个文件）、环境变量覆盖（`MUSTTY_LOG` 是日志开关，不属于配置）。
+**明确不做**：自定义键位、主题配色（除 `code_color` 外不开放任何颜色或样式）、项目级配置（如 `./.mustty.toml`）、status line 开关或布局定制、热重载（在编辑器外修改配置后需要重启 mustty）、环境变量覆盖（`MUSTTY_LOG` 是日志开关，不属于配置）。
 
-**模块与边界**：`config.rs` 产出不可变的 `Config`，`main.rs` 合并完成后交给 `App`。`Editor`、`Document` 不读取 `Config`：`tab_width` 由 `Keymap` 用来生成 `Insert(" ".repeat(n))`，由 `WrapCache` 用来计算 `\t` 宽度；`width`、`scrolloff`、`typewriter`、`code_color` 只交给 view 层。
+**模块与边界**：`config.rs` 产出 `Config`，`main.rs` 合并完成后交给 `App`。`Editor`、`Document` 不读取 `Config`：`tab_width` 由 `Keymap` 用来生成 `Insert(" ".repeat(n))`，由 `WrapCache` 用来计算 `\t` 宽度；`width`、`scrolloff`、`typewriter`、`code_color` 只交给 view 层。`Config.code_color` 存的是 `CodeColor` 枚举而不是 `ratatui::Color`：`white` 和 `gray` 都映射到 `Color::Gray`，反推不出选项，面板需要原值。
+
+### 8.6 设置面板（`Ctrl+P`）
+
+评估见 `docs/feasibility-i18n-and-settings-panel.md` 议题二，这里记录实现后的约定。
+
+- **形态**：只替换 `layout.body` 这块矩形；标题行显示 `Settings`（BOLD），status bar 显示操作提示（DIM），不画边框、不设背景。正文区放得下时，依次是 10 行设置、1 行空行、1 行说明；不足 11 行时说明行固定在最后一行，列表跟随选中项滚动（`Settings::follow`）。打开期间不显示光标。
+- **控件**：表驱动的 `settings::Field`，不做 trait。
+  - 开关显示 `On` / `Off`（`Off` 为 DIM），用 `Space` / `←` / `→` 切换。
+  - 数字显示 `‹ 72 › columns`，单位为 DIM；`←` / `→` 按步进调整（width 2、autosave_idle_ms 500、scrolloff 1、tab_width 1），`PageUp` / `PageDown` 一次 10 步。到边界停住，不循环，不支持直接输入数字。
+  - 颜色显示 `‹ ■ cyan ›`，`■` 用该颜色作前景色，`←` / `→` 循环切换。
+  - 选中行整行 `theme::selection()`。被命令行覆盖的项在值后以 DIM 显示 `(command line)`。
+- **交互**：
+  - `↑` / `↓`、`Tab` / `Shift+Tab` 移动，首尾不循环；`j` / `k` 不绑定。
+  - 每次调整立刻 `App::apply_config`。`Enter` 一律保存并关闭；`Esc` / `Ctrl+P` 恢复打开时的快照并关闭。
+  - 面板吞掉所有按键（不经过 `Keymap`，`mode` 不变），粘贴丢弃，鼠标忽略。唯一例外是 `Ctrl+Q`：先回滚，再走正常退出（未保存时仍需确认）。
+  - 与「保存为:」提示行互斥，由 `debug_assert!` 守住。
+- **`App::apply_config` 是唯一入口**：`App` 持有一份 `Config` 作为真值，`with_config` 先按默认值搭好再调用它，`Ctrl+T` / `Ctrl+F` 也经过它。逐项把差异分发到副本：
+  - `tab_width` 有三份：`App.config`、`Keymap.tab_width`、`WrapCache.tab_width`。后者经 `Viewport::retab` → `WrapCache::set_tab_width` 清空缓存，视口顶端锚定在原文字上。
+  - `vim` 从开到关：Normal 态强制回 Insert，推 `SteadyBar`，清掉选区。
+  - `mouse`：记一个待执行的开关，由事件循环用 `execute!` 发送（Windows 上鼠标捕获走 WinAPI，不是转义序列），同时清掉拖拽状态。`TerminalGuard` 的 `Drop` 和 panic hook 无条件关闭鼠标捕获。
+  - `autosave` 从关切到开且有未保存修改：`last_edit = Some(now)`。
+- **写回**（`config::write_back`）：
+  - 只写与快照不同的键，所以命令行参数不会泄漏进文件。
+  - 写入时重新读取文件，用 `toml_edit::DocumentMut` 修改：已有键原地换值（保留装饰与行尾注释），新键追加到顶层末尾，未知键和其他表不动。
+  - 先 `fs::canonicalize`，再对真实目标调用 `io::file::atomic_write`（与保存文档共用），符号链接保留。
+  - 文件有语法错误时拒绝写入，显示「配置文件有语法错误，修改仅本次有效」；写入失败同样提示。两种情况下面板都照常关闭，修改仍在本次会话生效。
+  - `App.config_path` 默认为 `None`，只有 `main` 会设为 `config::path()`，测试不会碰到真实的 `~/.mustty.toml`。
 
 ---
 
@@ -645,9 +673,11 @@ mustty/
 │   │   ├── layout.rs        compute_layout（纯函数）
 │   │   ├── viewport.rs      ViewTop、scrolloff / typewriter 滚动
 │   │   ├── theme.rs         Token → Style 映射（code_color 由此注入）
+│   │   ├── settings.rs      SettingsWidget：设置面板的行布局与说明行（§8.6）
 │   │   ├── mouse.rs         map_mouse：屏幕坐标 → Target / ScrollView（M4，仅 mouse = true 时调用）
 │   │   └── widgets.rs       TitleWidget、BodyWidget、StatusWidget
-│   ├── config.rs            PartialConfig / Config：读取 ~/.mustty.toml、逐键容错、钳制、三层合并（M4）
+│   ├── config.rs            PartialConfig / Config：读取 ~/.mustty.toml、逐键容错、钳制、三层合并（M4）；write_back 写回（§8.6）
+│   ├── settings.rs          设置面板：Field / Kind / Value 表与面板状态机（§8.6）
 │   ├── status.rs            StatusModel：模式标识、文件名、dirty、消息队列、提示行状态
 │   ├── i18n.rs              LOCALES 表、语言协商、t / t_args、缺 key 回退 en（§11.4）
 │   └── io/
@@ -740,7 +770,7 @@ pub fn load(path: &Path) -> Result<Document, IoError>;       // 不存在 → Ok
 pub fn save(doc: &Document, path: &Path, check_mtime: bool) -> Result<SystemTime, IoError>;
 
 // action.rs
-// 与 Mode 无关；M1 时全部变体一次定稿，M4 不再增删
+// 与 Mode 无关；M1 时全部变体一次定稿，M4 不再增删。唯一的有意修订：设置面板新增 OpenSettings（§8.6）
 pub enum Action { Insert(String), Paste(String), Newline, DeleteBack, DeleteForward, DeleteWordBack,
                   Move(Motion, /*extend*/ bool), Undo, Redo, Save, Quit, Cancel, SelectAll, Copy, Cut,
                   PasteRegister,          // Ctrl+V / vim p：粘贴内部寄存器（行级寄存器粘贴到下一行）
@@ -748,7 +778,7 @@ pub enum Action { Insert(String), Paste(String), Newline, DeleteBack, DeleteForw
                   OpenLineBelow,          // vim o：移到逻辑行尾并插入 \n，作为一个 Transaction
                   MoveTo(Target, /*extend*/ bool), // 鼠标单击 / 拖拽：直接定位到 char 索引（M3 随选区实现，M4 由 mouse 触发）
                   ScrollView(i32),        // 鼠标滚轮：由 App/Viewport 消费，不进入 Editor::apply
-                  ToggleTypewriter, ToggleFocusMode, PromptInput(KeyEvent) }
+                  ToggleTypewriter, ToggleFocusMode, OpenSettings, PromptInput(KeyEvent) }
 pub enum Target { Body(usize), Title(usize) }   // 正文全局 char 索引 / 标题内 char 索引
 pub enum Motion { Left, Right, Up, Down, LineStart, LineEnd, PageUp, PageDown, DocStart, DocEnd,
                   WordLeft,   // 上一个词首（Ctrl+← / vim b）

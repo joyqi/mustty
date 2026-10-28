@@ -349,3 +349,36 @@ fn english_status_bar() {
     let title = text(&[key(KeyCode::Up)]);
     assert!(title.contains("Title"), "{title}");
 }
+
+fn ctrl(c: char) -> Event {
+    Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+}
+
+/// Ctrl+P 打开设置面板，再按 `downs` 次 ↓。
+fn settings_panel(width: u16, w: u16, h: u16, downs: usize) -> String {
+    let config = mustty::config::Config {
+        width,
+        autosave: false,
+        ..mustty::config::Config::default()
+    };
+    let mut events = vec![ctrl('p')];
+    events.extend(std::iter::repeat_n(key(KeyCode::Down), downs));
+    let b = draw_with(&config, "# 标题\n\n正文\n", w, h, &events, false);
+    format!("{}\n{}", styled(&b), snapshot(b.clone()))
+}
+
+#[test]
+fn settings_panel_width_40() {
+    insta::assert_snapshot!(settings_panel(40, 50, 20, 1));
+}
+
+#[test]
+fn settings_panel_width_72() {
+    // 选中代码颜色：说明行带着色样例
+    insta::assert_snapshot!(settings_panel(72, 80, 24, 9));
+}
+
+#[test]
+fn settings_panel_scrolls_when_short() {
+    insta::assert_snapshot!(settings_panel(72, 80, 12, 7));
+}

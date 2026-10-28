@@ -31,6 +31,8 @@ toml = "1.1.8"
 dirs = "7.0.0"
 # 系统语言（Windows 上不设 LANG 也能取到）；环境变量优先，见 src/i18n.rs
 sys-locale = "0.3.2"
+# 设置面板写回 ~/.mustty.toml：保留注释与键顺序，只改变化的键（方案 §8.5）
+toml_edit = "0.25.17"
 
 [dev-dependencies]
 insta = "1.49.0"

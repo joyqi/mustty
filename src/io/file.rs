@@ -94,8 +94,7 @@ fn disk_stamp(path: &Path) -> Option<DiskStamp> {
     stamp_of(&fs::metadata(path).ok()?)
 }
 
-/// 同目录临时文件写入 → fsync → 原子替换；保留原文件权限（Unix）。
-/// `check_disk` 时若磁盘上的 mtime 或大小与 `doc.meta.stamp` 不同则放弃。返回保存后的 stamp。
+/// 原子保存；`check_disk` 时若磁盘上的 mtime 或大小与 `doc.meta.stamp` 不同则放弃。返回保存后的 stamp。
 pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, IoError> {
     if path.is_dir() {
         return Err(IoError::IsDirectory);
@@ -103,6 +102,13 @@ pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, 
     if check_disk && disk_stamp(path) != doc.meta.stamp {
         return Err(IoError::ExternallyModified);
     }
+    atomic_write(path, doc.serialize().as_bytes())?;
+    disk_stamp(path).ok_or_else(|| std::io::Error::other(t("io-stat-after-save")).into())
+}
+
+/// 同目录临时文件写入 → fsync → rename 原子替换；保留原文件权限（Unix）。文档与配置文件共用。
+/// `path` 若是符号链接，rename 会把链接换成普通文件：需要保留链接的调用方先 `canonicalize`。
+pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = match path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
@@ -118,14 +124,14 @@ pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, 
         b
     };
     let mut tmp = builder.tempfile_in(dir)?;
-    tmp.write_all(doc.serialize().as_bytes())?;
+    tmp.write_all(bytes)?;
     tmp.as_file().sync_all()?;
     #[cfg(unix)]
     if let Ok(meta) = fs::metadata(path) {
         fs::set_permissions(tmp.path(), meta.permissions())?;
     }
     tmp.persist(path).map_err(|e| e.error)?;
-    disk_stamp(path).ok_or_else(|| std::io::Error::other(t("io-stat-after-save")).into())
+    Ok(())
 }
 
 #[cfg(test)]

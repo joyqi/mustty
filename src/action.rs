@@ -1,4 +1,5 @@
 //! 与按键解耦的编辑语义（方案 §11.2）。全部变体在 M1 定稿，M4 不再增删；
+//! 唯一的有意修订是设置面板的 `OpenSettings`（方案 §8.6）。
 //! M1 未绑定按键或未实现的变体由 `Editor::apply` 忽略。
 
 use crossterm::event::KeyEvent;
@@ -29,6 +30,8 @@ pub enum Action {
     OpenLineBelow,
     ToggleTypewriter,
     ToggleFocusMode,
+    /// Ctrl+P：打开设置面板，由 App 消费
+    OpenSettings,
     PromptInput(KeyEvent),
     /// 鼠标单击 / 拖拽：直接定位到 char 索引；`bool` 为是否扩展选区
     MoveTo(Target, bool),

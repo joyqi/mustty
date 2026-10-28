@@ -1,6 +1,7 @@
 pub mod layout;
 pub mod mouse;
 pub mod screen;
+pub mod settings;
 pub mod theme;
 pub mod viewport;
 pub mod widgets;
@@ -15,6 +16,7 @@ use crate::i18n::t;
 use crate::io::file::IoError;
 use crate::status::{SaveMark, StatusModel};
 use crate::text::wrap::line_text;
+use crate::view::layout::Layout;
 use layout::compute_layout;
 use screen::{ScreenMap, TitleMap};
 use widgets::{BodyWidget, PromptWidget, StatusWidget, TitleWidget, text_width, title_placement};
@@ -36,8 +38,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
     let body = layout.body;
     app.sync_body(body);
+    if app.settings.is_some() {
+        render_settings(frame, app, &layout);
+        return;
+    }
     let placeholder = app.placeholder();
-    let tab = app.tab_width;
+    let tab = app.config.tab_width;
     let ed = &app.editor;
     let mut cursor = None;
 
@@ -72,12 +78,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let focus = ed.focus;
     let caret = ed.cursor;
     let selection = app.visible_selection();
-    let paragraph = (app.focus_mode && focus == Focus::Body).then(|| {
+    let paragraph = (app.config.focus_mode && focus == Focus::Body).then(|| {
         let rope = ed.doc().body();
         let visible_end = (top.line + body.height as usize + 1).min(rope.len_lines());
         current_paragraph(rope, rope.char_to_line(caret.head), top.line, visible_end)
     });
-    let code_color = app.code_color;
+    let code_color = app.config.code_color.color();
     let (doc, wrap, highlight) = app.editor.view();
     frame.render_widget(
         BodyWidget {
@@ -152,6 +158,47 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     if let Some(p) = cursor {
         frame.set_cursor_position(p);
+    }
+}
+
+/// 设置面板：标题行 `Settings`，正文区换成面板，status bar 显示操作提示；不显示光标。
+fn render_settings(frame: &mut Frame, app: &mut App, layout: &Layout) {
+    app.screen = None;
+    let tab = app.config.tab_width;
+    let (rows, _) = settings::list_rows(layout.body.height);
+    let Some(panel) = app.settings.as_mut() else {
+        return;
+    };
+    let scroll = panel.follow(rows);
+    let selected = panel.selected;
+    if let Some(rect) = layout.title {
+        let text = t("settings-title");
+        let (pad, scroll) = title_placement(text, None, rect.width, tab);
+        let widget = TitleWidget {
+            text,
+            style: Style::from(Modifier::BOLD),
+            pad,
+            scroll,
+            tab_width: tab,
+        };
+        frame.render_widget(widget, rect);
+    }
+    let widget = settings::SettingsWidget {
+        config: &app.config,
+        cli: app.cli_layer(),
+        selected,
+        scroll,
+    };
+    frame.render_widget(widget, layout.body);
+    if let Some(r) = layout.status {
+        // 写回失败等错误消息优先于操作提示
+        let (text, style) = match &app.status.message {
+            Some(m) => (m.text.as_str(), Style::default()),
+            None => (t("settings-hint"), Style::from(Modifier::DIM)),
+        };
+        frame
+            .buffer_mut()
+            .set_stringn(r.x, r.y, text, r.width as usize, style);
     }
 }
 

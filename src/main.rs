@@ -83,7 +83,8 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let (config, warnings) = config::load(&cli.layer());
+    let layer = cli.layer();
+    let (config, warnings) = config::load(&layer);
     // 配置写错不阻止启动：警告打到 stderr（进入全屏前，退出后仍可见），
     // 同时汇总成一条 status bar 消息，保留到第一次按键
     let warning = config::summarize(&warnings);
@@ -91,7 +92,7 @@ fn main() -> ExitCode {
         eprintln!("mustty: {w}");
         tracing::warn!("{w}");
     }
-    match run(cli.file.as_deref(), &config, warning) {
+    match run(cli.file.as_deref(), &config, layer, warning) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             tracing::error!("{e:#}");
@@ -128,7 +129,12 @@ fn init_log() -> anyhow::Result<Option<WorkerGuard>> {
     Ok(Some(guard))
 }
 
-fn run(path: Option<&Path>, config: &Config, warning: Option<String>) -> anyhow::Result<()> {
+fn run(
+    path: Option<&Path>,
+    config: &Config,
+    cli: PartialConfig,
+    warning: Option<String>,
+) -> anyhow::Result<()> {
     let doc = match path {
         Some(path) => load(path).map_err(|e| match e {
             IoError::Io(e) => {
@@ -145,6 +151,8 @@ fn run(path: Option<&Path>, config: &Config, warning: Option<String>) -> anyhow:
     tracing::info!(path = ?path, ?config, "start");
     let mut guard = TerminalGuard::new(config.mouse)?;
     let mut app = App::with_config(doc, guard.terminal.size()?, config);
+    app.set_cli_layer(cli);
+    app.set_config_path(config::path());
     app.show_startup_hint(Instant::now());
     if let Some(w) = warning {
         app.show_startup_warning(w);

@@ -11,9 +11,10 @@ use ratatui::DefaultTerminal;
 
 /// 持有终端；`Drop` 时恢复鼠标、粘贴、焦点事件、光标形状、raw mode 与 alternate screen，
 /// `?` 早退也不例外。panic 时由下面包装的 hook 先恢复终端再打印信息。
+///
+/// 鼠标捕获可能在运行中由设置面板打开，所以退出时**无条件**关闭（对没开过的终端无副作用）。
 pub struct TerminalGuard {
     pub terminal: DefaultTerminal,
-    mouse: bool,
 }
 
 impl TerminalGuard {
@@ -21,7 +22,6 @@ impl TerminalGuard {
     pub fn new(mouse: bool) -> io::Result<Self> {
         let guard = Self {
             terminal: ratatui::try_init()?,
-            mouse,
         };
         if mouse {
             execute!(io::stdout(), EnableMouseCapture)?;
@@ -30,9 +30,7 @@ impl TerminalGuard {
         let ratatui_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             let mut out = io::stdout();
-            if mouse {
-                let _ = execute!(out, DisableMouseCapture);
-            }
+            let _ = execute!(out, DisableMouseCapture);
             #[cfg(not(windows))]
             let _ = execute!(out, crossterm::event::DisableBracketedPaste);
             let _ = execute!(out, DisableFocusChange, SetCursorStyle::DefaultUserShape);
@@ -48,9 +46,7 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        if self.mouse {
-            let _ = execute!(io::stdout(), DisableMouseCapture);
-        }
+        let _ = execute!(io::stdout(), DisableMouseCapture);
         #[cfg(not(windows))]
         let _ = execute!(io::stdout(), crossterm::event::DisableBracketedPaste);
         let _ = execute!(
@@ -59,6 +55,16 @@ impl Drop for TerminalGuard {
             SetCursorStyle::DefaultUserShape
         );
         ratatui::restore();
+    }
+}
+
+/// 运行中开关鼠标捕获。用 `execute!` 而不是预先拼好的 ANSI 字符串：
+/// Windows 上 crossterm 的鼠标捕获走 WinAPI 的控制台模式，不是转义序列。
+pub fn set_mouse_capture(out: &mut impl io::Write, on: bool) -> io::Result<()> {
+    if on {
+        execute!(out, EnableMouseCapture)
+    } else {
+        execute!(out, DisableMouseCapture)
     }
 }
 

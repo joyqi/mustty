@@ -88,9 +88,18 @@ impl Viewport {
 
     /// 换行宽度变化前后，让视口顶部仍停在同一段文字上。
     pub fn rewrap(&mut self, width: u16, wrap: &mut WrapCache, rope: &Rope) {
+        self.reflow(wrap, rope, |w| w.set_width(width));
+    }
+
+    /// 改 Tab 宽度后重新换行，视口顶端同样锚定在原来的文字上。
+    pub fn retab(&mut self, tab_width: u16, wrap: &mut WrapCache, rope: &Rope) {
+        self.reflow(wrap, rope, |w| w.set_tab_width(tab_width));
+    }
+
+    fn reflow(&mut self, wrap: &mut WrapCache, rope: &Rope, change: impl FnOnce(&mut WrapCache)) {
         let row = wrap.rows(rope, self.top.line)[self.top.row];
         let anchor = rope.line_to_char(self.top.line) + row.start;
-        wrap.set_width(width);
+        change(wrap);
         let pos = wrap.char_to_visual(rope, anchor, Affinity::Downstream);
         self.top = ViewTop {
             line: pos.line,
