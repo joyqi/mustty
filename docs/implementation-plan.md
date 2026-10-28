@@ -15,7 +15,7 @@
 |---|---|---|
 | G1 | 沉浸式码字 | 界面只有标题 / 正文 / status bar 三块，居中、限宽，无边框、无行号、无菜单 |
 | G2 | 中文一等公民 | CJK 宽字符、中文 IME 输入、中英混排软换行在 macOS / Windows / Linux 主流终端下正确 |
-| G3 | 零学习成本 | 默认非 modal、M4 提供 --vim；默认键位与 GUI 编辑器一致（Ctrl+S 保存、Ctrl+Z 撤销……） |
+| G3 | 零学习成本 | 默认非 modal、M4 提供 vim 键位（配置 `vim = true`）；默认键位与 GUI 编辑器一致（Ctrl+S 保存、Ctrl+Z 撤销……） |
 | G4 | 不丢字 | 原子写入 + 默认自动保存；终端异常退出 / panic 时恢复终端 |
 | G5 | 跨平台单二进制 | macOS (aarch64/x86_64)、Linux (x86_64 musl)、Windows (x86_64 msvc) |
 
@@ -23,11 +23,11 @@
 
 - **不做所见即所得**：不隐藏 Markdown 标记，不渲染表格 / 图片 / 公式。
 - **不做文件浏览器、多 buffer、tab、分屏**：一次只编辑一个文件。
-- **默认非 modal、M4 提供 --vim**：`--vim` 只是一个最小的 vim-like 键位层（§7.4），只在 keymap 层实现，编辑内核不感知它。**不做**完整 vim 模拟（计数前缀 `3j`、`.` 重复、宏、具名寄存器、`:` 命令行、text object、`Ctrl+V` 块选择），不做 emacs 模式。
+- **默认非 modal、M4 提供 vim 键位**：vim 键位（`vim = true`）只是一个最小的 vim-like 键位层（§7.4），只在 keymap 层实现，编辑内核不感知它。**不做**完整 vim 模拟（计数前缀 `3j`、`.` 重复、宏、具名寄存器、`:` 命令行、text object、`Ctrl+V` 块选择），不做 emacs 模式。
 - **只提供 `~/.mustty.toml` 中的 10 个配置项**（§8.5）。不做自定义键位、主题配色、项目级配置、status line 开关、配置热重载；不做可编程配置、插件、LSP。
 - **不做预览 / 导出**（HTML、PDF）。
 - **不做语法高亮代码块内部**（fenced code 只整体着色）。
-- **鼠标默认关闭**：只有配置 `mouse = true` 或使用 `--mouse` 时，才启用单击定位、拖拽选区和滚轮滚动（M4，§10.5）。双击选词、右键菜单、拖放文本都不做。
+- **鼠标默认关闭**：只有配置 `mouse = true` 时，才启用单击定位、拖拽选区和滚轮滚动（M4，§10.5）。双击选词、右键菜单、拖放文本都不做。
 - **不做 GUI 级别的排版**（字体大小、行距）——终端做不到。
 - **不支持非 UTF-8 编码**的读写（见 §8.3）。
 
@@ -86,7 +86,7 @@
 | `tracing` | `0.1.44` | 调试日志宏 | 否决 `log`+`env_logger`：后者默认写 stderr，会污染 TUI |
 | `tracing-subscriber` | `0.3.23`，features `["env-filter", "fmt"]` | 日志过滤与格式化 | — |
 | `tracing-appender` | `0.2.5` | 写文件（非阻塞） | 日志**只在设置 `MUSTTY_LOG=<path>` 时启用**，永不写 stdout/stderr |
-| `clap` | `4.6.7`，features `["derive"]` | CLI：`mustty [FILE] [--width N] [--[no-]autosave] [--[no-]vim] [--[no-]mouse]`，只有这四个覆盖项（M1 只有 `FILE`、`--width`、`--no-autosave`，其余在 M4 加入）。开关成对出现，是为了让"命令行 > 配置文件"能双向覆盖：配置里写了 `vim = true`，仍可用 `--no-vim` 关掉。成对开关用 clap 的 `overrides_with` 实现"后者生效" | 免费获得 `--help/--version` 和参数校验；否决 `lexopt`/`pico-args`：省下的编译时间不值得手写 help |
+| `clap` | `4.6.7`，features `["derive"]` | CLI：`mustty [FILE]`，只有一个文件参数和 `--help` / `--version`。M1–M4 曾有 `--width`、`--[no-]autosave`、`--[no-]vim`、`--[no-]mouse` 四组覆盖项，设置面板（§8.6）上线后已删除：所有设置只走配置文件，少一个入口就少一层"这个值到底从哪来"的心智负担 | 免费获得 `--help/--version` 和参数校验；否决 `lexopt`/`pico-args`：省下的编译时间不值得手写 help |
 | `serde` | `1.0.229`，features `["derive"]` | 给 `CodeColor` 等配置值类型派生 `Deserialize`（M4） | 事实标准，`toml` 的反序列化也建立在它之上 |
 | `toml` | `1.1.8`（默认 features） | 解析 `~/.mustty.toml`：先解析成 `toml::Table`，再逐个键 `Value::try_into::<T>()`，这样单个键类型错误不会拖垮整个文件（§8.5）（M4） | 否决 `serde_json` / `serde_yaml`：用户已拍板使用 TOML；否决 `toml_edit`：只读不写，不需要保留格式 |
 | `dirs` | `7.0.0` | `dirs::home_dir()` 定位 `~/.mustty.toml`（Windows 为 `%USERPROFILE%\.mustty.toml`）（M4） | 否决读 `$HOME`：Windows 上没有这个变量；否决 `directories` / `etcetera`：它们面向 XDG / AppData，而用户要求的路径固定在 home 根目录 |
@@ -103,7 +103,7 @@
 
 ### 3.3 明确不引入
 
-M4 的 `--vim` **不新增任何 crate**：Normal/Insert 状态机和按键序列（`gg`、`dd`）都在 `keymap.rs` 里手写（估计约 200 行），clap 只多一个 bool 参数。否决 `edtui` 的 vim 引擎：它和自己的 buffer 是绑在一起的（§2.3）。
+M4 的 vim 键位**不新增任何 crate**：Normal/Insert 状态机和按键序列（`gg`、`dd`）都在 `keymap.rs` 里手写（估计约 200 行），配置只多一个 bool 键。否决 `edtui` 的 vim 引擎：它和自己的 buffer 是绑在一起的（§2.3）。
 
 此外明确不引入：`pulldown-cmark`（理由 §6.3）、`syntect`（体积 + 非目标）、`arboard`（系统剪贴板在 SSH / Linux 无 X 下不可靠，改用 OSC 52，§7.3）、`tokio`（同步事件循环足够，§11.3）、`undo`（§4.5）、`notify`（配置不做热重载，§8.5）。`dirs` 已从这里移出，因为配置文件需要它（§3.1）。
 `thiserror` 已移除：`IoError` 的文案要按界面语言取，`#[error]` 只收字面量，改为手写 `Display`（§11.4）。
@@ -210,7 +210,7 @@ struct History { undo: Vec<Transaction>, redo: Vec<Transaction>, last_edit_at: I
 
 | 名称 | 值 | 说明 |
 |---|---|---|
-| `MEASURE` | **72** 列 | 正文最大宽度（= 72 个 ASCII 或 36 个汉字）。排版学推荐 60–75 字符/行；80 在中文下显得过宽。可用配置 `width` 或 `--width N` 覆盖（命令行优先），取值钳制在 `[40, 120]`（§8.5） |
+| `MEASURE` | **72** 列 | 正文最大宽度（= 72 个 ASCII 或 36 个汉字）。排版学推荐 60–75 字符/行；80 在中文下显得过宽。可用配置 `width` 覆盖，取值钳制在 `[40, 120]`（§8.5） |
 | `MIN_SIDE_MARGIN` | 2 列 | 窄终端时左右最少留白 |
 | `GAP` | 1 行 | 标题与正文、正文与 status bar 之间的空行 |
 | `V_PAD_RATIO` | 1/8 | 上下留白占终端高度的比例 |
@@ -324,12 +324,12 @@ fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockState)
 
 ## 7. 键位表
 
-### 7.1 结论：默认非 modal、M4 提供 --vim
+### 7.1 结论：默认非 modal、M4 提供 vim 键位
 
-- **默认**：非 modal，使用 Ctrl 系键位（micro / GUI 习惯），见 §7.2。理由：写作时绝大部分时间都在输入文字，默认就有模式切换会增加心智负担。不加 `--vim` 时，M1–M4 的行为和本节键位表完全一致。
-- **`--vim`（M4 交付，M1–M3 完全不实现）**：加上这个启动参数后，启用 vim-like 的 Normal / Insert 两种状态（§7.4）。
+- **默认**：非 modal，使用 Ctrl 系键位（micro / GUI 习惯），见 §7.2。理由：写作时绝大部分时间都在输入文字，默认就有模式切换会增加心智负担。不开 vim 键位时，M1–M4 的行为和本节键位表完全一致。
+- **vim 键位（M4 交付，M1–M3 完全不实现）**：配置 `vim = true`（或在设置面板里打开）后，启用 vim-like 的 Normal / Insert 两种状态（§7.4）。
 - **modal 只存在于 keymap 层**：`enum Mode { Normal, Insert }` 由 `App` 持有，只传给 `Keymap::map_event(ev, mode, prompt_active)`。`Action`、`Editor`、`Document` 一律不感知 Mode。Normal 态的每个键都映射成已有的 `Action` / `Motion`，模式切换由 keymap 直接改 `mode`，不产生任何 Action。因此 M4 时**编辑内核零改动**。前提是 vim 映射需要的几个与模式无关的 Action（`OpenLineBelow`、`DeleteLine`、`PasteRegister`、`Motion::WordEnd`）在 M1 时一次性写进 Action 定义，并在 M3 随选区 / 寄存器一起实现和单测（§11.2、§12）。
-- 不加 `--vim` 时 `mode` 恒为 `Insert`，keymap 对 `Esc` 不做模式切换。
+- 不开 vim 键位时 `mode` 恒为 `Insert`，keymap 对 `Esc` 不做模式切换。
 
 **事件过滤**：只处理 `KeyEventKind::Press`（以及 `Repeat`）。Windows 上 crossterm 会同时上报 `Release`，不过滤会导致每个字符输入两次。**不启用** kitty keyboard enhancement（`PushKeyboardEnhancementFlags`）：macOS Terminal 与 Windows conhost 不支持，且与部分终端的 IME 交互有问题；因此 `Ctrl+Shift+Z`、`Shift+Enter` 不可区分，键位设计避开它们。
 
@@ -360,7 +360,7 @@ fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockState)
 | `Ctrl+T` | 切换 Typewriter 模式 | M4 |
 | `Ctrl+F` | 切换 Focus 模式（非当前段落 DIM） | M4 |
 | `Ctrl+P` | 打开设置面板（§8.6） | 设置面板 |
-| `Esc` | 取消选区 / 关闭提示行（`--vim` 下的含义见 §7.4） | M1 |
+| `Esc` | 取消选区 / 关闭提示行（vim 键位下的含义见 §7.4） | M1 |
 
 说明：crossterm raw mode 通过 `cfmakeraw` 关闭了 `ISIG` 与 `IXON`，因此 `Ctrl+Z` 不会挂起进程、`Ctrl+S` 不会触发 XOFF 流控，可安全占用。
 
@@ -370,7 +370,7 @@ fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockState)
 
 剪贴板：M3 的复制使用 **OSC 52**（`ESC ] 52 ; c ; <base64> BEL`）写系统剪贴板，可穿透 SSH / tmux（需 `set -g set-clipboard on`）；不支持 OSC 52 的终端（macOS Terminal）复制仅进内部寄存器，status bar 提示一次。
 
-### 7.4 `--vim` 模式键位（M4）
+### 7.4 vim 键位（`vim = true`，M4）
 
 **状态**：`Mode::Insert` 是启动态，按键行为与 §7.2 完全相同；`Mode::Normal` 下按键见下表。Visual 不是第三个 Mode，而是 Normal 内部的子状态 `visual: bool`。它和待完成的按键序列（`g`、`d` 前缀）一起存放在 `Mode::Normal` 的载荷里：
 
@@ -417,7 +417,7 @@ pub struct NormalState { pub pending: Option<char>, pub visual: bool }   // pend
 
 **冲突点说明**
 
-1. **Esc**：`--vim` 下，Insert 态的 `Esc` 变成"回 Normal"（同时取消选区）；Normal 态的 `Esc` 只退出 visual、清掉 pending。默认模式下 §7.2 的"Esc 取消选区"语义不变。提示行（`保存为:` 等）打开时 `prompt_active = true`，`Esc` 一律只关闭提示行、不切换模式，优先级最高。
+1. **Esc**：vim 键位下，Insert 态的 `Esc` 变成"回 Normal"（同时取消选区）；Normal 态的 `Esc` 只退出 visual、清掉 pending。默认模式下 §7.2 的"Esc 取消选区"语义不变。提示行（`保存为:` 等）打开时 `prompt_active = true`，`Esc` 一律只关闭提示行、不切换模式，优先级最高。
 2. **u / p / x 与 Ctrl+Z / Ctrl+V 不冲突**：前者只是 Normal 态里的普通字符键，后者是 Ctrl 组合键，在两种模式下都绑定到同一组 Action（`Undo` / `PasteRegister`）。终端的系统粘贴（Cmd+V / Ctrl+Shift+V）走 `Event::Paste`，与 `p` 读取的内部寄存器是两条独立路径。`Ctrl+V` 在 Normal 态**不是**块选择。
 3. **光标形状**：Normal 态 `SetCursorStyle::SteadyBlock`，Insert 态 `SteadyBar`。由 `App` 在模式变化时 `execute!`，渲染层不读 Mode。
 4. **按键事件**：与 §7.1 一样只处理 `KeyEventKind::Press/Repeat`，所以 Windows 上 `dd` 不会因为同时上报 Release 而被识别成 4 次按键。
@@ -465,7 +465,7 @@ fn save(doc: &Document, path: &Path) -> Result<SaveReport, IoError>
 - 实现：事件循环 `poll` 的超时取 `min(autosave_deadline, message_expiry)`，无需线程（§11.3）。
 - Untitled 文档不自动保存；退出时若有内容则要求确认。
 - 外部修改检测：保存前比较文件 `mtime` 与上次读/写时记录的值，若不同 → **放弃本次自动保存**，status bar 常驻提示 `文件已被外部修改，Ctrl+S 强制覆盖`。
-- 用配置 `autosave = false` 或 `--no-autosave` 关闭；空闲时长由 `autosave_idle_ms` 决定（默认 2000，§8.5）。
+- 用配置 `autosave = false` 关闭；空闲时长由 `autosave_idle_ms` 决定（默认 2000，§8.5）。
 - 否决 swap 文件：增加清理与恢复 UI 的复杂度；有原子保存 + 2 s 自动保存，最坏丢 2 s 输入。
 
 ### 8.5 配置文件 `~/.mustty.toml`（M4）
@@ -482,26 +482,26 @@ code_color = "yellow"
 
 **完整配置表**
 
-| 键 | 类型 | 默认值 | 合法范围 / 取值 | 对应命令行 | 说明 |
-|---|---|---|---|---|---|
-| `width` | 整数 | `72` | `40..=120`，越界钳制 | `--width N` | 正文最大宽度 `MEASURE`（§5.1） |
-| `vim` | 布尔 | `false` | — | `--vim` / `--no-vim` | 启用 vim-like 模式（§7.4） |
-| `mouse` | 布尔 | `false` | — | `--mouse` / `--no-mouse` | 启用鼠标（§10.5） |
-| `autosave` | 布尔 | `true` | — | `--autosave` / `--no-autosave` | 自动保存（§8.4） |
-| `autosave_idle_ms` | 整数 | `2000` | `500..=60000`，越界钳制 | — | 停止输入多久后自动保存 |
-| `typewriter` | 布尔 | `false` | — | — | Typewriter 模式的**初始状态**，运行中仍可用 `Ctrl+T` 切换（§4.4） |
-| `focus_mode` | 布尔 | `false` | — | — | Focus 模式的**初始状态**，运行中仍可用 `Ctrl+F` 切换 |
-| `scrolloff` | 整数 | `3` | `0..=10`，越界钳制；正文高度不足时仍按 §4.4 的 `(body_h - 1) / 2` 封顶；typewriter 开启时不生效 | — | 光标距视口上下边的最少行数 |
-| `tab_width` | 整数 | `4` | `1..=16`，越界钳制 | — | `Tab` 键插入的空格数，以及文件中已有 `\t` 的显示宽度（§4.2） |
-| `code_color` | 字符串 | `"cyan"` | 只接受 `black` `red` `green` `yellow` `blue` `magenta` `cyan` `white` 这 8 个标准 ANSI 名字（大小写不敏感），对应前景色 SGR 30–37。`gray` 作为 `white` 的别名同样接受（两者都映射到 ratatui 的 `Color::Gray`），其余名字（如 `grey`、`bright*`）一律非法。注意 ratatui 的命名有偏差：SGR 37 在 ratatui 里叫 `Color::Gray`，而 `Color::White` 是亮白 SGR 97。所以 `white` 映射到 `Color::Gray`，其余 7 个映射到 ratatui 的同名颜色 | — | 行内代码和 fenced code 的前景色（§6.1） |
-| `lang` | 字符串 | `"auto"` | `auto`，或 `i18n::LOCALES` 里有译文的语言标签（现为 `en`、`zh-CN`，大小写不敏感）；其他值回退 `auto` 并列入启动警告 | — | 界面语言。优先级：环境变量 `MUSTTY_LANG` > 本键 > `LC_ALL` / `LC_MESSAGES` / `LANG` > 系统语言 > `en`（§11.4）。设置面板里切换立即生效 |
+| 键 | 类型 | 默认值 | 合法范围 / 取值 | 说明 |
+|---|---|---|---|---|
+| `width` | 整数 | `72` | `40..=120`，越界钳制 | 正文最大宽度 `MEASURE`（§5.1） |
+| `vim` | 布尔 | `false` | — | 启用 vim-like 模式（§7.4） |
+| `mouse` | 布尔 | `false` | — | 启用鼠标（§10.5） |
+| `autosave` | 布尔 | `true` | — | 自动保存（§8.4） |
+| `autosave_idle_ms` | 整数 | `2000` | `500..=60000`，越界钳制 | 停止输入多久后自动保存 |
+| `typewriter` | 布尔 | `false` | — | Typewriter 模式的**初始状态**，运行中仍可用 `Ctrl+T` 切换（§4.4） |
+| `focus_mode` | 布尔 | `false` | — | Focus 模式的**初始状态**，运行中仍可用 `Ctrl+F` 切换 |
+| `scrolloff` | 整数 | `3` | `0..=10`，越界钳制；正文高度不足时仍按 §4.4 的 `(body_h - 1) / 2` 封顶；typewriter 开启时不生效 | 光标距视口上下边的最少行数 |
+| `tab_width` | 整数 | `4` | `1..=16`，越界钳制 | `Tab` 键插入的空格数，以及文件中已有 `\t` 的显示宽度（§4.2） |
+| `code_color` | 字符串 | `"cyan"` | 只接受 `black` `red` `green` `yellow` `blue` `magenta` `cyan` `white` 这 8 个标准 ANSI 名字（大小写不敏感），对应前景色 SGR 30–37。`gray` 作为 `white` 的别名同样接受（两者都映射到 ratatui 的 `Color::Gray`），其余名字（如 `grey`、`bright*`）一律非法。注意 ratatui 的命名有偏差：SGR 37 在 ratatui 里叫 `Color::Gray`，而 `Color::White` 是亮白 SGR 97。所以 `white` 映射到 `Color::Gray`，其余 7 个映射到 ratatui 的同名颜色 | 行内代码和 fenced code 的前景色（§6.1） |
+| `lang` | 字符串 | `"auto"` | `auto`，或 `i18n::LOCALES` 里有译文的语言标签（现为 `en`、`zh-CN`，大小写不敏感）；其他值回退 `auto` 并列入启动警告 | 界面语言。优先级：本键 > `LC_ALL` / `LC_MESSAGES` / `LANG` > 系统语言 > `en`（§11.4）。设置面板里切换立即生效 |
 
 `autosave_idle_ms` 和 `scrolloff` 的取值范围是本方案定的，其余范围来自需求。
 
-**优先级**：命令行 > 配置文件 > 内置默认值，按键逐个合并：
+**优先级**：配置文件 > 内置默认值，按键逐个合并。没有命令行覆盖项，也没有环境变量覆盖：一个设置只有一个来源，改它就用设置面板（§8.6）或直接编辑文件。
 
 ```text
-effective = Config::default().merge(file_layer).merge(cli_layer)   // 每层都是 PartialConfig（字段均为 Option）
+effective = Config::default().merge(file_layer)   // file_layer 是 PartialConfig（字段均为 Option）
 ```
 
 **容错策略**（任何情况都不阻止启动）
@@ -517,7 +517,7 @@ effective = Config::default().merge(file_layer).merge(cli_layer)   // 每层都�
 
 **启动警告的显示方式**：TUI 一启动就进入 alternate screen，所以 stderr 上的输出用户看不到。警告改为汇总成**一条** status bar 错误消息，保留到用户第一次按键（§9）；同时写一条 `tracing::warn!`。
 
-**明确不做**：自定义键位、主题配色（除 `code_color` 外不开放任何颜色或样式）、项目级配置（如 `./.mustty.toml`）、status line 开关或布局定制、热重载（在编辑器外修改配置后需要重启 mustty）、环境变量覆盖（`MUSTTY_LOG` 是日志开关，不属于配置）。
+**明确不做**：自定义键位、主题配色（除 `code_color` 外不开放任何颜色或样式）、项目级配置（如 `./.mustty.toml`）、status line 开关或布局定制、热重载（在编辑器外修改配置后需要重启 mustty）、命令行覆盖、环境变量覆盖（`MUSTTY_LOG` 是日志开关，不属于配置；`MUSTTY_DEBUG_PANIC` 只是 debug 构建的测试钩子）。
 
 **模块与边界**：`config.rs` 产出 `Config`，`main.rs` 合并完成后交给 `App`。`Editor`、`Document` 不读取 `Config`：`tab_width` 由 `Keymap` 用来生成 `Insert(" ".repeat(n))`，由 `WrapCache` 用来计算 `\t` 宽度；`width`、`scrolloff`、`typewriter`、`code_color` 只交给 view 层。`Config.code_color` 存的是 `CodeColor` 枚举而不是 `ratatui::Color`：`white` 和 `gray` 都映射到 `Color::Gray`，反推不出选项，面板需要原值。
 
@@ -530,8 +530,8 @@ effective = Config::default().merge(file_layer).merge(cli_layer)   // 每层都�
   - 开关显示 `On` / `Off`（`Off` 为 DIM），用 `Space` / `←` / `→` 切换。
   - 数字显示 `‹ 72 › columns`，单位为 DIM；`←` / `→` 按步进调整（width 2、autosave_idle_ms 500、scrolloff 1、tab_width 1），`PageUp` / `PageDown` 一次 10 步。到边界停住，不循环，不支持直接输入数字。
   - 颜色显示 `‹ ■ cyan ›`，`■` 用该颜色作前景色，`←` / `→` 循环切换。
-  - 语言的选项是 Auto 加上 `i18n::LOCALES` 里的每一门语言（动态生成，新增译文后自动多一项），显示为各自的母语名。Auto 后面用 DIM 标出实际生效的语言，如 `‹ Auto ›  (en)`；`MUSTTY_LANG` 正在覆盖时，值后面 DIM 显示 `(env)`。选中即切换整个界面的语言，面板自己也一样。
-  - 选中行整行 `theme::selection()`。被命令行覆盖的项在值后以 DIM 显示 `(command line)`。
+  - 语言的选项是 Auto 加上 `i18n::LOCALES` 里的每一门语言（动态生成，新增译文后自动多一项），显示为各自的母语名。Auto 后面用 DIM 标出实际生效的语言，如 `‹ Auto ›  (en)`选中即切换整个界面的语言，面板自己也一样。
+  - 选中行整行 `theme::selection()`。
 - **交互**：
   - `↑` / `↓`、`Tab` / `Shift+Tab` 移动，首尾不循环；`j` / `k` 不绑定。
   - 每次调整立刻 `App::apply_config`。`Enter` 一律保存并关闭；`Esc` / `Ctrl+P` 恢复打开时的快照并关闭。
@@ -543,7 +543,7 @@ effective = Config::default().merge(file_layer).merge(cli_layer)   // 每层都�
   - `mouse`：记一个待执行的开关，由事件循环用 `execute!` 发送（Windows 上鼠标捕获走 WinAPI，不是转义序列），同时清掉拖拽状态。`TerminalGuard` 的 `Drop` 和 panic hook 无条件关闭鼠标捕获。
   - `autosave` 从关切到开且有未保存修改：`last_edit = Some(now)`。
 - **写回**（`config::write_back`）：
-  - 只写与快照不同的键，所以命令行参数不会泄漏进文件。
+  - 只写与快照不同的键，用户没动过的键保持文件里的原样（包括文件里根本没写、正在用默认值的键）。
   - 写入时重新读取文件，用 `toml_edit::DocumentMut` 修改：已有键原地换值（保留装饰与行尾注释），新键追加到顶层末尾，未知键和其他表不动。
   - 先 `fs::canonicalize`，再对真实目标调用 `io::file::atomic_write`（与保存文档共用），符号链接保留。
   - 文件有语法错误时拒绝写入，显示「配置文件有语法错误，修改仅本次有效」；写入失败同样提示。两种情况下面板都照常关闭，修改仍在本次会话生效。
@@ -566,7 +566,7 @@ notes.md ●                                    1,284 字 · 12:7
 | 左 | 保存状态标记 | 紧跟文件名，中间一个空格，计入左段宽度；**不 DIM**，与 DIM 的文件名形成对比。有未保存修改（无论有没有路径）→ `*`（U+002A），默认前景色；内容与磁盘一致（打开的已有文件未改动、`Ctrl+S` 或自动保存成功）→ `●`（U+25CF），`Color::Green`；无路径且从未修改（刚启动的空 Untitled）以及尚未创建的新文件 → 不显示。`●` 的 East Asian Width 为 Ambiguous，与 §14 风险 1 一致按 narrow（1 列）计算，不做终端探测；若渲染宽度有问题，备选字符为 `•`（U+2022）。保存成功**不显示**「已保存」类文案 |
 | 右 | 字数 | `unicode_words().count()`（标题 + 正文）：每个汉字 / 假名计 1、英文按词计；千分位；随编辑重算（只在 revision 变化时） |
 | 右 | 位置 | `行:列`，行 = 逻辑行号（1 起，标题不计），列 = 行内 grapheme 序号（1 起）；焦点在标题时显示 `标题` |
-| 左（最前） | 模式（仅 `--vim`） | `NOR` / `INS` / `VIS`，没有加 `--vim` 时不显示（M4） |
+| 左（最前） | 模式（仅 vim 键位） | `NOR` / `INS` / `VIS`，不开 vim 键位时不显示（M4）。INS 默认前景色、NOR DIM、VIS 黄色（`theme::mode`） |
 | 覆盖 | 临时消息 | 错误 / 提示（外部修改、配置警告、保存失败、模式切换等）覆盖左段（连同保存状态标记），3 s 后消失（错误类消息保持到下一次按键） |
 | 覆盖 | 提示行 | `保存为: ` / `未保存，再按 Ctrl+Q 放弃` 时整个 status bar 变为单行输入，光标在其中；保存状态标记随之隐藏，关闭后恢复 |
 
@@ -613,7 +613,7 @@ notes.md ●                                    1,284 字 · 12:7
 
 **默认关闭（`mouse = false`）**：行为与 M0–M3 完全一致，**不执行 `EnableMouseCapture`**。终端原生的拖选复制照常可用；滚轮在 alternate screen 下由多数终端转换成 `↑/↓` 键（alternate scroll mode），所以仍然能滚动。默认关闭的理由：用鼠标选一段文字复制出去，是写作者最常见的鼠标需求，而开启捕获后这项功能会失效。
 
-**开启后（`mouse = true` 或 `--mouse`）**：启动时 `EnableMouseCapture`，鼠标事件由 `view::mouse::map_mouse` 转换成 Action。它不走 `Keymap`，因为坐标映射需要用到 Layout 和 Viewport。
+**开启后（`mouse = true`）**：启动时 `EnableMouseCapture`，鼠标事件由 `view::mouse::map_mouse` 转换成 Action。它不走 `Keymap`，因为坐标映射需要用到 Layout 和 Viewport。
 
 | 鼠标事件 | 行为 |
 |---|---|
@@ -660,7 +660,7 @@ mustty/
 │   ├── app.rs               App 状态机 + 事件循环 + Action 分发
 │   ├── terminal.rs          TerminalGuard：进入/恢复终端模式
 │   ├── action.rs            enum Action（与按键解耦的编辑语义）
-│   ├── keymap.rs            Keymap、Mode：KeyEvent / Paste → Action（M4 的 --vim 状态机也只在此文件）
+│   ├── keymap.rs            Keymap、Mode：KeyEvent / Paste → Action（M4 的 vim 状态机也只在此文件）
 │   ├── editor/
 │   │   ├── mod.rs           Editor：Document + Cursor + History + Focus 的组合与编辑 API
 │   │   ├── document.rs      Document、TitleField、FileMeta、serialize/parse
@@ -816,7 +816,7 @@ pub struct ConfigWarning { pub key: Option<&'static str>, pub message: String }
 impl PartialConfig {
     pub fn from_toml_str(s: &str) -> (PartialConfig, Vec<ConfigWarning>);   // 永不失败：语法错误 → 空 Partial + 警告；未知键直接丢弃
 }
-pub fn load(cli: PartialConfig) -> (Config, Vec<ConfigWarning>);           // 读 ~/.mustty.toml；合并顺序：Default ← File ← Cli，然后钳制
+pub fn load() -> (Config, Vec<ConfigWarning>);                              // 读 ~/.mustty.toml；合并顺序：Default ← File
 ```
 
 ### 11.3 事件循环（同步，单线程）
@@ -843,11 +843,11 @@ loop {
 - **API**：只有 `t("id") -> &'static str` 和 `t_args("id", &[("name", value)]) -> String`，没有宏。第一个参数必须是字符串字面量。占位符写成 `{name}`，做简单替换；缺参数时原样保留并 `debug_assert`。
 - **复数**：只有英文字数一处，拆成 `status-words-one` / `status-words-other` 两条 key，不做复数规则。
 - **回退**：当前语言缺 key 时取 `en`，每个 (语言, id) 只 `tracing::warn!` 一次；`en` 也没有则返回 id 本身。
-- **协商**（`negotiate_with`）：`MUSTTY_LANG` → 配置项 `lang`（不是 `auto` 时，§8.5）→ `LC_ALL` → `LC_MESSAGES` → `LANG` 中第一个非空值，都没有时用 `sys-locale`，再没有用 `en`。环境变量必须排在 `sys-locale` 前面，因为 macOS 的 `sys-locale` 返回 `zh-Hans-CN`，且忽略 `LANG`。`MUSTTY_LANG` 是临时覆盖和测试用的入口，所以排在配置文件之前。
-- **运行时切换**：当前语言存在 `AtomicUsize` 里（文案表仍是 `OnceLock`，只加载一次）。`use_config(lang)` 重新协商并 `set_language`，下一帧起 `t()` 就返回新语言；`App::apply_config` 在 `lang` 变化时调用它，启动和设置面板都走这条路径。`main()` 第一行的 `init()` 只看环境变量，因为这时还没读配置文件：`--help` 和配置警告用的是环境变量决定的语言。测试线程用 `init_for_test` 固定过语言时，`set_language` 只改这个线程。
+- **协商**（`negotiate_with`）：配置项 `lang`（不是 `auto` 时，§8.5）→ `LC_ALL` → `LC_MESSAGES` → `LANG` 中第一个非空值，都没有时用 `sys-locale`，再没有用 `en`。环境变量必须排在 `sys-locale` 前面，因为 macOS 的 `sys-locale` 返回 `zh-Hans-CN`，且忽略 `LANG`。曾有的 `MUSTTY_LANG` 覆盖已删除，语言只由配置文件（设置面板）和系统环境决定。
+- **运行时切换**：当前语言存在 `AtomicUsize` 里（文案表仍是 `OnceLock`，只加载一次）。`use_config(lang)` 重新协商并 `set_language`，下一帧起 `t()` 就返回新语言；`App::apply_config` 在 `lang` 变化时调用它，启动和设置面板都走这条路径。测试线程用 `init_for_test` 固定过语言时，`set_language` 只改这个线程。
 - **语言名**：每份译文的 `language-name` 用本语言写出自己的名字（English、简体中文），设置面板里按这个显示，不随界面语言翻译。它不经 `t()` 读取，列在 `META_KEYS` 中，测试会检查每份译文都提供了它。
 - **匹配**：先比较语言 + 地区，再只比较语言。`C` / `POSIX` → `en`。`zh` 的 script 为 `Hant` 或地区为 TW / HK / MO 时请求 `zh-TW`，目前没有这份译文，所以回退到 `zh-CN`。不设 `lang` 配置键。
-- **初始化**：`i18n::init()` 在 `main()` 第一行调用，早于 clap 解析，因为 `--help` 也要翻译。clap 保留 derive，用 `Cli::command()` + `mut_arg` 在运行时填入 about / after_help / 各参数说明。clap 自带的 `Usage:` / `Options:` 和解析错误无法本地化。
+- **初始化**：`main()` 先 `i18n::init()`（只看环境），再读一次配置文件、按其中的 `lang` 调 `use_config`，最后才交给 clap 解析，因为 `--help` 也要翻译；配置警告在语言定下之后重新生成。clap 保留 derive，用 `Cli::command()` + `mut_arg` 在运行时填入 about / after_help / 参数说明。clap 自带的 `Usage:` / `Options:` 和解析错误无法本地化。
 - **测试**：
   - 每份 toml 都能解析，且与 `LOCALES` 表一一对应；
   - 译文的 key 必须是 `en` 的子集，占位符集合与 `en` 一致；
@@ -882,7 +882,7 @@ loop {
 
 ### M2 — 不丢字
 
-- 内容：undo/redo 与合并规则；bracketed paste（及 Windows 批量合并）；自动保存（2 s 空闲 / FocusLost / 退出）；外部修改检测；字数统计；`已保存` 提示；`--no-autosave`；`MUSTTY_LOG` 日志。
+- 内容：undo/redo 与合并规则；bracketed paste（及 Windows 批量合并）；自动保存（2 s 空闲 / FocusLost / 退出）；外部修改检测；字数统计；`已保存` 提示；关闭自动保存的开关；`MUSTTY_LOG` 日志。
 - 验收：
   1. 粘贴 5000 行文本 < 200 ms 显示完毕，一次 `Ctrl+Z` 全部撤销；
   2. 连续打 "hello world foo" 后 `Ctrl+Z` 三次依次撤回三个词；undo 回到保存点时 `•` 消失；
@@ -899,19 +899,19 @@ loop {
 
 ### M4 — 打磨与发布
 
-- 内容：Typewriter 模式（`Ctrl+T`）；Focus 模式（`Ctrl+F`，当前段落外 DIM）；`--width`；**`--vim` 模式（§7.4）**：`keymap.rs` 中的 Normal/Insert 状态机、visual 子状态、`gg`/`dd` 序列、Normal 态 `Ctrl+R` 重做、status bar 的 `NOR/INS/VIS` 标识、按模式切换光标形状；**配置文件 `~/.mustty.toml`（§8.5）**：`config.rs` 实现 10 个键、逐键容错、钳制、命令行 > 配置 > 默认的合并，CLI 增加 `--vim/--no-vim`、`--mouse/--no-mouse`、`--autosave`（与已有的 `--width`、`--no-autosave` 一起，共四个覆盖项），`tab_width` 接入 Keymap 和 WrapCache，`code_color` 接入 theme，`typewriter` / `focus_mode` 作为初始状态；**鼠标（§10.5）**：`view/mouse.rs`，`mouse = true` 时启用单击定位、拖拽选区（出视口后以 50 ms 间隔自动滚动）、滚轮滚动，退出和 panic 时 `DisableMouseCapture`；README 写明"开启鼠标后，原生选择需按住 Shift"；启动 5 s 键位提示；GitHub Actions 三平台 CI（test + clippy + release 构建）；macOS/Linux/Windows 预编译二进制；README。
+- 内容：Typewriter 模式（`Ctrl+T`）；Focus 模式（`Ctrl+F`，当前段落外 DIM）；正文宽度可配置；**vim 键位（§7.4）**：`keymap.rs` 中的 Normal/Insert 状态机、visual 子状态、`gg`/`dd` 序列、Normal 态 `Ctrl+R` 重做、status bar 的 `NOR/INS/VIS` 标识、按模式切换光标形状；**配置文件 `~/.mustty.toml`（§8.5）**：`config.rs` 实现 10 个键、逐键容错、钳制、配置 > 默认的合并（当时还有命令行覆盖项，后随设置面板删除，§3.1），`tab_width` 接入 Keymap 和 WrapCache，`code_color` 接入 theme，`typewriter` / `focus_mode` 作为初始状态；**鼠标（§10.5）**：`view/mouse.rs`，`mouse = true` 时启用单击定位、拖拽选区（出视口后以 50 ms 间隔自动滚动）、滚轮滚动，退出和 panic 时 `DisableMouseCapture`；README 写明"开启鼠标后，原生选择需按住 Shift"；启动 5 s 键位提示；GitHub Actions 三平台 CI（test + clippy + release 构建）；macOS/Linux/Windows 预编译二进制；README。
 - 验收：
   1. Typewriter 模式下连续输入 100 行，光标行始终在正文中线；
   2. CI 三平台全绿，Release 附带 4 个二进制，`mustty --version` 正确；
   3. 按 §13.3 手工清单在 6 个终端全部打勾；
-  4. **`--vim` 内核零改动**：M4 中加入 `--vim` 的那组提交，`git diff --stat` 只涉及 `keymap.rs`、`app.rs`（持有 Mode、切换光标形状）、`status.rs`、`main.rs`（clap 参数），以及测试文件和文档，`editor/`、`text/`、`markdown.rs`、`io/` 中没有任何改动；
-  5. **`--vim` 功能**：带 `--vim` 启动后，依次执行 `i` 输入 → `Esc` → `gg` → `dd` → `G` → `p`，结果是第一行被移到文末；`v` + `w` + `d` 删除一个词；`u` 与 `Ctrl+Z` 效果相同；status bar 正确显示 `INS/NOR/VIS`，光标在块状与竖线之间切换；
-  6. **默认行为不回退**：不带 `--vim` 时，M1–M3 的全部验收项重跑通过，`Esc` 仍然只取消选区；
-  7. `--vim` 下 Normal 态按 `j`，在 macOS 拼音、Windows 微软拼音"英文模式"下都正常移动。中文模式下的行为按 §14 风险 2 处理，并写进 README；Normal 态 `Ctrl+R` 能撤回 `u`；
+  4. **vim 键位内核零改动**：M4 中加入 vim 键位的那组提交，`git diff --stat` 只涉及 `keymap.rs`、`app.rs`（持有 Mode、切换光标形状）、`status.rs`、`config.rs` / `main.rs`（开关），以及测试文件和文档，`editor/`、`text/`、`markdown.rs`、`io/` 中没有任何改动；
+  5. **vim 键位功能**：`vim = true` 启动后，依次执行 `i` 输入 → `Esc` → `gg` → `dd` → `G` → `p`，结果是第一行被移到文末；`v` + `w` + `d` 删除一个词；`u` 与 `Ctrl+Z` 效果相同；status bar 正确显示 `INS/NOR/VIS`，光标在块状与竖线之间切换；
+  6. **默认行为不回退**：不开 vim 键位时，M1–M3 的全部验收项重跑通过，`Esc` 仍然只取消选区；
+  7. vim 键位下 Normal 态按 `j`，在 macOS 拼音、Windows 微软拼音"英文模式"下都正常移动。中文模式下的行为按 §14 风险 2 处理，并写进 README；Normal 态 `Ctrl+R` 能撤回 `u`；
   8. **配置**：在 200×50 的终端里，分别准备 6 份 `~/.mustty.toml` 启动，用界面上能直接看到的行为验证。宽度的测法：打开一行 200 个 `x` 的文件，数第一个视觉行有几个 `x`，或者看光标在 `End` 后的列号减去起始列：
      ① 文件不存在 → 正文实测 72 列宽，status bar 没有警告，不显示 `NOR/INS` 标识，`Tab` 插入 4 个空格；
      ② 10 个键全部写上合法值（`width = 64`、`vim = true`、`mouse = true`、`autosave = false`、`autosave_idle_ms = 5000`、`typewriter = true`、`focus_mode = true`、`scrolloff = 5`、`tab_width = 2`、`code_color = "yellow"`）→ 正文实测 64 列宽；status bar 显示 `INS`；单击可定位光标；停止输入 10 s 后文件仍未写盘；光标行固定在正文中线；非当前段落为 DIM；`Tab` 插入 2 个空格；行内代码显示为黄色；
-     ③ 配置 `width = 64`、`vim = true`，启动时带 `--width 90 --no-vim` → 正文实测 90 列宽，status bar 不显示模式标识，`Esc` 只取消选区；
+     ③ 配置 `width = 64`、`vim = true` → 正文实测 64 列宽，status bar 显示模式标识，`Esc` 进入 Normal；
      ④ TOML 语法错误 → TUI 仍能正常启动，正文 72 列宽，status bar 显示含行号的警告（例如 `~/.mustty.toml 第 3 行语法错误，已使用默认配置`），按任意键后警告消失；
      ⑤ `width = 200`、`tab_width = 0`、`code_color = "orange"` → 正文实测 120 列宽，`Tab` 插入 1 个空格，行内代码为默认的青色，status bar 显示一条汇总警告，列出这 3 个键；
      ⑥ 写入未知键 `colour = "red"` 和 `width = 64` → 启动时没有任何警告，正文实测 64 列宽（未知键不影响其他键）；
@@ -939,7 +939,7 @@ loop {
 | `keymap`（M1 起） | `vim = false`：任何事件都不改变 `mode`（恒为 Insert），`Esc` → `Cancel`，§7.2 每个键 → 预期 Action | 表驱动：`(Event, Mode, prompt_active) → (Option<Action>, Mode)` |
 | `keymap` mode 分支（M4） | Insert `Esc` → Normal + `Cancel`；`i/a/o` 进入 Insert 及其返回值；§7.4 映射表逐项覆盖；`v` 下 Motion 的 `extend = true`，`d/y/x` 后退出 visual；`gg`、`dd` 序列和非法序列（`gx`）丢弃 pending；`prompt_active = true` 时 `Esc` 不切换模式；Normal 态可打印字符返回 `None`；Normal 态 `Event::Paste` 仍然返回 `Paste`；Ctrl 组合键在两种模式下返回值相同 | 表驱动，同上；另用 `proptest` 生成随机按键序列，断言 `map_event` 不 panic，且 `vim = false` 时 mode 永远是 Insert |
 | `keymap` vim 键位表（M4） | 把 §7.4 的两张表原样写成一个 `const VIM_TABLE: &[(&str /*按键序列*/, ModeBefore, Option<Action>, ModeAfter)]`，测试逐行回放，保证文档和实现一一对应。新增或修改键位时，必须同时改表和文档。另外单独覆盖：`Ctrl+R` 只在 Normal 态返回 `Redo`；VIS 状态下 `Esc` 返回 `Cancel` 并回到 NOR；`StatusModel` 在三种状态下渲染出 `NOR`/`INS`/`VIS`，`vim = false` 时不渲染 | 表驱动 |
-| `config`（M4） | ① 空字符串 / 文件不存在 → `Config::default()` 且没有警告；② 10 个键全部合法 → 逐项相等；③ 每个数值键在边界值 −1、边界、边界 +1 上的钳制（`width` 39/40/120/121，`tab_width` 0/1/16/17，`autosave_idle_ms` 499/60001，`scrolloff` 11）；④ `code_color` 的 8 个合法名字、大小写变体和非法名字；⑤ 单个键类型错误时，只有该键回退；⑥ 语法错误时返回空 Partial，警告带行号；⑦ 未知键被忽略，不产生警告，也不影响其他键；⑧ 三层合并的优先级（default ← file ← cli），包括 `--no-vim`、`--no-mouse`、`--no-autosave` 能覆盖配置文件里的 `true`，以及同一开关出现两次时后者生效（`--vim --no-vim` 得到 false） | 表驱动 + `proptest`（随机 TOML 片段，断言 `from_toml_str` 永不 panic） |
+| `config`（M4） | ① 空字符串 / 文件不存在 → `Config::default()` 且没有警告；② 10 个键全部合法 → 逐项相等；③ 每个数值键在边界值 −1、边界、边界 +1 上的钳制（`width` 39/40/120/121，`tab_width` 0/1/16/17，`autosave_idle_ms` 499/60001，`scrolloff` 11）；④ `code_color` 的 8 个合法名字、大小写变体和非法名字；⑤ 单个键类型错误时，只有该键回退；⑥ 语法错误时返回空 Partial，警告带行号；⑦ 未知键被忽略，不产生警告，也不影响其他键；⑧ 两层合并（default ← file），文件里没写的键保持默认；`lang` 只接受 `auto` 和有译文的标签。命令行另有 `tests/cli.rs`：只接受 `FILE` / `--help` / `--version`，已删的开关退出码 2；`MUSTTY_LANG` 不再有任何效果 | 表驱动 + `proptest`（随机 TOML 片段，断言 `from_toml_str` 永不 panic） |
 | `view::mouse`（M4） | 屏幕坐标 → Target：正文首行 / 末行、`top_padding > 0`（typewriter）、软换行的第 2 个视觉行、行尾右侧空白、宽字符左右两格、悬挂空白处、标题区（居中偏移）、status bar 和留白（返回 `None`）；拖拽时 `extend = true`，越过上下边界设置 50 ms deadline，回到视口内或松开后清除；滚轮返回 `ScrollView(±3)`；`prompt_active` 时一律返回 `None` | 表驱动：构造固定的 `Layout` + `Viewport` + 文本；另用 `proptest` 验证"对正文内任意坐标，`map_mouse` 得到的 idx，经 `char_to_visual` 后回到同一视觉行，列偏差 < 该处 grapheme 的宽度" |
 | `editor`：M4 预留动作（M3 起） | `DeleteLine` 在首行 / 末行 / 无末尾换行时的结果与寄存器内容；`PasteRegister` 行级与字符级；`OpenLineBelow` 是一次 undo；`WordEnd` 在中英混排中的落点 | 表驱动 |
 
@@ -969,7 +969,7 @@ loop {
 | # | 风险 | 推荐默认值 |
 |---|---|---|
 | 1 | **字符宽度与终端不一致**：① East Asian Ambiguous 字符（`“”‘’…—`）在部分 CJK 用户的终端里被设成宽字符（iTerm2 "Ambiguous characters are double-width"）；② Emoji / ZWJ 序列（如 `👨‍👩‍👧`）有的终端画 2 列、有的画 6 列。两者都会让该行后续光标错位 | 一律采用 unicode-width 0.2.2 的结果：ambiguous 按 **narrow**，与 ratatui 和绝大多数终端的默认值一致；不做终端探测。M4 之后视反馈再加 `--ambiguous-wide`，因为要同时替换 ratatui 写 Buffer 的宽度逻辑，代价较大，所以不提前做 |
-| 2 | **`--vim` 下 Normal 态与中文 IME 冲突**：输入法处于中文状态时，`j`/`k`/`d` 等按键会被 IME 截获成拼音，程序收不到；IME 状态对终端程序不可见，无法自动切换 | 不尝试切换或探测 IME。Normal 态收到的可打印字符（包括 IME 提交的汉字）一律忽略，不会误插入；README 建议 vim 用户为终端单独设置英文输入源，或用 `Esc` 前先切到英文。这只影响主动加 `--vim` 的用户，默认模式不受影响 |
-| 3 | **自动保存覆盖用户不想保存的修改** | 默认 **开启**（2 s 空闲）；保留完整 undo 历史作为后悔药；提供 `--no-autosave`；不做 swap / 备份文件 |
+| 2 | **vim 键位下 Normal 态与中文 IME 冲突**：输入法处于中文状态时，`j`/`k`/`d` 等按键会被 IME 截获成拼音，程序收不到；IME 状态对终端程序不可见，无法自动切换 | 不尝试切换或探测 IME。Normal 态收到的可打印字符（包括 IME 提交的汉字）一律忽略，不会误插入；README 建议 vim 用户为终端单独设置英文输入源，或用 `Esc` 前先切到英文。这只影响主动开启 vim 键位的用户，默认模式不受影响 |
+| 3 | **自动保存覆盖用户不想保存的修改** | 默认 **开启**（2 s 空闲）；保留完整 undo 历史作为后悔药；可在配置或设置面板里关闭自动保存；不做 swap / 备份文件 |
 | 4 | **标题绑定 H1 的回写边界**（setext 标题 `===`、front matter、`# 标题 #`）可能让用户困惑"为什么这篇没有标题" | 只识别首行 `"# "` 且不以 `#` 结尾的 ATX 标题；其余情况 Unbound，标题区以 DIM 显示文件名作为提示；front matter 支持推迟到 M4 之后 |
-| 5 | **配置文件带来的不确定性**：① 非法值（越界、类型错、`code_color` 拼错）；② TOML 语法错误；③ 配置项变多后，同一个二进制在不同机器上行为不同，bug 报告难以复现（"我这里 Esc 不取消选区"其实是对方开了 `vim = true`） | ① 逐键回退默认或钳制，汇总成一条 status bar 警告，**永不阻止启动**；② 整个文件回退默认，并给出带行号的警告；③ 配置项**冻结为 10 个**，新增需要走方案评审；不加诊断类命令行参数。issue 模板要求附上 `~/.mustty.toml` 的内容和启动命令行；`MUSTTY_LOG` 日志的第一行写入最终生效的配置；需要纯默认行为来复现问题时，临时改名 `~/.mustty.toml` 即可 |
+| 5 | **配置文件带来的不确定性**：① 非法值（越界、类型错、`code_color` 拼错）；② TOML 语法错误；③ 配置项变多后，同一个二进制在不同机器上行为不同，bug 报告难以复现（"我这里 Esc 不取消选区"其实是对方开了 `vim = true`） | ① 逐键回退默认或钳制，汇总成一条 status bar 警告，**永不阻止启动**；② 整个文件回退默认，并给出带行号的警告；③ 配置项**冻结为 10 个**，新增需要走方案评审；不加诊断类命令行参数。issue 模板要求附上 `~/.mustty.toml` 的内容；`MUSTTY_LOG` 日志的第一行写入最终生效的配置；需要纯默认行为来复现问题时，临时改名 `~/.mustty.toml` 即可 |

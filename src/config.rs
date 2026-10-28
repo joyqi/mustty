@@ -1,4 +1,4 @@
-//! `~/.mustty.toml`（方案 §8.5）：优先级 命令行 > 配置文件 > 内置默认值，按键逐个合并。
+//! `~/.mustty.toml`（方案 §8.5）：优先级 配置文件 > 内置默认值，按键逐个合并。
 //! 配置写错永远不阻止启动：语法错误整份作废，单个键出错只回退这个键，越界钳制；都只产生警告。
 
 use std::path::{Path, PathBuf};
@@ -27,7 +27,7 @@ pub struct Config {
     pub tab_width: u16,
     /// 存选项本身而不是 `Color`：`white` 与 `gray` 都映射到 `Color::Gray`，反推不回来
     pub code_color: CodeColor,
-    /// 界面语言：`i18n::AUTO` 或 `i18n::LOCALES` 里的标签；`MUSTTY_LANG` 优先于它
+    /// 界面语言：`i18n::AUTO` 或 `i18n::LOCALES` 里的标签
     pub lang: &'static str,
 }
 
@@ -106,7 +106,7 @@ impl CodeColor {
     }
 }
 
-/// 一层配置（文件或命令行）：未给出的键为 None。
+/// 配置文件这一层：未给出（或写错）的键为 None，合并时保持默认值。
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PartialConfig {
     pub width: Option<u16>,
@@ -251,11 +251,9 @@ impl PartialConfig {
 }
 
 impl Config {
-    /// 用一层配置覆盖当前值；`width` 再钳制一次（命令行的 `--width` 也走这里）。
+    /// 用配置文件这一层覆盖当前值（数值在 `from_toml_str` 里已经钳制过）。
     pub fn merge(mut self, p: &PartialConfig) -> Self {
-        if let Some(w) = p.width {
-            self.width = w.clamp(WIDTH_RANGE.0, WIDTH_RANGE.1);
-        }
+        self.width = p.width.unwrap_or(self.width);
         self.vim = p.vim.unwrap_or(self.vim);
         self.mouse = p.mouse.unwrap_or(self.mouse);
         self.autosave = p.autosave.unwrap_or(self.autosave);
@@ -276,23 +274,13 @@ pub fn path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".mustty.toml"))
 }
 
-/// 读 `~/.mustty.toml` 并按 默认 ← 文件 ← 命令行 合并。
-pub fn load(cli: &PartialConfig) -> (Config, Vec<ConfigWarning>) {
-    let (file, mut warnings) = match path() {
+/// 读 `~/.mustty.toml` 并按 默认 ← 文件 合并。
+pub fn load() -> (Config, Vec<ConfigWarning>) {
+    let (file, warnings) = match path() {
         Some(p) => read_file(&p),
         None => (PartialConfig::default(), vec![]),
     };
-    if let Some(w) = cli
-        .width
-        .filter(|w| !(WIDTH_RANGE.0..=WIDTH_RANGE.1).contains(w))
-    {
-        let c = w.clamp(WIDTH_RANGE.0, WIDTH_RANGE.1);
-        warnings.push(ConfigWarning {
-            key: Some("width"),
-            message: format!("--width {w} → {c}"),
-        });
-    }
-    (Config::default().merge(&file).merge(cli), warnings)
+    (Config::default().merge(&file), warnings)
 }
 
 fn read_file(path: &Path) -> (PartialConfig, Vec<ConfigWarning>) {
@@ -494,7 +482,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".mustty.toml");
         std::fs::write(&path, "width = 80\n").unwrap();
-        let old = loaded("width = 80\n", &PartialConfig::default());
+        let old = loaded("width = 80\n");
         let new = Config {
             lang: "zh-CN",
             ..old.clone()
@@ -503,7 +491,7 @@ mod tests {
         write_back(&path, &old, &new).unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         assert_eq!(written, "width = 80\nlang = \"zh-CN\"\n");
-        assert_eq!(loaded(&written, &PartialConfig::default()), new);
+        assert_eq!(loaded(&written), new);
     }
 
     #[test]
@@ -619,35 +607,17 @@ mod tests {
     }
 
     #[test]
-    fn layers_merge_in_priority_order() {
+    fn file_layer_overrides_defaults_key_by_key() {
         let (file, _) =
-            PartialConfig::from_toml_str("width = 64\nvim = true\nmouse = true\nautosave = true");
-        let cli = PartialConfig {
-            width: Some(90),
-            vim: Some(false),
-            mouse: Some(false),
-            autosave: Some(false),
-            ..PartialConfig::default()
-        };
-        let c = Config::default().merge(&file).merge(&cli);
+            PartialConfig::from_toml_str("width = 64\nvim = true\nmouse = true\nautosave = false");
+        let c = Config::default().merge(&file);
         assert_eq!(
             (c.width, c.vim, c.mouse, c.autosave),
-            (90, false, false, false)
+            (64, true, true, false)
         );
-        // 命令行没给的键不覆盖文件值
-        let c = Config::default()
-            .merge(&file)
-            .merge(&PartialConfig::default());
-        assert_eq!(
-            (c.width, c.vim, c.mouse, c.autosave),
-            (64, true, true, true)
-        );
-        // 命令行的 --width 同样钳制
-        let wide = PartialConfig {
-            width: Some(500),
-            ..PartialConfig::default()
-        };
-        assert_eq!(Config::default().merge(&wide).width, 120);
+        // 文件里没写的键保持默认值；空的一层什么都不改
+        assert_eq!((c.tab_width, c.code_color), (4, CodeColor::Cyan));
+        assert_eq!(c.clone().merge(&PartialConfig::default()), c);
     }
 
     #[test]
@@ -663,11 +633,9 @@ mod tests {
         assert_eq!(summarize(&[]), None);
     }
 
-    /// 先按文件内容（再叠加命令行层）算出打开面板时的配置。
-    fn loaded(text: &str, cli: &PartialConfig) -> Config {
-        Config::default()
-            .merge(&PartialConfig::from_toml_str(text).0)
-            .merge(cli)
+    /// 按文件内容算出打开面板时的配置。
+    fn loaded(text: &str) -> Config {
+        Config::default().merge(&PartialConfig::from_toml_str(text).0)
     }
 
     #[test]
@@ -676,7 +644,7 @@ mod tests {
         let path = dir.path().join(".mustty.toml");
         let text = "# my config\nwidth = 72   # my width\nvim = true # keep\ncolour = \"red\"\n\n[keys]\nsave = \"C-s\"\n";
         std::fs::write(&path, text).unwrap();
-        let old = loaded(text, &PartialConfig::default());
+        let old = loaded(text);
         let new = Config {
             width: 64,
             tab_width: 8,
@@ -689,7 +657,7 @@ mod tests {
             written,
             "# my config\nwidth = 64   # my width\nvim = true # keep\ncolour = \"red\"\ntab_width = 8\ncode_color = \"white\"\n\n[keys]\nsave = \"C-s\"\n"
         );
-        assert_eq!(loaded(&written, &PartialConfig::default()), new);
+        assert_eq!(loaded(&written), new);
     }
 
     #[test]
@@ -697,13 +665,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".mustty.toml");
         std::fs::write(&path, "width = 64\n").unwrap();
-        // 用 --width 90 启动：面板打开时 width 是 90，用户只改了 vim
-        let cli = PartialConfig {
-            width: Some(90),
-            ..PartialConfig::default()
-        };
-        let old = loaded("width = 64\n", &cli);
-        assert_eq!(old.width, 90);
+        // 用户只改了 vim：文件里已有的 width 原样不动
+        let old = loaded("width = 64\n");
+        assert_eq!(old.width, 64);
         let new = Config {
             vim: true,
             ..old.clone()
@@ -713,7 +677,7 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "width = 64\nvim = true\n",
-            "命令行的 width 没有泄漏进文件"
+            "只写变化的键"
         );
         // 没有变化：不写，也不创建不存在的文件
         let missing = dir.path().join("none.toml");

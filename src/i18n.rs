@@ -16,9 +16,8 @@ pub const LOCALES: &[(&str, &str)] = &[
     ("zh-CN", include_str!("../locales/zh-CN.toml")),
 ];
 
-/// 语言协商依次读取的环境变量；都没有时用系统语言，再没有用 `en`。
-/// 配置文件的 `lang` 排在 `MUSTTY_LANG` 之后、其余三个之前（见 `negotiate_with`）。
-pub const ENV_VARS: [&str; 4] = ["MUSTTY_LANG", "LC_ALL", "LC_MESSAGES", "LANG"];
+/// 配置项 `lang` 为 `auto` 时依次读取的环境变量；都没有时用系统语言，再没有用 `en`。
+pub const ENV_VARS: [&str; 3] = ["LC_ALL", "LC_MESSAGES", "LANG"];
 
 /// 配置项 `lang` 的默认值：按环境变量与系统语言自动判断。
 pub const AUTO: &str = "auto";
@@ -36,8 +35,8 @@ thread_local! {
     static TEST_LOCALE: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
-/// 按环境变量与系统语言选定界面语言。在 `main()` 第一行调用（`--help` 也要翻译）；
-/// 此时配置文件还没读，配置项 `lang` 由 App 启动时经 `use_config` 应用。
+/// 按环境变量与系统语言选定界面语言（还没读配置文件时的初值）。
+/// `main()` 随后用配置项 `lang` 调 `use_config`，都在 clap 解析之前（`--help` 也要翻译）。
 pub fn init() {
     use_config(AUTO);
 }
@@ -62,11 +61,6 @@ pub fn set_language(tag: &str) {
     if !pinned {
         ACTIVE.store(i, Ordering::Relaxed);
     }
-}
-
-/// `MUSTTY_LANG` 正在覆盖配置文件的 `lang`。
-pub fn env_override() -> bool {
-    std::env::var_os("MUSTTY_LANG").is_some_and(|v| !v.is_empty())
 }
 
 /// 所有可选的语言标签，`LOCALES` 的顺序。
@@ -222,23 +216,18 @@ pub fn negotiate(env: impl Fn(&str) -> Option<String>, system: Option<String>) -
     negotiate_with(AUTO, env, system)
 }
 
-/// 优先级：`MUSTTY_LANG` > 配置项 `lang`（不是 `auto` 时）> `LC_ALL` / `LC_MESSAGES` / `LANG`
-/// > 系统语言 > `en`。`MUSTTY_LANG` 是临时覆盖与测试用的入口。
+/// 优先级：配置项 `lang`（不是 `auto` 时）> `LC_ALL` / `LC_MESSAGES` / `LANG` > 系统语言 > `en`。
 pub fn negotiate_with(
     config: &str,
     env: impl Fn(&str) -> Option<String>,
     system: Option<String>,
 ) -> &'static str {
-    let get = |k: &str| env(k).filter(|v| !v.is_empty());
-    if let Some(v) = get(ENV_VARS[0]) {
-        return match_tag(&v);
-    }
     if let Some(tag) = known_tag(config) {
         return tag;
     }
-    ENV_VARS[1..]
+    ENV_VARS
         .iter()
-        .find_map(|k| get(k))
+        .find_map(|k| env(k).filter(|v| !v.is_empty()))
         .or(system)
         .map_or("en", |tag| match_tag(&tag))
 }
@@ -427,21 +416,22 @@ mod tests {
     }
 
     #[test]
-    fn config_lang_sits_between_mustty_lang_and_locale_vars() {
+    fn config_lang_comes_before_locale_vars() {
         type Env = &'static [(&'static str, &'static str)];
         let cases: &[(&str, Env, Option<&str>, &str)] = &[
             ("auto", &[("LANG", "zh_CN.UTF-8")], None, "zh-CN"),
             ("en", &[("LANG", "zh_CN.UTF-8")], Some("zh-Hans-CN"), "en"),
             ("zh-CN", &[("LC_ALL", "en_US.UTF-8")], None, "zh-CN"),
             ("zh-cn", &[], None, "zh-CN"),
-            ("en", &[("MUSTTY_LANG", "zh-CN")], None, "zh-CN"),
+            // MUSTTY_LANG 已删除：设置了也没有任何效果
+            ("en", &[("MUSTTY_LANG", "zh-CN")], None, "en"),
             (
                 "zh-CN",
                 &[("MUSTTY_LANG", "en"), ("LANG", "zh_CN")],
                 None,
-                "en",
+                "zh-CN",
             ),
-            ("zh-CN", &[("MUSTTY_LANG", "")], None, "zh-CN"),
+            ("auto", &[("MUSTTY_LANG", "zh-CN")], None, "en"),
             ("xx", &[("LANG", "zh_CN")], None, "zh-CN"),
             ("auto", &[], Some("zh-Hans-CN"), "zh-CN"),
             ("auto", &[], None, "en"),
@@ -506,15 +496,16 @@ mod tests {
             (&[], Some("en-US"), "en"),
             (&[("LANG", "zh_CN.UTF-8")], Some("en-US"), "zh-CN"),
             (&[("LANG", "en_US.UTF-8")], Some("zh-Hans-CN"), "en"),
+            // MUSTTY_LANG 不再参与协商
             (
                 &[("MUSTTY_LANG", "en"), ("LC_ALL", "zh_CN.UTF-8")],
                 None,
-                "en",
+                "zh-CN",
             ),
             (
                 &[("MUSTTY_LANG", "zh-CN"), ("LANG", "en_US.UTF-8")],
                 None,
-                "zh-CN",
+                "en",
             ),
             (
                 &[("LC_ALL", "zh_CN.UTF-8"), ("LANG", "en_US.UTF-8")],
@@ -526,7 +517,7 @@ mod tests {
                 None,
                 "zh-CN",
             ),
-            (&[("MUSTTY_LANG", ""), ("LANG", "zh_CN")], None, "zh-CN"),
+            (&[("LC_ALL", ""), ("LANG", "zh_CN")], None, "zh-CN"),
             (&[("LANG", "C")], Some("zh-Hans-CN"), "en"),
             (&[("LANG", "C.UTF-8")], None, "en"),
             (&[("LC_ALL", "POSIX")], None, "en"),

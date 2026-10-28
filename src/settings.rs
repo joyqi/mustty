@@ -7,8 +7,7 @@ use std::time::Duration;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::config::{
-    AUTOSAVE_IDLE_RANGE, CodeColor, Config, PartialConfig, SCROLLOFF_RANGE, TAB_WIDTH_RANGE,
-    WIDTH_RANGE,
+    AUTOSAVE_IDLE_RANGE, CodeColor, Config, SCROLLOFF_RANGE, TAB_WIDTH_RANGE, WIDTH_RANGE,
 };
 use crate::i18n::{self, t};
 
@@ -203,29 +202,6 @@ impl Field {
             (Value::Lang(lang), _) => Value::Lang(cycle(&lang_options(), lang, steps)),
             (v, _) => v,
         }
-    }
-
-    /// 这一项在命令行上给过：下次启动仍会被命令行覆盖。
-    pub fn from_cli(self, cli: &PartialConfig) -> bool {
-        match self {
-            Self::Width => cli.width.is_some(),
-            Self::Vim => cli.vim.is_some(),
-            Self::Mouse => cli.mouse.is_some(),
-            Self::Autosave => cli.autosave.is_some(),
-            Self::AutosaveIdle => cli.autosave_idle_ms.is_some(),
-            Self::Typewriter => cli.typewriter.is_some(),
-            Self::FocusMode => cli.focus_mode.is_some(),
-            Self::Scrolloff => cli.scrolloff.is_some(),
-            Self::TabWidth => cli.tab_width.is_some(),
-            Self::CodeColor => cli.code_color.is_some(),
-            // 没有 --lang；被 MUSTTY_LANG 覆盖的情况见 `from_env`
-            Self::Lang => cli.lang.is_some(),
-        }
-    }
-
-    /// 这一项正被环境变量覆盖（只有语言：`MUSTTY_LANG`）。
-    pub fn from_env(self) -> bool {
-        self == Self::Lang && i18n::env_override()
     }
 }
 

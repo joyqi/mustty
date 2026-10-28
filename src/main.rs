@@ -6,7 +6,7 @@ use std::time::Instant;
 use anyhow::anyhow;
 use clap::{CommandFactory, FromArgMatches, Parser};
 use mustty::app::{self, App};
-use mustty::config::{self, Config, PartialConfig};
+use mustty::config::{self, Config};
 use mustty::editor::document::{Document, FileMeta};
 use mustty::i18n::{self, t, t_args};
 use mustty::io::file::{IoError, load};
@@ -14,67 +14,29 @@ use mustty::terminal::TerminalGuard;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 
-// 说明文字按界面语言在运行时填入（见 `command`），这里不写 doc comment
+// 说明文字按界面语言在运行时填入（见 `command`），这里不写 doc comment。
+// 只有一个文件参数：其余设置都在配置文件里，可以用 Ctrl+P 的设置面板修改
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
     file: Option<PathBuf>,
-    #[arg(long, value_name = "N")]
-    width: Option<u16>,
-    #[arg(long, overrides_with = "no_autosave")]
-    autosave: bool,
-    #[arg(long, overrides_with = "autosave")]
-    no_autosave: bool,
-    #[arg(long, overrides_with = "no_vim")]
-    vim: bool,
-    #[arg(long, overrides_with = "vim")]
-    no_vim: bool,
-    #[arg(long, overrides_with = "no_mouse")]
-    mouse: bool,
-    #[arg(long, overrides_with = "mouse")]
-    no_mouse: bool,
 }
 
 impl Cli {
     /// 带本地化说明的 clap 命令。clap 自带的 Usage: / Options: 与解析错误无法本地化。
     fn command() -> clap::Command {
-        let help = [
-            ("file", t("cli-file")),
-            ("width", t("cli-width")),
-            ("autosave", t("cli-autosave")),
-            ("no_autosave", t("cli-no-autosave")),
-            ("vim", t("cli-vim")),
-            ("no_vim", t("cli-no-vim")),
-            ("mouse", t("cli-mouse")),
-            ("no_mouse", t("cli-no-mouse")),
-        ];
-        help.into_iter().fold(
-            <Self as CommandFactory>::command()
-                .about(t("cli-about"))
-                .after_help(t("cli-after-help")),
-            |cmd, (id, text)| cmd.mut_arg(id, |a| a.help(text)),
-        )
-    }
-
-    /// 命令行这一层配置：成对开关里后出现的生效（clap 的 overrides_with 已处理）。
-    fn layer(&self) -> PartialConfig {
-        let switch = |on: bool, off: bool| match (on, off) {
-            (true, _) => Some(true),
-            (_, true) => Some(false),
-            _ => None,
-        };
-        PartialConfig {
-            width: self.width,
-            vim: switch(self.vim, self.no_vim),
-            mouse: switch(self.mouse, self.no_mouse),
-            autosave: switch(self.autosave, self.no_autosave),
-            ..PartialConfig::default()
-        }
+        <Self as CommandFactory>::command()
+            .about(t("cli-about"))
+            .after_help(t("cli-after-help"))
+            .mut_arg("file", |a| a.help(t("cli-file")))
     }
 }
 
 fn main() -> ExitCode {
+    // 语言要在 clap 解析之前定下来（--help 也要翻译）：先按配置文件的 lang 协商，
+    // 再读一次配置，让警告也用这门语言
     i18n::init();
+    i18n::use_config(config::load().0.lang);
     let cli = Cli::from_arg_matches(&Cli::command().get_matches()).unwrap_or_else(|e| e.exit());
     let _log = match init_log() {
         Ok(guard) => guard,
@@ -83,8 +45,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let layer = cli.layer();
-    let (config, warnings) = config::load(&layer);
+    let (config, warnings) = config::load();
     // 配置写错不阻止启动：警告打到 stderr（进入全屏前，退出后仍可见），
     // 同时汇总成一条 status bar 消息，保留到第一次按键
     let warning = config::summarize(&warnings);
@@ -92,7 +53,7 @@ fn main() -> ExitCode {
         eprintln!("mustty: {w}");
         tracing::warn!("{w}");
     }
-    match run(cli.file.as_deref(), &config, layer, warning) {
+    match run(cli.file.as_deref(), &config, warning) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             tracing::error!("{e:#}");
@@ -129,12 +90,7 @@ fn init_log() -> anyhow::Result<Option<WorkerGuard>> {
     Ok(Some(guard))
 }
 
-fn run(
-    path: Option<&Path>,
-    config: &Config,
-    cli: PartialConfig,
-    warning: Option<String>,
-) -> anyhow::Result<()> {
+fn run(path: Option<&Path>, config: &Config, warning: Option<String>) -> anyhow::Result<()> {
     let doc = match path {
         Some(path) => load(path).map_err(|e| match e {
             IoError::Io(e) => {
@@ -151,7 +107,6 @@ fn run(
     tracing::info!(path = ?path, ?config, "start");
     let mut guard = TerminalGuard::new(config.mouse)?;
     let mut app = App::with_config(doc, guard.terminal.size()?, config);
-    app.set_cli_layer(cli);
     app.set_config_path(config::path());
     app.show_startup_hint(Instant::now());
     if let Some(w) = warning {
@@ -163,11 +118,6 @@ fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn layer(args: &[&str]) -> PartialConfig {
-        let argv = std::iter::once("mustty").chain(args.iter().copied());
-        Cli::try_parse_from(argv).unwrap().layer()
-    }
 
     #[test]
     fn every_arg_is_localized() {
@@ -192,34 +142,34 @@ mod tests {
     }
 
     #[test]
-    fn paired_switches_last_wins() {
-        assert_eq!(layer(&[]), PartialConfig::default());
-        assert_eq!(layer(&["--vim"]).vim, Some(true));
-        assert_eq!(layer(&["--no-vim"]).vim, Some(false));
-        assert_eq!(layer(&["--vim", "--no-vim"]).vim, Some(false));
-        assert_eq!(layer(&["--no-vim", "--vim"]).vim, Some(true));
-        assert_eq!(layer(&["--no-mouse"]).mouse, Some(false));
-        assert_eq!(
-            layer(&["--autosave", "--no-autosave"]).autosave,
-            Some(false)
-        );
-        assert_eq!(layer(&["--width", "90", "notes.md"]).width, Some(90));
-    }
-
-    #[test]
-    fn cli_overrides_file() {
-        let (file, _) =
-            PartialConfig::from_toml_str("width = 64\nvim = true\nmouse = true\nautosave = true");
-        let c = Config::default().merge(&file).merge(&layer(&[
+    fn only_file_help_and_version() {
+        let mut cmd = Cli::command();
+        cmd.build(); // help / version 在 build 时才加入
+        let ids: Vec<&str> = cmd.get_arguments().map(|a| a.get_id().as_str()).collect();
+        assert_eq!(ids, vec!["file", "help", "version"]);
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from(std::iter::once("mustty").chain(args.iter().copied()))
+        };
+        assert_eq!(parse(&["notes.md"]).unwrap().file, Some("notes.md".into()));
+        assert_eq!(parse(&[]).unwrap().file, None);
+        // 删掉的开关被拒绝，不是悄悄忽略
+        for removed in [
             "--width",
-            "90",
-            "--no-vim",
-            "--no-mouse",
+            "--autosave",
             "--no-autosave",
-        ]));
-        assert_eq!(
-            (c.width, c.vim, c.mouse, c.autosave),
-            (90, false, false, false)
-        );
+            "--vim",
+            "--no-vim",
+            "--mouse",
+            "--no-mouse",
+        ] {
+            let err = parse(&[removed, "notes.md"])
+                .err()
+                .unwrap_or_else(|| panic!("{removed} 仍被接受"));
+            assert_eq!(
+                err.kind(),
+                clap::error::ErrorKind::UnknownArgument,
+                "{removed}"
+            );
+        }
     }
 }

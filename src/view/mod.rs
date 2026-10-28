@@ -182,7 +182,6 @@ fn render_settings(frame: &mut Frame, app: &mut App, layout: &Layout) {
     }
     let widget = settings::SettingsWidget {
         config: &app.config,
-        cli: app.cli_layer(),
         selected,
         scroll,
     };

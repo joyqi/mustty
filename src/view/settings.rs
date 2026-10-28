@@ -7,7 +7,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Widget;
 use unicode_width::UnicodeWidthStr;
 
-use crate::config::{Config, PartialConfig};
+use crate::config::Config;
 use crate::i18n::{self, t};
 use crate::settings::{Field, Kind, Value, color_name};
 use crate::view::theme;
@@ -26,17 +26,16 @@ pub fn list_rows(height: u16) -> (usize, Option<u16>) {
 
 pub struct SettingsWidget<'a> {
     pub config: &'a Config,
-    pub cli: &'a PartialConfig,
     pub selected: usize,
     /// 第一行显示的 `Field::ALL` 下标
     pub scroll: usize,
 }
 
 /// 一项的值，拆成带样式的片段。
-fn value_spans(field: Field, config: &Config, from_cli: bool) -> Vec<(String, Style)> {
+fn value_spans(field: Field, config: &Config) -> Vec<(String, Style)> {
     let plain = Style::default();
     let dim = Style::from(Modifier::DIM);
-    let mut spans = match (field.get(config), field.kind()) {
+    match (field.get(config), field.kind()) {
         (Value::Bool(true), _) => vec![(t("settings-on").to_owned(), plain)],
         (Value::Bool(false), _) => vec![(t("settings-off").to_owned(), dim)],
         (Value::Int(i), Kind::Int { unit, .. }) => {
@@ -54,14 +53,7 @@ fn value_spans(field: Field, config: &Config, from_cli: bool) -> Vec<(String, St
         ],
         (Value::Lang(tag), _) => vec![(format!("‹ {} ›", i18n::native_name(tag)), plain)],
         (Value::Int(i), _) => vec![(i.to_string(), plain)],
-    };
-    if from_cli {
-        spans.push((format!(" {}", t("settings-from-cli")), dim));
     }
-    if field.from_env() {
-        spans.push((format!(" {}", t("settings-from-env")), dim));
-    }
-    spans
 }
 
 fn put(buf: &mut Buffer, x: u16, y: u16, max_x: u16, text: &str, style: Style) -> u16 {
@@ -88,7 +80,7 @@ impl Widget for SettingsWidget<'_> {
                     buf[(x, y)].set_symbol(" ").set_style(theme::selection());
                 }
             }
-            let spans = value_spans(field, self.config, field.from_cli(self.cli));
+            let spans = value_spans(field, self.config);
             let value_w: u16 = spans.iter().map(|(s, _)| s.width() as u16).sum();
             let value_x = right.saturating_sub(value_w).max(area.x);
             // 标签与值之间至少留一格

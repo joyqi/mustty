@@ -12,7 +12,7 @@ use ratatui::DefaultTerminal;
 use ratatui::layout::{Rect, Size};
 
 use crate::action::{Action, Motion, Target};
-use crate::config::{self, Config, PartialConfig};
+use crate::config::{self, Config};
 use crate::editor::cursor::Cursor;
 use crate::editor::document::Document;
 use crate::editor::{Editor, Effect};
@@ -51,8 +51,6 @@ pub struct App {
     /// 它的一部分还复制在子对象里：Keymap（vim、tab_width）、Viewport（typewriter、scrolloff）、
     /// Editor 的 WrapCache（tab_width），由 `apply_config` 同步
     pub(crate) config: Config,
-    /// 启动时命令行这一层：设置面板用它标出「下次启动仍会被命令行覆盖」的项
-    cli: PartialConfig,
     /// 设置面板写回的配置文件；None 时只在本次会话生效（测试默认如此，不会碰到真实的 ~/.mustty.toml）
     config_path: Option<PathBuf>,
     /// 设置面板（Ctrl+P）；打开时吞掉所有按键
@@ -118,7 +116,6 @@ impl App {
             },
             area,
             config: base,
-            cli: PartialConfig::default(),
             config_path: None,
             settings: None,
             mouse_capture: None,
@@ -200,15 +197,6 @@ impl App {
         if style.write_ansi(&mut seq).is_ok() {
             self.output.push(seq);
         }
-    }
-
-    /// 命令行这一层（main 启动时设置），设置面板据此标出被命令行覆盖的项。
-    pub fn set_cli_layer(&mut self, cli: PartialConfig) {
-        self.cli = cli;
-    }
-
-    pub(crate) fn cli_layer(&self) -> &PartialConfig {
-        &self.cli
     }
 
     /// 设置面板按 Enter 时写回的配置文件。
@@ -1509,15 +1497,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".mustty.toml");
         std::fs::write(&path, "# mine\nwidth = 64 # narrow\n").unwrap();
-        let cli = PartialConfig {
-            width: Some(90),
-            ..PartialConfig::default()
-        };
-        let config = Config::default()
-            .merge(&PartialConfig::from_toml_str("width = 64").0)
-            .merge(&cli);
+        let config = Config::default().merge(&config::PartialConfig::from_toml_str("width = 64").0);
         let mut app = App::with_config(lf_doc(""), Size::new(120, 30), &config);
-        app.set_cli_layer(cli);
         app.set_config_path(Some(path.clone()));
         app.handle(ctrl('p'));
         app.handle(press(KeyCode::Down));
@@ -1526,7 +1507,7 @@ mod tests {
         app.handle(press(KeyCode::Enter));
         assert!(app.settings.is_none());
         assert!(app.config.vim, "Enter 保留修改");
-        assert_eq!(app.config.width, 90);
+        assert_eq!(app.config.width, 64);
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "# mine\nwidth = 64 # narrow\nvim = true\n"
@@ -1595,7 +1576,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".mustty.toml");
         std::fs::write(&path, "# mine\nwidth = 80\n").unwrap();
-        let config = Config::default().merge(&PartialConfig::from_toml_str("width = 80").0);
+        let config = Config::default().merge(&config::PartialConfig::from_toml_str("width = 80").0);
         let mut app = App::with_config(lf_doc(""), Size::new(100, 30), &config);
         app.set_config_path(Some(path.clone()));
         assert_eq!(app.placeholder(), "Untitled");
