@@ -1,103 +1,204 @@
-# mustty
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg"><img src="assets/logo-light.svg" alt="mustty" width="140"></picture></p>
 
-一个跨平台的终端 Markdown 写作器：打开一个文件，在终端中央一栏固定宽度的纸面上安静地码字。
-界面只有标题 / 正文 / status bar 三块；Markdown 标记变暗显示（iA Writer 式），不隐藏、不渲染。
-设计方案见 [docs/implementation-plan.md](docs/implementation-plan.md)。
+<p align="center">A distraction-free Markdown writer for the terminal</p>
 
-## 运行
+<p align="center">
+  <a href="https://github.com/joyqi/mustty/actions/workflows/ci.yml"><img src="https://github.com/joyqi/mustty/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/rust-1.88%2B-orange.svg" alt="Rust 1.88+">
+</p>
+
+mustty opens one Markdown file and gives you a quiet place to write it. The screen has three parts: a title, a 72-column body centered in the terminal, and a one-line status bar. Markdown syntax stays visible but dimmed, so you always see the source you are editing, in the spirit of iA Writer. Saves are atomic, and long lines of mixed English and CJK text wrap where they should.
+
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│                             Field Notes                              │
+│                                                                      │
+│          The rain stopped a little after four. I left the            │
+│          window open and wrote down whatever came to mind:           │
+│          the smell of wet stone, the neighbour's radio, a            │
+│          sentence I had been chasing all week.                       │
+│                                                                      │
+│          ## What **mustty** does                                     │
+│                                                                      │
+│          It keeps one column of text in the middle of the            │
+│          screen and gets out of the way.                             │
+│                                                                      │
+│          notes.md ●                         68 words · 7:12          │
+└──────────────────────────────────────────────────────────────────────┘
+           ├───────────── 72 columns, centered ─────────────┤
+```
+
+## Features
+
+- **One centered column.** The body is 72 columns wide by default (40–120), centered horizontally; no borders, panels or background colors.
+- **Dimmed, not hidden, Markdown.** Headings, emphasis, code, links, lists and quotes are styled while their markers stay on screen.
+- **Title from the first heading.** The title line edits the document's leading `# ` heading; an untitled document shows the file name as a placeholder.
+- **Saving you can stop thinking about.** Autosave after 2 seconds of idle time, when the terminal loses focus and on quit. Writes go through a temporary file and an atomic rename, and BOM, CRLF line endings and the trailing newline are preserved.
+- **Save state at a glance.** The status bar shows `*` after the file name when there are unsaved changes and a green `●` once the file matches the disk.
+- **Safe with other programs.** If the file changes on disk, mustty stops autosaving and tells you; `Ctrl+S` overwrites on purpose.
+- **Line breaking that respects CJK.** Soft wrapping follows Unicode line breaking rules (UAX #14), so closing punctuation never starts a line and mixed-script text breaks cleanly. Wide characters and grapheme clusters are measured correctly.
+- **Live word count and position** in the status bar.
+- **Typewriter mode** keeps the cursor line in the middle of the screen; **Focus mode** dims everything outside the current paragraph.
+- **Optional vim keys** (`--vim`) and **optional mouse** support (`--mouse`).
+- **Clipboard over SSH** through OSC 52, with an internal register as fallback.
+- **English and Simplified Chinese UI**, chosen from your locale.
+- Runs on Linux, macOS and Windows.
+
+## Install
 
 ```sh
-cargo run --release -- notes.md            # 打开；文件不存在则首次保存时创建
-cargo run --release --                     # Untitled，Ctrl+S 时提示「保存为:」
-cargo run --release -- --help
+cargo install --git https://github.com/joyqi/mustty
 ```
+
+This needs Rust 1.88 or newer. Homebrew and prebuilt release binaries are coming soon.
+
+## Usage
 
 ```text
 mustty [FILE] [--width N] [--[no-]autosave] [--[no-]vim] [--[no-]mouse]
 ```
 
-停手 2 秒自动保存，切走窗口（FocusLost）与退出时也会保存；保存为原子写入，BOM / CRLF / 末尾换行原样保留。
-status bar 里文件名后的标记表示保存状态：`*` 为有未保存修改，绿色 `●` 为已与磁盘一致，空的 Untitled 不显示。
-另一个程序改了文件时不会自动覆盖，status bar 会常驻提示，`Ctrl+S` 强制覆盖。
-界面语言依次取 `MUSTTY_LANG`、`LC_ALL`、`LC_MESSAGES`、`LANG`，都没有时用系统语言，目前有 `en` 和 `zh-CN`（例：`MUSTTY_LANG=en mustty`）。
-clap 自带的 `Usage:` / `Options:` 和参数解析错误始终是英文。
-设置 `MUSTTY_LOG=<path>` 时把调试日志（含帧耗时）写到该文件，永不写 stdout / stderr。
+| Argument                       | Description                                                                  |
+|--------------------------------|------------------------------------------------------------------------------|
+| `FILE`                         | File to edit. Created on first save if it does not exist; omit for Untitled. |
+| `--width N`                    | Body width in columns, clamped to 40–120. Default 72.                        |
+| `--autosave` / `--no-autosave` | Turn autosave on or off. On by default.                                      |
+| `--vim` / `--no-vim`           | Turn vim-style Normal / Insert keys on or off. Off by default.               |
+| `--mouse` / `--no-mouse`       | Turn mouse support on or off. Off by default.                                |
+| `-h`, `--help`                 | Print help.                                                                  |
+| `-V`, `--version`              | Print the version.                                                           |
 
-## 键位
+Command-line options override the config file. For each on/off pair the last one given wins, so `--no-vim` turns vim keys off even when the config file has `vim = true`.
 
-| 键 | 动作 |
-|---|---|
-| 字符 / 输入法提交 | 插入 |
-| `Enter` / `Backspace` / `Delete` / `Tab` | 换行 / 删除前一个字形 / 删除后一个字形 / 插入空格 |
-| `← →` `↑ ↓` | 按字形 / 按视觉行移动；正文首行按 `↑` 进入标题，标题里 `Enter` 或 `↓` 回正文 |
-| `Home` / `End`、`PageUp` / `PageDown` | 视觉行首 / 尾、翻页 |
-| `Ctrl+Home` / `Ctrl+End` | 正文开头 / 结尾 |
-| `Ctrl+←` `Ctrl+→`、`Alt+B` `Alt+F` | 按词移动（后两者对应 macOS 终端的 Option 键） |
-| `Ctrl+Backspace`、`Ctrl+W` | 删除前一个词 |
-| `Shift+` 移动键、`Ctrl+A` | 扩展选区、全选正文 |
-| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | 复制 / 剪切 / 粘贴（内部寄存器；复制同时经 OSC 52 写系统剪贴板） |
-| `Ctrl+Z` / `Ctrl+Y` | 撤销 / 重做 |
-| `Ctrl+S` | 保存 |
-| `Ctrl+T` | Typewriter 模式：光标行始终在正文中线 |
-| `Ctrl+F` | Focus 模式：当前段落之外变暗 |
-| `Esc` | 取消选区 / 关闭提示行 |
-| `Ctrl+Q` | 退出（有未保存修改且无法自动保存时需再按一次） |
+When you save an Untitled document, mustty asks for a path in the status bar: `Enter` saves, `Esc` cancels. If the file already exists, a second `Enter` overwrites it.
 
-终端的系统粘贴（Cmd+V / Ctrl+Shift+V / 右键）作为一次粘贴插入，一次 `Ctrl+Z` 即可撤销。
-系统剪贴板走 OSC 52，可穿透 SSH；tmux 里需要 `set -g set-clipboard on`。macOS 自带的 Terminal 不支持 OSC 52，复制只进内部寄存器。
+| Environment variable | Effect                                                                                        |
+|----------------------|-----------------------------------------------------------------------------------------------|
+| `MUSTTY_LANG`        | Interface language, e.g. `en` or `zh-CN` (see [Internationalization](#internationalization)). |
+| `MUSTTY_LOG=<path>`  | Write debug logs, including frame timings, to this file. Logs never go to stdout or stderr.   |
+
+## Keybindings
+
+| Key                                                 | Action                                                                                           |
+|-----------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| Typing / IME commit                                 | Insert text                                                                                      |
+| `Enter`                                             | New line (in the title: move to the body)                                                        |
+| `Backspace` / `Delete`                              | Delete the previous / next character, or the selection                                           |
+| `Tab`                                               | Insert `tab_width` spaces                                                                        |
+| `←` `→`                                             | Move by character                                                                                |
+| `↑` `↓`                                             | Move by screen line; `↑` on the first line enters the title, `↓` or `Enter` leaves it            |
+| `Home` / `End`                                      | Start / end of the screen line                                                                   |
+| `PageUp` / `PageDown`                               | Move one page up / down                                                                          |
+| `Ctrl+Home` / `Ctrl+End`                            | Start / end of the document                                                                      |
+| `Ctrl+←` `Ctrl+→`, `Alt+B` `Alt+F`                  | Move by word (`Alt+B` / `Alt+F` match the Option key in macOS terminals)                         |
+| `Ctrl+Backspace`, `Ctrl+W`                          | Delete the previous word (`Ctrl+H` too, which is what many Unix terminals send)                  |
+| `Shift` + arrows, `Home`/`End`, `PageUp`/`PageDown` | Extend the selection (also with `Ctrl+←` `Ctrl+→` and `Ctrl+Home` `Ctrl+End`)                    |
+| `Ctrl+A`                                            | Select the whole body                                                                            |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V`                      | Copy / cut / paste with the internal register; copy also goes to the system clipboard via OSC 52 |
+| `Ctrl+Z` / `Ctrl+Y`                                 | Undo / redo                                                                                      |
+| `Ctrl+S`                                            | Save (asks for a path when Untitled)                                                             |
+| `Ctrl+T`                                            | Toggle Typewriter mode                                                                           |
+| `Ctrl+F`                                            | Toggle Focus mode                                                                                |
+| `Esc`                                               | Clear the selection / close the save prompt                                                      |
+| `Ctrl+Q`                                            | Quit; press twice if there are unsaved changes that cannot be autosaved                          |
+
+Your terminal's own paste (`Cmd+V`, `Ctrl+Shift+V`, right click) arrives as a single paste, so one `Ctrl+Z` undoes it. OSC 52 works over SSH; inside tmux it needs `set -g set-clipboard on`. macOS Terminal.app does not support OSC 52, so copies there stay in the internal register.
 
 ### `--vim`
 
-启动时处于 Insert 态，按键与上表相同；`Esc` 进入 Normal 态（status bar 最前显示 `NOR` / `INS` / `VIS`，Normal 态光标为方块）。
+mustty starts in Insert mode, where every key behaves as in the table above. `Esc` switches to Normal mode. The status bar shows `NOR`, `INS` or `VIS` before the file name, and the cursor is a block in Normal mode.
 
-| Normal 态 | 动作 |
-|---|---|
-| `i` / `a` / `o` | 进入 Insert；`a` 先右移一格，`o` 在下方开新行 |
-| `h j k l`、`w b e`、`0 $`、`gg G` | 移动（`j k` 按视觉行） |
-| `x`、`dd`、`p`、`u`、`Ctrl+R` | 删除字形、剪切整行、粘贴、撤销、重做 |
-| `v` 后移动，再按 `y` / `d` / `x` / `p` | 选区：复制 / 剪切 / 剪切 / 替换粘贴 |
+| Normal mode                     | Action                                                            |
+|---------------------------------|-------------------------------------------------------------------|
+| `i` / `a` / `o`                 | Enter Insert mode: at the cursor / after it / on a new line below |
+| `h` `j` `k` `l`                 | Left / down / up / right (`j` `k` move by screen line)            |
+| `w` / `b` / `e`                 | Next word start / previous word start / word end                  |
+| `0` / `$`                       | Start / end of the screen line                                    |
+| `gg` / `G`                      | Start / end of the document                                       |
+| `x`                             | Delete the character under the cursor                             |
+| `dd`                            | Cut the whole line                                                |
+| `p`                             | Paste (a cut line goes below the current one)                     |
+| `u` / `Ctrl+R`                  | Undo / redo                                                       |
+| `v`                             | Start or end a visual selection                                   |
+| `y` / `d` / `x` / `p` in visual | Copy / cut / cut / replace with the register                      |
+| `Esc`                           | Leave visual mode                                                 |
 
-所有 `Ctrl+` 组合键在两种状态下都有效。不支持计数前缀、`.` 重复、宏、`:` 命令行与 text object。
-与 vim 一样，visual 选区是闭区间，光标所在的字也在选区内：`v` `e` `d` 删掉整个词，`v` `w` `d` 删到下一个词的词首（含词首）。
+Arrow keys, `Home`/`End`, `PageUp`/`PageDown` and every `Ctrl+` shortcut work in both modes. As in vim, the visual selection includes the character under the cursor, so `v` `e` `d` deletes a whole word. Counts, `.`, macros, `:` commands and text objects are not supported.
 
-**中文输入法与 `--vim`**：输入法处于中文状态时，`j` `k` `d` 等按键会被输入法当作拼音截获，程序收不到；
-Normal 态收到的汉字一律忽略、不会误插入。建议为终端单独设置英文输入源，或在按 `Esc` 之前先切到英文。
-不加 `--vim` 时不受影响。
+With an input method in Chinese mode, keys such as `j`, `k` and `d` are taken by the IME as pinyin and never reach mustty. Text that an IME commits in Normal mode is ignored rather than inserted. A separate English input source for your terminal avoids the problem; without `--vim` it does not arise.
 
-## 配置文件
+### Mouse
 
-`~/.mustty.toml`（Windows 为用户主目录下的 `.mustty.toml`）。优先级：命令行参数 > 配置文件 > 内置默认值。
-成对的开关（如 `--vim` / `--no-vim`）以后出现的为准，可以覆盖配置文件里的值。
+The mouse is off by default, so your terminal's own drag-to-select keeps working. With `mouse = true` or `--mouse`:
 
-文件不存在则全部使用默认值。写错也照常启动：语法错误时整个文件作废；单个键类型不对或取值无效只回退这一个键；
-数值越界钳制到边界。警告会汇总成一条显示在 status bar（按任意键消失），并打印到 stderr。未知的键直接忽略。
+- click to place the cursor (click the title to edit it);
+- drag to select; dragging above or below the body keeps scrolling;
+- scroll with the wheel.
+
+Native terminal selection then needs a modifier, usually `Shift` (xterm, GNOME Terminal, Windows Terminal, WezTerm, Alacritty, kitty), `Option` in iTerm2 and `Fn` in macOS Terminal. In vim Normal mode a drag starts a visual selection, ready for `d` or `y`.
+
+## Configuration
+
+mustty reads `~/.mustty.toml` (`.mustty.toml` in your home directory on Windows). Priority is command line, then config file, then built-in defaults. Every key is optional and unknown keys are ignored.
+
+| Key                | Type    | Default  | Description                                                                                                                     |
+|--------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------|
+| `width`            | integer | `72`     | Body width in columns, 40–120                                                                                                   |
+| `vim`              | boolean | `false`  | vim-style Normal / Insert keys                                                                                                  |
+| `mouse`            | boolean | `false`  | Click, drag-select and wheel scrolling                                                                                          |
+| `autosave`         | boolean | `true`   | Save automatically when idle, on focus loss and on quit                                                                         |
+| `autosave_idle_ms` | integer | `2000`   | Idle time before autosave, 500–60000 ms                                                                                         |
+| `typewriter`       | boolean | `false`  | Start in Typewriter mode (`Ctrl+T` toggles)                                                                                     |
+| `focus_mode`       | boolean | `false`  | Start in Focus mode (`Ctrl+F` toggles)                                                                                          |
+| `scrolloff`        | integer | `3`      | Lines kept between the cursor and the top or bottom edge, 0–10                                                                  |
+| `tab_width`        | integer | `4`      | Display width of a tab and spaces inserted by `Tab`, 1–16                                                                       |
+| `code_color`       | string  | `"cyan"` | Color of code: `black` `red` `green` `yellow` `blue` `magenta` `cyan` `white` (`gray` is an alias of `white`; case-insensitive) |
+
+A broken config file never stops mustty from starting. A syntax error discards the whole file. A key with the wrong type or an invalid value falls back to its default, and numbers out of range are clamped. Warnings are collected into one message, shown in the status bar until the next key press and printed to stderr.
 
 ```toml
-width = 72              # 正文宽度，40..=120
+width = 72
 vim = false
-mouse = false           # 开启后：单击定位、拖拽选择、滚轮滚动（见下）
+mouse = false
 autosave = true
-autosave_idle_ms = 2000 # 500..=60000
-typewriter = false      # 启动时是否进入 Typewriter 模式（Ctrl+T 切换）
-focus_mode = false      # 启动时是否进入 Focus 模式（Ctrl+F 切换）
-scrolloff = 3           # 光标与视口上下边保持的行数，0..=10
-tab_width = 4           # Tab 字符的显示宽度与 Tab 键插入的空格数，1..=16
-code_color = "cyan"     # 代码的颜色：black red green yellow blue magenta cyan white（gray 同 white，大小写不敏感）
+autosave_idle_ms = 2000
+typewriter = false
+focus_mode = false
+scrolloff = 3
+tab_width = 4
+code_color = "cyan"
 ```
 
-### 鼠标
+## Internationalization
 
-默认关闭，此时 mustty 不接管鼠标，终端原生的拖选复制照常可用。
-`mouse = true` 或 `--mouse` 开启后：单击正文定位光标（单击标题进入标题）、拖拽选择（拖到正文上下边缘之外会持续滚动）、滚轮滚动视口。
-开启后终端原生的拖选复制会失效；需要原生选择时**按住 Shift 再拖拽**（xterm、GNOME Terminal、Windows Terminal、WezTerm、Alacritty、kitty 通用；
-iTerm2 通常是 ⌥ Option，macOS Terminal 是 Fn，以终端设置为准）。`--vim` 的 Normal 态里拖拽会直接进入 visual，之后可以按 `d` / `y`。
+The interface is available in English (`en`) and Simplified Chinese (`zh-CN`). mustty uses the first non-empty value of `MUSTTY_LANG`, `LC_ALL`, `LC_MESSAGES` and `LANG`, then the system language, then English. `C` and `POSIX` mean English; Traditional Chinese locales use `zh-CN` until a `zh-TW` translation exists.
 
-## Translating
+```sh
+MUSTTY_LANG=zh-CN mustty notes.md
+```
 
-1. 复制 `locales/en.toml` 为 `locales/<tag>.toml`（如 `ja.toml`、`zh-TW.toml`），只翻译等号右边，`{n}` 这类占位符原样保留。
-   缺的条目会自动用英文顶上，所以不必一次翻完。
-2. 在 `src/i18n.rs` 的 `LOCALES` 表里加一行：`("<tag>", include_str!("../locales/<tag>.toml")),`。
-3. 运行 `cargo test`：测试会检查文件能否解析、有没有 en 里不存在的 key、占位符是否与 en 一致。
-4. 用 `MUSTTY_LANG=<tag> cargo run -- notes.md` 看效果。
+clap's built-in `Usage:` and `Options:` headings and its argument errors are always in English.
 
-英文只在字数处区分单复数（`status-words-one` / `status-words-other`），其他语言两条可以填同一个译文。
+### Translating
+
+1. Copy `locales/en.toml` to `locales/<tag>.toml`, for example `ja.toml` or `zh-TW.toml`.
+2. Translate the text to the right of each `=`, leaving placeholders such as `{n}` unchanged. Missing entries fall back to English, so a partial translation still works.
+3. Add a line to the `LOCALES` table in `src/i18n.rs`: `("<tag>", include_str!("../locales/<tag>.toml")),`
+4. Run `cargo test`. The tests check that the file parses, that every key exists in `en.toml`, and that placeholders match the English text.
+5. Try it with `MUSTTY_LANG=<tag> cargo run -- notes.md`.
+
+English has separate singular and plural forms only for the word count (`status-words-one` / `status-words-other`). Languages without plural forms can use the same text for both.
+
+## Design
+
+The design document, with the reasoning behind each decision, is [docs/implementation-plan.md](docs/implementation-plan.md). Three invariants hold throughout the code:
+
+- **One write path.** Every change to the body goes through `Editor::replace`, the only place where the wrap and highlight caches are invalidated.
+- **Modes stay out of the editing core.** The vim state machine lives in `src/keymap.rs`; `editor/`, `text/`, `markdown.rs` and `io/` never see a `Mode`.
+- **The real cursor.** mustty positions the terminal's hardware cursor instead of drawing a fake one, so IME candidate windows appear where you type.
+
+## License
+
+[MIT](LICENSE)

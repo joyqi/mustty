@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A distraction-free Markdown writer for the terminal"
+license = "MIT"
+repository = "https://github.com/joyqi/mustty"
+homepage = "https://github.com/joyqi/mustty"
+readme = "README.md"
+keywords = ["markdown", "tui", "editor", "writing", "terminal"]
+categories = ["command-line-utilities", "text-editors"]
 
 [dependencies]
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
