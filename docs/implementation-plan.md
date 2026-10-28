@@ -494,6 +494,7 @@ code_color = "yellow"
 | `scrolloff` | 整数 | `3` | `0..=10`，越界钳制；正文高度不足时仍按 §4.4 的 `(body_h - 1) / 2` 封顶；typewriter 开启时不生效 | — | 光标距视口上下边的最少行数 |
 | `tab_width` | 整数 | `4` | `1..=16`，越界钳制 | — | `Tab` 键插入的空格数，以及文件中已有 `\t` 的显示宽度（§4.2） |
 | `code_color` | 字符串 | `"cyan"` | 只接受 `black` `red` `green` `yellow` `blue` `magenta` `cyan` `white` 这 8 个标准 ANSI 名字（大小写不敏感），对应前景色 SGR 30–37。`gray` 作为 `white` 的别名同样接受（两者都映射到 ratatui 的 `Color::Gray`），其余名字（如 `grey`、`bright*`）一律非法。注意 ratatui 的命名有偏差：SGR 37 在 ratatui 里叫 `Color::Gray`，而 `Color::White` 是亮白 SGR 97。所以 `white` 映射到 `Color::Gray`，其余 7 个映射到 ratatui 的同名颜色 | — | 行内代码和 fenced code 的前景色（§6.1） |
+| `lang` | 字符串 | `"auto"` | `auto`，或 `i18n::LOCALES` 里有译文的语言标签（现为 `en`、`zh-CN`，大小写不敏感）；其他值回退 `auto` 并列入启动警告 | — | 界面语言。优先级：环境变量 `MUSTTY_LANG` > 本键 > `LC_ALL` / `LC_MESSAGES` / `LANG` > 系统语言 > `en`（§11.4）。设置面板里切换立即生效 |
 
 `autosave_idle_ms` 和 `scrolloff` 的取值范围是本方案定的，其余范围来自需求。
 
@@ -524,11 +525,12 @@ effective = Config::default().merge(file_layer).merge(cli_layer)   // 每层都�
 
 评估见 `docs/feasibility-i18n-and-settings-panel.md` 议题二，这里记录实现后的约定。
 
-- **形态**：只替换 `layout.body` 这块矩形；标题行显示 `Settings`（BOLD），status bar 显示操作提示（DIM），不画边框、不设背景。正文区放得下时，依次是 10 行设置、1 行空行、1 行说明；不足 11 行时说明行固定在最后一行，列表跟随选中项滚动（`Settings::follow`）。打开期间不显示光标。
+- **形态**：只替换 `layout.body` 这块矩形；标题行显示 `Settings`（BOLD），status bar 显示操作提示（DIM），不画边框、不设背景。正文区放得下时，依次是 11 行设置、1 行空行、1 行说明；不足 12 行时说明行固定在最后一行，列表跟随选中项滚动（`Settings::follow`）。打开期间不显示光标。
 - **控件**：表驱动的 `settings::Field`，不做 trait。
   - 开关显示 `On` / `Off`（`Off` 为 DIM），用 `Space` / `←` / `→` 切换。
   - 数字显示 `‹ 72 › columns`，单位为 DIM；`←` / `→` 按步进调整（width 2、autosave_idle_ms 500、scrolloff 1、tab_width 1），`PageUp` / `PageDown` 一次 10 步。到边界停住，不循环，不支持直接输入数字。
   - 颜色显示 `‹ ■ cyan ›`，`■` 用该颜色作前景色，`←` / `→` 循环切换。
+  - 语言的选项是 Auto 加上 `i18n::LOCALES` 里的每一门语言（动态生成，新增译文后自动多一项），显示为各自的母语名。Auto 后面用 DIM 标出实际生效的语言，如 `‹ Auto ›  (en)`；`MUSTTY_LANG` 正在覆盖时，值后面 DIM 显示 `(env)`。选中即切换整个界面的语言，面板自己也一样。
   - 选中行整行 `theme::selection()`。被命令行覆盖的项在值后以 DIM 显示 `(command line)`。
 - **交互**：
   - `↑` / `↓`、`Tab` / `Shift+Tab` 移动，首尾不循环；`j` / `k` 不绑定。
@@ -805,9 +807,11 @@ pub enum CodeColor { Black, Red, Green, Yellow, Blue, Magenta, Cyan, White }
 #[derive(Default)]
 pub struct PartialConfig { pub width: Option<u16>, pub vim: Option<bool>, pub mouse: Option<bool>, pub autosave: Option<bool>,
                            pub autosave_idle_ms: Option<u64>, pub typewriter: Option<bool>, pub focus_mode: Option<bool>,
-                           pub scrolloff: Option<u16>, pub tab_width: Option<u8>, pub code_color: Option<CodeColor> }
+                           pub scrolloff: Option<u16>, pub tab_width: Option<u8>, pub code_color: Option<CodeColor>,
+                           pub lang: Option<&'static str> }
 pub struct Config { pub width: u16, pub vim: bool, pub mouse: bool, pub autosave: bool, pub autosave_idle_ms: u64,
-                    pub typewriter: bool, pub focus_mode: bool, pub scrolloff: u16, pub tab_width: u8, pub code_color: CodeColor }
+                    pub typewriter: bool, pub focus_mode: bool, pub scrolloff: u16, pub tab_width: u8, pub code_color: CodeColor,
+                    pub lang: &'static str }   // "auto" 或语言标签
 pub struct ConfigWarning { pub key: Option<&'static str>, pub message: String }
 impl PartialConfig {
     pub fn from_toml_str(s: &str) -> (PartialConfig, Vec<ConfigWarning>);   // 永不失败：语法错误 → 空 Partial + 警告；未知键直接丢弃
@@ -839,7 +843,9 @@ loop {
 - **API**：只有 `t("id") -> &'static str` 和 `t_args("id", &[("name", value)]) -> String`，没有宏。第一个参数必须是字符串字面量。占位符写成 `{name}`，做简单替换；缺参数时原样保留并 `debug_assert`。
 - **复数**：只有英文字数一处，拆成 `status-words-one` / `status-words-other` 两条 key，不做复数规则。
 - **回退**：当前语言缺 key 时取 `en`，每个 (语言, id) 只 `tracing::warn!` 一次；`en` 也没有则返回 id 本身。
-- **协商**：依次取 `MUSTTY_LANG` → `LC_ALL` → `LC_MESSAGES` → `LANG` 中第一个非空值，都没有时用 `sys-locale`，再没有用 `en`。环境变量必须排在前面，因为 macOS 的 `sys-locale` 返回 `zh-Hans-CN`，且忽略 `LANG`。
+- **协商**（`negotiate_with`）：`MUSTTY_LANG` → 配置项 `lang`（不是 `auto` 时，§8.5）→ `LC_ALL` → `LC_MESSAGES` → `LANG` 中第一个非空值，都没有时用 `sys-locale`，再没有用 `en`。环境变量必须排在 `sys-locale` 前面，因为 macOS 的 `sys-locale` 返回 `zh-Hans-CN`，且忽略 `LANG`。`MUSTTY_LANG` 是临时覆盖和测试用的入口，所以排在配置文件之前。
+- **运行时切换**：当前语言存在 `AtomicUsize` 里（文案表仍是 `OnceLock`，只加载一次）。`use_config(lang)` 重新协商并 `set_language`，下一帧起 `t()` 就返回新语言；`App::apply_config` 在 `lang` 变化时调用它，启动和设置面板都走这条路径。`main()` 第一行的 `init()` 只看环境变量，因为这时还没读配置文件：`--help` 和配置警告用的是环境变量决定的语言。测试线程用 `init_for_test` 固定过语言时，`set_language` 只改这个线程。
+- **语言名**：每份译文的 `language-name` 用本语言写出自己的名字（English、简体中文），设置面板里按这个显示，不随界面语言翻译。它不经 `t()` 读取，列在 `META_KEYS` 中，测试会检查每份译文都提供了它。
 - **匹配**：先比较语言 + 地区，再只比较语言。`C` / `POSIX` → `en`。`zh` 的 script 为 `Hant` 或地区为 TW / HK / MO 时请求 `zh-TW`，目前没有这份译文，所以回退到 `zh-CN`。不设 `lang` 配置键。
 - **初始化**：`i18n::init()` 在 `main()` 第一行调用，早于 clap 解析，因为 `--help` 也要翻译。clap 保留 derive，用 `Cli::command()` + `mut_arg` 在运行时填入 about / after_help / 各参数说明。clap 自带的 `Usage:` / `Options:` 和解析错误无法本地化。
 - **测试**：

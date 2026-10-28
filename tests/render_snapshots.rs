@@ -535,3 +535,66 @@ fn without_vim_status_starts_with_file_name() {
     let body_x = find_text(&b, "hello").0;
     assert_eq!(x, body_x, "与正文左对齐");
 }
+
+/// 面板里把语言从 Auto 切到 English：同一个 App、同一帧之后，面板自己的标签、
+/// 说明行与 status bar 提示全部换成英文。
+#[test]
+fn settings_language_switches_live() {
+    let config = mustty::config::Config {
+        autosave: false,
+        ..mustty::config::Config::default()
+    };
+    mustty::i18n::init_for_test("zh-CN");
+    let (w, h) = (80, 24);
+    let doc = Document::parse("# 标题\n\n正文\n", FileMeta::new(Some("notes.md".into())));
+    let mut app = App::with_config(doc, Size::new(w, h), &config);
+    let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+    app.handle(ctrl('p'));
+    for _ in 0..10 {
+        app.handle(key(KeyCode::Down));
+    }
+    terminal.draw(|f| view::render(f, &mut app)).unwrap();
+    let zh = terminal.backend().clone();
+    // Auto → English
+    app.handle(key(KeyCode::Right));
+    terminal.draw(|f| view::render(f, &mut app)).unwrap();
+    let en = terminal.backend().clone();
+    insta::assert_snapshot!("settings_language_zh", snapshot(zh));
+    insta::assert_snapshot!("settings_language_en", snapshot(en.clone()));
+    let text: String = en.buffer().content.iter().map(|c| c.symbol()).collect();
+    for s in [
+        "Settings",
+        "Body width",
+        "Interface language",
+        "Enter save",
+        "‹ English ›",
+    ] {
+        assert!(text.contains(s), "{s:?} 没有切换过来");
+    }
+    // 回到 Auto：按真实的环境变量与系统语言重新协商，Auto 后面标出协商结果
+    app.handle(key(KeyCode::Left));
+    let negotiated = mustty::i18n::negotiate(|k| std::env::var(k).ok(), sys_locale_or_none());
+    assert_eq!(mustty::i18n::current(), negotiated);
+    let shown = app_lang_shown(&mut terminal, &mut app);
+    assert!(shown.ends_with(&format!("›  ({negotiated})")), "{shown:?}");
+}
+
+/// 面板里语言那一行的值。
+fn app_lang_shown(terminal: &mut Terminal<TestBackend>, app: &mut App) -> String {
+    terminal.draw(|f| view::render(f, app)).unwrap();
+    let buf = terminal.backend().buffer();
+    let row = (0..buf.area.height)
+        .map(|y| {
+            (0..buf.area.width)
+                .map(|x| buf[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .find(|r| r.contains('‹') && (r.contains("Language") || r.contains("语言")))
+        .unwrap();
+    row[row.find('‹').unwrap()..].trim_end().to_owned()
+}
+
+/// 与 `i18n::use_config` 相同的系统语言来源。
+fn sys_locale_or_none() -> Option<String> {
+    sys_locale::get_locale()
+}

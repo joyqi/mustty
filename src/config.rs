@@ -7,7 +7,7 @@ use std::time::Duration;
 use ratatui::style::Color;
 use serde::Deserialize;
 
-use crate::i18n::{t, t_args};
+use crate::i18n::{self, t, t_args};
 
 pub const WIDTH_RANGE: (u16, u16) = (40, 120);
 pub const TAB_WIDTH_RANGE: (u16, u16) = (1, 16);
@@ -27,6 +27,8 @@ pub struct Config {
     pub tab_width: u16,
     /// 存选项本身而不是 `Color`：`white` 与 `gray` 都映射到 `Color::Gray`，反推不回来
     pub code_color: CodeColor,
+    /// 界面语言：`i18n::AUTO` 或 `i18n::LOCALES` 里的标签；`MUSTTY_LANG` 优先于它
+    pub lang: &'static str,
 }
 
 impl Default for Config {
@@ -42,6 +44,7 @@ impl Default for Config {
             scrolloff: 3,
             tab_width: 4,
             code_color: CodeColor::Cyan,
+            lang: i18n::AUTO,
         }
     }
 }
@@ -116,6 +119,7 @@ pub struct PartialConfig {
     pub scrolloff: Option<u16>,
     pub tab_width: Option<u16>,
     pub code_color: Option<CodeColor>,
+    pub lang: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,7 +135,7 @@ impl ConfigWarning {
     }
 }
 
-pub const KEYS: [&str; 10] = [
+pub const KEYS: [&str; 11] = [
     "width",
     "vim",
     "mouse",
@@ -142,6 +146,7 @@ pub const KEYS: [&str; 10] = [
     "scrolloff",
     "tab_width",
     "code_color",
+    "lang",
 ];
 
 impl PartialConfig {
@@ -217,6 +222,27 @@ impl PartialConfig {
                         warn(t_args("config-invalid-color", &[("value", &value)]));
                     }
                 }
+                "lang" => {
+                    // auto 或有译文的语言标签，大小写不敏感
+                    p.lang = value.as_str().and_then(|s| {
+                        if s.eq_ignore_ascii_case(i18n::AUTO) {
+                            Some(i18n::AUTO)
+                        } else {
+                            i18n::known_tag(s)
+                        }
+                    });
+                    if p.lang.is_none() {
+                        let choices = std::iter::once(i18n::AUTO)
+                            .chain(i18n::tags())
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let value = value.to_string();
+                        warn(t_args(
+                            "config-invalid-lang",
+                            &[("value", &value), ("choices", &choices)],
+                        ));
+                    }
+                }
                 _ => unreachable!("KEYS 与 match 分支一一对应"),
             }
         }
@@ -241,6 +267,7 @@ impl Config {
         self.scrolloff = p.scrolloff.unwrap_or(self.scrolloff);
         self.tab_width = p.tab_width.unwrap_or(self.tab_width);
         self.code_color = p.code_color.unwrap_or(self.code_color);
+        self.lang = p.lang.unwrap_or(self.lang);
         self
     }
 }
@@ -300,6 +327,7 @@ impl Config {
             "scrolloff" => Scalar::Int(self.scrolloff.into()),
             "tab_width" => Scalar::Int(self.tab_width.into()),
             "code_color" => Scalar::Str(self.code_color.name()),
+            "lang" => Scalar::Str(self.lang),
             _ => unreachable!("不在 KEYS 里的键 {key}"),
         }
     }
@@ -410,6 +438,7 @@ mod tests {
             scrolloff = 5
             tab_width = 2
             code_color = "yellow"
+            lang = "zh-CN"
         "#;
         let want = Config {
             width: 64,
@@ -422,8 +451,59 @@ mod tests {
             scrolloff: 5,
             tab_width: 2,
             code_color: CodeColor::Yellow,
+            lang: "zh-CN",
         };
         assert_eq!(parse(text), (want, vec![]));
+    }
+
+    #[test]
+    fn lang_accepts_auto_and_known_tags_only() {
+        crate::i18n::init_for_test("zh-CN");
+        assert_eq!(Config::default().lang, "auto");
+        for (text, want) in [
+            ("lang = \"auto\"", "auto"),
+            ("lang = \"AUTO\"", "auto"),
+            ("lang = \"en\"", "en"),
+            ("lang = \"zh-CN\"", "zh-CN"),
+            ("lang = \"zh-cn\"", "zh-CN"),
+        ] {
+            assert_eq!(
+                parse(text),
+                (
+                    Config {
+                        lang: want,
+                        ..Config::default()
+                    },
+                    vec![]
+                ),
+                "{text}"
+            );
+        }
+        // 拼错或没有译文：回退 auto，警告列出该键与可选值
+        for bad in ["\"xx\"", "\"ja\"", "\"zh\"", "1"] {
+            let (c, w) = parse(&format!("lang = {bad}"));
+            assert_eq!((c.lang, keys(&w)), ("auto", vec![Some("lang")]), "{bad}");
+            assert!(w[0].message.contains("auto en zh-CN"), "{}", w[0].message);
+        }
+        let (_, w) = parse("lang = \"xx\"\nwidth = 200");
+        assert!(summarize(&w).unwrap().contains("lang="), "汇总进配置警告");
+    }
+
+    #[test]
+    fn write_back_lang() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        std::fs::write(&path, "width = 80\n").unwrap();
+        let old = loaded("width = 80\n", &PartialConfig::default());
+        let new = Config {
+            lang: "zh-CN",
+            ..old.clone()
+        };
+        assert_eq!(changed_keys(&old, &new), vec!["lang"]);
+        write_back(&path, &old, &new).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(written, "width = 80\nlang = \"zh-CN\"\n");
+        assert_eq!(loaded(&written, &PartialConfig::default()), new);
     }
 
     #[test]

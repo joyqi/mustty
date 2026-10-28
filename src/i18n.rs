@@ -2,9 +2,12 @@
 //!
 //! 只有两个入口：`t("id")` 与 `t_args("id", &[("name", value)])`，第一个参数必须是
 //! 字符串字面量——测试会扫描源码，确认每个 id 都在 `en.toml` 里。
+//!
+//! 界面语言可在运行时切换（设置面板的「语言」项）：`use_config` 重新协商，`t()` 随即返回新语言。
 
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// (语言标签, 文件内容)。新增一门语言：在这里加一行。第一行必须是 `en`。
@@ -14,21 +17,72 @@ pub const LOCALES: &[(&str, &str)] = &[
 ];
 
 /// 语言协商依次读取的环境变量；都没有时用系统语言，再没有用 `en`。
+/// 配置文件的 `lang` 排在 `MUSTTY_LANG` 之后、其余三个之前（见 `negotiate_with`）。
 pub const ENV_VARS: [&str; 4] = ["MUSTTY_LANG", "LC_ALL", "LC_MESSAGES", "LANG"];
+
+/// 配置项 `lang` 的默认值：按环境变量与系统语言自动判断。
+pub const AUTO: &str = "auto";
+
+/// 不经 `t()` 读取、而是按语言直接取的元信息：每份译文用自己的语言写出语言名。
+pub const META_KEYS: [&str; 1] = ["language-name"];
 
 pub type Catalog = HashMap<String, String>;
 
-static ACTIVE: OnceLock<usize> = OnceLock::new();
+/// 当前语言在 `LOCALES` 里的下标；运行时可切换。
+static ACTIVE: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {
     /// 测试按线程固定语言：cargo test 每个测试一个线程，互不干扰。
     static TEST_LOCALE: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
-/// 按环境变量与系统语言选定界面语言。在 `main()` 第一行调用（`--help` 也要翻译）。
+/// 按环境变量与系统语言选定界面语言。在 `main()` 第一行调用（`--help` 也要翻译）；
+/// 此时配置文件还没读，配置项 `lang` 由 App 启动时经 `use_config` 应用。
 pub fn init() {
-    let tag = negotiate(|k| std::env::var(k).ok(), sys_locale::get_locale());
-    let _ = ACTIVE.set(index(tag));
+    use_config(AUTO);
+}
+
+/// 按配置项 `lang`（`auto` 或语言标签）重新协商并切换；返回生效的语言。
+pub fn use_config(lang: &str) -> &'static str {
+    let tag = negotiate_with(lang, |k| std::env::var(k).ok(), sys_locale::get_locale());
+    set_language(tag);
+    tag
+}
+
+/// 切换界面语言。测试线程固定过语言时只改这个线程，不影响并行的其他测试。
+pub fn set_language(tag: &str) {
+    let i = index(tag);
+    let pinned = TEST_LOCALE.with(|c| {
+        let pinned = c.get().is_some();
+        if pinned {
+            c.set(Some(i));
+        }
+        pinned
+    });
+    if !pinned {
+        ACTIVE.store(i, Ordering::Relaxed);
+    }
+}
+
+/// `MUSTTY_LANG` 正在覆盖配置文件的 `lang`。
+pub fn env_override() -> bool {
+    std::env::var_os("MUSTTY_LANG").is_some_and(|v| !v.is_empty())
+}
+
+/// 所有可选的语言标签，`LOCALES` 的顺序。
+pub fn tags() -> impl Iterator<Item = &'static str> {
+    LOCALES.iter().map(|(tag, _)| *tag)
+}
+
+/// 配置文件里写的语言标签（大小写不敏感）→ `LOCALES` 里的写法。
+pub fn known_tag(tag: &str) -> Option<&'static str> {
+    tags().find(|t| t.eq_ignore_ascii_case(tag))
+}
+
+/// 语言自己的名字（English、简体中文），不随当前界面语言变化。
+pub fn native_name(tag: &str) -> &'static str {
+    let i = index(tag);
+    resolve(catalogs(), i, META_KEYS[0]).map_or(LOCALES[i].0, |(s, _)| s)
 }
 
 /// 测试里固定当前线程的语言。
@@ -70,8 +124,7 @@ fn lookup(id: &'static str) -> &'static str {
 fn active() -> usize {
     TEST_LOCALE
         .with(Cell::get)
-        .or_else(|| ACTIVE.get().copied())
-        .unwrap_or(0)
+        .unwrap_or_else(|| ACTIVE.load(Ordering::Relaxed))
 }
 
 fn index(tag: &str) -> usize {
@@ -166,9 +219,26 @@ pub fn placeholders(s: &str) -> BTreeSet<&str> {
 
 /// 依次取第一个非空的环境变量，否则用系统语言；再与 `LOCALES` 匹配。
 pub fn negotiate(env: impl Fn(&str) -> Option<String>, system: Option<String>) -> &'static str {
-    ENV_VARS
+    negotiate_with(AUTO, env, system)
+}
+
+/// 优先级：`MUSTTY_LANG` > 配置项 `lang`（不是 `auto` 时）> `LC_ALL` / `LC_MESSAGES` / `LANG`
+/// > 系统语言 > `en`。`MUSTTY_LANG` 是临时覆盖与测试用的入口。
+pub fn negotiate_with(
+    config: &str,
+    env: impl Fn(&str) -> Option<String>,
+    system: Option<String>,
+) -> &'static str {
+    let get = |k: &str| env(k).filter(|v| !v.is_empty());
+    if let Some(v) = get(ENV_VARS[0]) {
+        return match_tag(&v);
+    }
+    if let Some(tag) = known_tag(config) {
+        return tag;
+    }
+    ENV_VARS[1..]
         .iter()
-        .find_map(|k| env(k).filter(|v| !v.is_empty()))
+        .find_map(|k| get(k))
         .or(system)
         .map_or("en", |tag| match_tag(&tag))
 }
@@ -310,7 +380,8 @@ mod tests {
         for (id, at) in &ids {
             assert!(en.contains_key(id), "{at}: en.toml 缺少 {id}");
         }
-        let used: BTreeSet<&str> = ids.iter().map(|(id, _)| id.as_str()).collect();
+        let mut used: BTreeSet<&str> = ids.iter().map(|(id, _)| id.as_str()).collect();
+        used.extend(META_KEYS);
         let unused: Vec<&String> = en.keys().filter(|k| !used.contains(k.as_str())).collect();
         assert!(unused.is_empty(), "en.toml 里没被使用的 key：{unused:?}");
     }
@@ -353,6 +424,77 @@ mod tests {
         .join()
         .unwrap();
         assert_eq!(current(), "zh-CN");
+    }
+
+    #[test]
+    fn config_lang_sits_between_mustty_lang_and_locale_vars() {
+        type Env = &'static [(&'static str, &'static str)];
+        let cases: &[(&str, Env, Option<&str>, &str)] = &[
+            ("auto", &[("LANG", "zh_CN.UTF-8")], None, "zh-CN"),
+            ("en", &[("LANG", "zh_CN.UTF-8")], Some("zh-Hans-CN"), "en"),
+            ("zh-CN", &[("LC_ALL", "en_US.UTF-8")], None, "zh-CN"),
+            ("zh-cn", &[], None, "zh-CN"),
+            ("en", &[("MUSTTY_LANG", "zh-CN")], None, "zh-CN"),
+            (
+                "zh-CN",
+                &[("MUSTTY_LANG", "en"), ("LANG", "zh_CN")],
+                None,
+                "en",
+            ),
+            ("zh-CN", &[("MUSTTY_LANG", "")], None, "zh-CN"),
+            ("xx", &[("LANG", "zh_CN")], None, "zh-CN"),
+            ("auto", &[], Some("zh-Hans-CN"), "zh-CN"),
+            ("auto", &[], None, "en"),
+        ];
+        for (config, env, system, want) in cases {
+            let got = negotiate_with(
+                config,
+                |k| {
+                    env.iter()
+                        .find(|(e, _)| *e == k)
+                        .map(|(_, v)| v.to_string())
+                },
+                system.map(str::to_owned),
+            );
+            assert_eq!(got, *want, "lang={config} env {env:?} system {system:?}");
+        }
+    }
+
+    #[test]
+    fn set_language_switches_immediately() {
+        init_for_test("en");
+        assert_eq!(t("status-untitled"), "Untitled");
+        assert_eq!(t("settings-title"), "Settings");
+        set_language("zh-CN");
+        assert_eq!((current(), t("settings-title")), ("zh-CN", "设置"));
+        assert_eq!(t_args("status-words-other", &[("n", "3")]), "3 字");
+        set_language("en");
+        assert_eq!(t("settings-title"), "Settings");
+        // 固定过语言的测试线程只改自己：另一个线程不受影响
+        std::thread::spawn(|| {
+            init_for_test("zh-CN");
+            set_language("zh-CN");
+        })
+        .join()
+        .unwrap();
+        assert_eq!(current(), "en");
+    }
+
+    #[test]
+    fn every_locale_names_itself() {
+        let cats = catalogs();
+        for (i, (tag, _)) in LOCALES.iter().enumerate() {
+            for key in META_KEYS {
+                assert!(cats[i].contains_key(key), "{tag} 缺少 {key}");
+            }
+        }
+        assert_eq!(native_name("en"), "English");
+        assert_eq!(native_name("zh-CN"), "简体中文");
+        init_for_test("zh-CN");
+        assert_eq!(native_name("en"), "English", "不随界面语言翻译");
+        assert_eq!(known_tag("ZH-cn"), Some("zh-CN"));
+        assert_eq!(known_tag("auto"), None);
+        assert_eq!(tags().collect::<Vec<_>>(), vec!["en", "zh-CN"]);
     }
 
     #[test]

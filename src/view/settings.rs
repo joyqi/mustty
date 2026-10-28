@@ -8,7 +8,7 @@ use ratatui::widgets::Widget;
 use unicode_width::UnicodeWidthStr;
 
 use crate::config::{Config, PartialConfig};
-use crate::i18n::t;
+use crate::i18n::{self, t};
 use crate::settings::{Field, Kind, Value, color_name};
 use crate::view::theme;
 
@@ -47,10 +47,19 @@ fn value_spans(field: Field, config: &Config, from_cli: bool) -> Vec<(String, St
             ("■".to_owned(), Style::default().fg(c.color())),
             (format!(" {} ›", color_name(c)), plain),
         ],
+        // Auto 后面用 DIM 标出实际生效的语言；语言名用各自的母语写法，不翻译
+        (Value::Lang(i18n::AUTO), _) => vec![
+            (format!("‹ {} ›", t("settings-lang-auto")), plain),
+            (format!("  ({})", i18n::current()), dim),
+        ],
+        (Value::Lang(tag), _) => vec![(format!("‹ {} ›", i18n::native_name(tag)), plain)],
         (Value::Int(i), _) => vec![(i.to_string(), plain)],
     };
     if from_cli {
         spans.push((format!(" {}", t("settings-from-cli")), dim));
+    }
+    if field.from_env() {
+        spans.push((format!(" {}", t("settings-from-env")), dim));
     }
     spans
 }
@@ -122,8 +131,10 @@ mod tests {
 
     #[test]
     fn rows_fit_or_scroll() {
-        assert_eq!(list_rows(20), (10, Some(11)));
-        assert_eq!(list_rows(12), (10, Some(11)));
+        // 11 项：放得下时列表、空一行、说明
+        assert_eq!(list_rows(20), (11, Some(12)));
+        assert_eq!(list_rows(13), (11, Some(12)));
+        assert_eq!(list_rows(12), (11, Some(11)));
         assert_eq!(list_rows(11), (10, Some(10)));
         assert_eq!(list_rows(6), (5, Some(5)));
         assert_eq!(list_rows(1), (1, None));

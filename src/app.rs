@@ -164,6 +164,11 @@ impl App {
                 self.sync_body(layout.body);
             }
         }
+        if new.lang != old.lang {
+            // 下一帧起所有文案（含面板自己）都用新语言；Auto 时按环境变量重新协商
+            let tag = crate::i18n::use_config(new.lang);
+            tracing::debug!(lang = new.lang, tag, "language");
+        }
         self.keymap.vim = new.vim;
         if old.vim && !new.vim {
             self.leave_vim(now);
@@ -1582,5 +1587,49 @@ mod tests {
         app.handle(ctrl('p'));
         app.handle(ctrl('s'));
         assert!(app.status.prompt.is_none(), "面板打开时 Ctrl+S 被吞掉");
+    }
+
+    #[test]
+    fn settings_language_applies_now_and_writes_only_lang() {
+        crate::i18n::init_for_test("en");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        std::fs::write(&path, "# mine\nwidth = 80\n").unwrap();
+        let config = Config::default().merge(&PartialConfig::from_toml_str("width = 80").0);
+        let mut app = App::with_config(lf_doc(""), Size::new(100, 30), &config);
+        app.set_config_path(Some(path.clone()));
+        assert_eq!(app.placeholder(), "Untitled");
+        app.handle(ctrl('p'));
+        for _ in 0..10 {
+            app.handle(press(KeyCode::Down));
+        }
+        assert_eq!(
+            app.settings.as_ref().unwrap().field(),
+            crate::settings::Field::Lang
+        );
+        // Auto → English → 简体中文：选中即生效
+        app.handle(press(KeyCode::Right));
+        app.handle(press(KeyCode::Right));
+        assert_eq!(app.config.lang, "zh-CN");
+        assert_eq!(crate::i18n::current(), "zh-CN");
+        assert_eq!(t("settings-title"), "设置");
+        assert_eq!(t("status-title"), "标题");
+        app.handle(press(KeyCode::Enter));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "# mine\nwidth = 80\nlang = \"zh-CN\"\n"
+        );
+        // Esc 回滚语言也立即生效
+        app.handle(ctrl('p'));
+        for _ in 0..10 {
+            app.handle(press(KeyCode::Down));
+        }
+        app.handle(press(KeyCode::Left));
+        assert_eq!((app.config.lang, crate::i18n::current()), ("en", "en"));
+        app.handle(press(KeyCode::Esc));
+        assert_eq!(
+            (app.config.lang, crate::i18n::current()),
+            ("zh-CN", "zh-CN")
+        );
     }
 }

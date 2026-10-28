@@ -1,0 +1,30 @@
+---
+source: tests/render_snapshots.rs
+expression: snapshot(en.clone())
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                    Settings                                    "
+"                                                                                "
+"    Body width                                                ‹ 72 › columns    "
+"    Vim keys                                                             Off    "
+"    Mouse                                                                Off    "
+"    Autosave                                                             Off    "
+"    Autosave delay                                               ‹ 2000 › ms    "
+"    Typewriter mode                                                      Off    "
+"    Focus mode                                                           Off    "
+"    Scroll margin                                                ‹ 3 › lines    "
+"    Tab width                                                   ‹ 4 › spaces    "
+"    Code color                                                    ‹ ■ cyan ›    "
+"    Language                                                     ‹ English ›    "
+"                                                                                "
+"    Interface language; Auto follows your locale settings                       "
+"                                                                                "
+"                                                                                "
+"    ↑↓ select  ←→ adjust  Enter save  Esc cancel                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+
+cursor: Position { x: 0, y: 0 } visible: false

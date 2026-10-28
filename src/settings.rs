@@ -10,7 +10,7 @@ use crate::config::{
     AUTOSAVE_IDLE_RANGE, CodeColor, Config, PartialConfig, SCROLLOFF_RANGE, TAB_WIDTH_RANGE,
     WIDTH_RANGE,
 };
-use crate::i18n::t;
+use crate::i18n::{self, t};
 
 /// PageUp / PageDown 一次调整的步数。
 pub const PAGE_STEPS: i64 = 10;
@@ -27,6 +27,7 @@ pub enum Field {
     Scrolloff,
     TabWidth,
     CodeColor,
+    Lang,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,13 @@ pub enum Value {
     Bool(bool),
     Int(i64),
     Color(CodeColor),
+    /// `i18n::AUTO` 或语言标签
+    Lang(&'static str),
+}
+
+/// 语言项的选项：Auto，然后是 `i18n::LOCALES` 里的每一门语言。新增译文后自动多一项。
+pub fn lang_options() -> Vec<&'static str> {
+    std::iter::once(i18n::AUTO).chain(i18n::tags()).collect()
 }
 
 fn range<T: Into<i64>>((lo, hi): (T, T)) -> (i64, i64) {
@@ -55,7 +63,7 @@ fn range<T: Into<i64>>((lo, hi): (T, T)) -> (i64, i64) {
 
 impl Field {
     /// 显示顺序。
-    pub const ALL: [Field; 10] = [
+    pub const ALL: [Field; 11] = [
         Self::Width,
         Self::Vim,
         Self::Mouse,
@@ -66,6 +74,7 @@ impl Field {
         Self::Scrolloff,
         Self::TabWidth,
         Self::CodeColor,
+        Self::Lang,
     ];
 
     /// 配置文件里的键名（与 `config::KEYS` 一致）。
@@ -81,6 +90,7 @@ impl Field {
             Self::Scrolloff => "scrolloff",
             Self::TabWidth => "tab_width",
             Self::CodeColor => "code_color",
+            Self::Lang => "lang",
         }
     }
 
@@ -96,6 +106,7 @@ impl Field {
             Self::Scrolloff => t("settings-scrolloff"),
             Self::TabWidth => t("settings-tab-width"),
             Self::CodeColor => t("settings-code-color"),
+            Self::Lang => t("settings-lang"),
         }
     }
 
@@ -112,6 +123,7 @@ impl Field {
             Self::Scrolloff => t("settings-scrolloff-help"),
             Self::TabWidth => t("settings-tab-width-help"),
             Self::CodeColor => t("settings-code-color-help"),
+            Self::Lang => t("settings-lang-help"),
         }
     }
 
@@ -128,7 +140,7 @@ impl Field {
             Self::AutosaveIdle => int(range(AUTOSAVE_IDLE_RANGE_I64), 500, t("settings-unit-ms")),
             Self::Scrolloff => int(range(SCROLLOFF_RANGE), 1, t("settings-unit-lines")),
             Self::TabWidth => int(range(TAB_WIDTH_RANGE), 1, t("settings-unit-spaces")),
-            Self::CodeColor => Kind::Choice,
+            Self::CodeColor | Self::Lang => Kind::Choice,
             Self::Vim | Self::Mouse | Self::Autosave | Self::Typewriter | Self::FocusMode => {
                 Kind::Toggle
             }
@@ -147,6 +159,7 @@ impl Field {
             Self::Scrolloff => Value::Int(c.scrolloff.into()),
             Self::TabWidth => Value::Int(c.tab_width.into()),
             Self::CodeColor => Value::Color(c.code_color),
+            Self::Lang => Value::Lang(c.lang),
         }
     }
 
@@ -169,6 +182,12 @@ impl Field {
             (Self::Scrolloff, Value::Int(i)) => c.scrolloff = clamp(i) as u16,
             (Self::TabWidth, Value::Int(i)) => c.tab_width = clamp(i) as u16,
             (Self::CodeColor, Value::Color(color)) => c.code_color = color,
+            (Self::Lang, Value::Lang(lang)) => {
+                // 没有译文的标签不接受（类型对，只是不在选项里）
+                if lang_options().contains(&lang) {
+                    c.lang = lang;
+                }
+            }
             _ => debug_assert!(false, "{self:?} 不接受 {v:?}"),
         }
     }
@@ -180,12 +199,8 @@ impl Field {
             (Value::Int(i), Kind::Int { min, max, step, .. }) => {
                 Value::Int((i + steps * step).clamp(min, max))
             }
-            (Value::Color(color), _) => {
-                let all = CodeColor::ALL;
-                let at = all.iter().position(|&x| x == color).unwrap_or(0) as i64;
-                let n = all.len() as i64;
-                Value::Color(all[(at + steps.signum()).rem_euclid(n) as usize])
-            }
+            (Value::Color(color), _) => Value::Color(cycle(&CodeColor::ALL, color, steps)),
+            (Value::Lang(lang), _) => Value::Lang(cycle(&lang_options(), lang, steps)),
             (v, _) => v,
         }
     }
@@ -203,8 +218,22 @@ impl Field {
             Self::Scrolloff => cli.scrolloff.is_some(),
             Self::TabWidth => cli.tab_width.is_some(),
             Self::CodeColor => cli.code_color.is_some(),
+            // 没有 --lang；被 MUSTTY_LANG 覆盖的情况见 `from_env`
+            Self::Lang => cli.lang.is_some(),
         }
     }
+
+    /// 这一项正被环境变量覆盖（只有语言：`MUSTTY_LANG`）。
+    pub fn from_env(self) -> bool {
+        self == Self::Lang && i18n::env_override()
+    }
+}
+
+/// 单选项循环一步（方向取 `steps` 的符号）。
+fn cycle<T: Copy + PartialEq>(options: &[T], current: T, steps: i64) -> T {
+    let at = options.iter().position(|&x| x == current).unwrap_or(0) as i64;
+    let n = options.len() as i64;
+    options[(at + steps.signum()).rem_euclid(n) as usize]
 }
 
 const AUTOSAVE_IDLE_RANGE_I64: (i64, i64) =
@@ -346,7 +375,9 @@ mod tests {
             Value::Int(7),
             Value::Int(8),
             Value::Color(CodeColor::Magenta),
+            Value::Lang("zh-CN"),
         ];
+        assert_eq!(values.len(), Field::ALL.len());
         for (f, v) in Field::ALL.into_iter().zip(values) {
             assert_ne!(f.get(&c), v, "{f:?}：测试值要与默认值不同");
             f.set(&mut c, v);
@@ -420,6 +451,32 @@ mod tests {
     }
 
     #[test]
+    fn lang_options_follow_locales() {
+        // 选项从 LOCALES 动态生成：Auto 在前，其余按表的顺序
+        let want: Vec<&str> = std::iter::once("auto")
+            .chain(i18n::LOCALES.iter().map(|(t, _)| *t))
+            .collect();
+        assert_eq!(lang_options(), want);
+        assert_eq!(lang_options(), vec!["auto", "en", "zh-CN"]);
+        let mut c = Config::default();
+        let mut seen = vec![c.lang];
+        for _ in 0..want.len() {
+            let v = Field::Lang.adjust(&c, 1);
+            Field::Lang.set(&mut c, v);
+            seen.push(c.lang);
+        }
+        assert_eq!(
+            seen,
+            vec!["auto", "en", "zh-CN", "auto"],
+            "Auto → English → 简体中文 → Auto"
+        );
+        assert_eq!(Field::Lang.adjust(&c, -1), Value::Lang("zh-CN"));
+        Field::Lang.set(&mut c, Value::Lang("ja"));
+        assert_eq!(c.lang, "auto", "没有译文的标签不接受");
+        assert_eq!(Field::Lang.kind(), Kind::Choice);
+    }
+
+    #[test]
     fn navigation_does_not_wrap() {
         let c = Config::default();
         let mut s = Settings::open(&c);
@@ -429,16 +486,16 @@ mod tests {
         for _ in 0..20 {
             s.handle_key(&press(KeyCode::Tab), &c);
         }
-        assert_eq!(s.selected, 9);
+        assert_eq!(s.selected, Field::ALL.len() - 1);
         assert_eq!(s.handle_key(&press(KeyCode::Down), &c), Outcome::Ignored);
         assert_eq!(s.handle_key(&press(KeyCode::Up), &c), Outcome::Moved);
-        assert_eq!(s.selected, 8);
+        assert_eq!(s.selected, Field::ALL.len() - 2);
         // j / k 不绑定
         assert_eq!(
             s.handle_key(&press(KeyCode::Char('j')), &c),
             Outcome::Ignored
         );
-        assert_eq!(s.selected, 8);
+        assert_eq!(s.selected, Field::ALL.len() - 2);
     }
 
     #[test]

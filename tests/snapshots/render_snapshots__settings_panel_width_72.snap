@@ -13,7 +13,8 @@ expression: "settings_panel(72, 80, 24, 9)"
 12: "    上 下 留 白                                                         ‹ 3 ›" NONE | " 行" DIM
 13: "    Tab 宽 度                                                         ‹ 4 ›" NONE | " 格" DIM
 14: "代" REVERSED | "码" REVERSED | "颜" REVERSED | "色" REVERSED | "                                                        ‹" REVERSED | "■" REVERSED fg=Cyan | " 青" REVERSED | " ›" REVERSED
-16: "行" DIM | "内" DIM | "代" DIM | "码" DIM | "和" DIM | "代" DIM | "码" DIM | "块" DIM | "的" DIM | "颜" DIM | "色" DIM | "`code`" NONE fg=Cyan
+15: "    语 言                                                    ‹ 自 动  ›" NONE | "  (zh-CN)" DIM
+17: "行" DIM | "内" DIM | "代" DIM | "码" DIM | "和" DIM | "代" DIM | "码" DIM | "块" DIM | "的" DIM | "颜" DIM | "色" DIM | "`code`" NONE fg=Cyan
 20: "↑↓ 选" DIM | "择" DIM | "  ←→ 调" DIM | "整" DIM | "  Enter 保" DIM | "存" DIM | "  Esc 取" DIM | "消" DIM
 
 "                                                                                "
@@ -31,9 +32,9 @@ expression: "settings_panel(72, 80, 24, 9)"
 "    上下留白                                                        ‹ 3 › 行    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
 "    Tab 宽度                                                        ‹ 4 › 格    " Hidden by multi-width symbols: [(9, " "), (11, " "), (75, " ")]
 "    代码颜色                                                        ‹ ■ 青 ›    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (73, " ")]
+"    语言                                                   ‹ 自动 ›  (zh-CN)    " Hidden by multi-width symbols: [(5, " "), (7, " "), (62, " "), (64, " ")]
 "                                                                                "
 "    行内代码和代码块的颜色  `code`                                              " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " "), (19, " "), (21, " "), (23, " "), (25, " ")]
-"                                                                                "
 "                                                                                "
 "                                                                                "
 "    ↑↓ 选择  ←→ 调整  Enter 保存  Esc 取消                                      " Hidden by multi-width symbols: [(8, " "), (10, " "), (17, " "), (19, " "), (29, " "), (31, " "), (39, " "), (41, " ")]

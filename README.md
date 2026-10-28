@@ -129,7 +129,7 @@ Native terminal selection then needs a modifier, usually `Shift` (xterm, GNOME T
 
 ## Settings
 
-`Ctrl+P` replaces the body with a list of all ten options from the [config file](#configuration). The title line reads *Settings*, and the status bar shows the keys:
+`Ctrl+P` replaces the body with a list of all eleven options from the [config file](#configuration). The title line reads *Settings*, and the status bar shows the keys:
 
 | Key                        | Action                                                     |
 |----------------------------|------------------------------------------------------------|
@@ -161,6 +161,7 @@ mustty reads `~/.mustty.toml` (`.mustty.toml` in your home directory on Windows)
 | `scrolloff`        | integer | `3`      | Lines kept between the cursor and the top or bottom edge, 0–10                                                                  |
 | `tab_width`        | integer | `4`      | Display width of a tab and spaces inserted by `Tab`, 1–16                                                                       |
 | `code_color`       | string  | `"cyan"` | Color of code: `black` `red` `green` `yellow` `blue` `magenta` `cyan` `white` (`gray` is an alias of `white`; case-insensitive) |
+| `lang`             | string  | `"auto"` | Interface language: `auto`, `en` or `zh-CN` (see [Internationalization](#internationalization)); `MUSTTY_LANG` overrides it     |
 
 A broken config file never stops mustty from starting. A syntax error discards the whole file. A key with the wrong type or an invalid value falls back to its default, and numbers out of range are clamped. Warnings are collected into one message, shown in the status bar until the next key press and printed to stderr.
 
@@ -175,11 +176,14 @@ focus_mode = false
 scrolloff = 3
 tab_width = 4
 code_color = "cyan"
+lang = "auto"
 ```
 
 ## Internationalization
 
-The interface is available in English (`en`) and Simplified Chinese (`zh-CN`). mustty uses the first non-empty value of `MUSTTY_LANG`, `LC_ALL`, `LC_MESSAGES` and `LANG`, then the system language, then English. `C` and `POSIX` mean English; Traditional Chinese locales use `zh-CN` until a `zh-TW` translation exists.
+The interface is available in English (`en`) and Simplified Chinese (`zh-CN`). Pick one under *Language* in the `Ctrl+P` settings panel, where the change applies at once, or set `lang` in the config file. The default, `auto`, uses the first non-empty value of `LC_ALL`, `LC_MESSAGES` and `LANG`, then the system language, then English. `C` and `POSIX` mean English; Traditional Chinese locales use `zh-CN` until a `zh-TW` translation exists.
+
+The `MUSTTY_LANG` environment variable overrides everything, including the config file, which makes it handy for a one-off run or for testing a translation. The settings panel marks the language *(env)* while it is set.
 
 ```sh
 MUSTTY_LANG=zh-CN mustty notes.md
@@ -190,8 +194,8 @@ clap's built-in `Usage:` and `Options:` headings and its argument errors are alw
 ### Translating
 
 1. Copy `locales/en.toml` to `locales/<tag>.toml`, for example `ja.toml` or `zh-TW.toml`.
-2. Translate the text to the right of each `=`, leaving placeholders such as `{n}` unchanged. Missing entries fall back to English, so a partial translation still works.
-3. Add a line to the `LOCALES` table in `src/i18n.rs`: `("<tag>", include_str!("../locales/<tag>.toml")),`
+2. Set `language-name` to the language's own name for itself (`日本語`, `繁體中文`); the settings panel lists it under that name. Translate the text to the right of each other `=`, leaving placeholders such as `{n}` unchanged. Missing entries fall back to English, so a partial translation still works.
+3. Add a line to the `LOCALES` table in `src/i18n.rs`: `("<tag>", include_str!("../locales/<tag>.toml")),`. The language then appears in the settings panel and is accepted as a `lang` value.
 4. Run `cargo test`. The tests check that the file parses, that every key exists in `en.toml`, and that placeholders match the English text.
 5. Try it with `MUSTTY_LANG=<tag> cargo run -- notes.md`.
 
