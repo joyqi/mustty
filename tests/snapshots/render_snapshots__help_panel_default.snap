@@ -1,0 +1,90 @@
+---
+source: tests/render_snapshots.rs
+expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
+---
+ 6: "Keys" BOLD
+ 8: "    Enter" NONE | "New line (in the title: go to the body)" DIM
+ 9: "    Backspace" NONE | "Delete the previous character or the selection" DIM
+10: "    Delete" NONE | "Delete the next character or the selection" DIM
+11: "    Ctrl+Backspace / Ctrl+W" NONE | "Delete the previous word" DIM
+12: "    Tab" NONE | "Insert spaces (tab width)" DIM
+13: "    ←" NONE | "Left" DIM
+14: "    →" NONE | "Right" DIM
+15: "    ↑" NONE | "Up a line (on the first line: into the title)" DIM
+16: "    ↓" NONE | "Down a line" DIM
+17: "    Ctrl+← / Alt+B" NONE | "Previous word" DIM
+18: "    Ctrl+→ / Alt+F" NONE | "Next word" DIM
+19: "    Home" NONE | "Start of the screen line" DIM
+20: "    End" NONE | "End of the screen line" DIM
+21: "    PageUp" NONE | "Page up" DIM
+22: "    PageDown" NONE | "Page down" DIM
+23: "    Ctrl+Home" NONE | "Start of the document" DIM
+24: "    Ctrl+End" NONE | "End of the document" DIM
+25: "    Shift+→" NONE | "Extend the selection (Shift + any move key)" DIM
+26: "    Ctrl+A" NONE | "Select the whole body" DIM
+27: "    Ctrl+C" NONE | "Copy (also to the system clipboard via OSC 52)" DIM
+28: "    Ctrl+X" NONE | "Cut" DIM
+29: "    Ctrl+V" NONE | "Paste from the internal register" DIM
+30: "    Ctrl+Z" NONE | "Undo" DIM
+31: "    Ctrl+Y" NONE | "Redo" DIM
+32: "    Esc" NONE | "Clear the selection / close the save prompt" DIM
+33: "    Ctrl+S" NONE | "Save" DIM
+34: "    Ctrl+Q" NONE | "Quit (twice if changes cannot be saved)" DIM
+35: "    Ctrl+T" NONE | "Typewriter mode" DIM
+36: "    Ctrl+F" NONE | "Focus mode" DIM
+37: "    Ctrl+P" NONE | "Settings" DIM
+38: "    Ctrl+G" NONE | "This list of keys" DIM
+43: "↑↓ scroll  Esc close" DIM
+
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                      Keys                                      "
+"                                                                                "
+"    Enter                    New line (in the title: go to the body)            "
+"    Backspace                Delete the previous character or the selection     "
+"    Delete                   Delete the next character or the selection         "
+"    Ctrl+Backspace / Ctrl+W  Delete the previous word                           "
+"    Tab                      Insert spaces (tab width)                          "
+"    ←                        Left                                               "
+"    →                        Right                                              "
+"    ↑                        Up a line (on the first line: into the title)      "
+"    ↓                        Down a line                                        "
+"    Ctrl+← / Alt+B           Previous word                                      "
+"    Ctrl+→ / Alt+F           Next word                                          "
+"    Home                     Start of the screen line                           "
+"    End                      End of the screen line                             "
+"    PageUp                   Page up                                            "
+"    PageDown                 Page down                                          "
+"    Ctrl+Home                Start of the document                              "
+"    Ctrl+End                 End of the document                                "
+"    Shift+→                  Extend the selection (Shift + any move key)        "
+"    Ctrl+A                   Select the whole body                              "
+"    Ctrl+C                   Copy (also to the system clipboard via OSC 52)     "
+"    Ctrl+X                   Cut                                                "
+"    Ctrl+V                   Paste from the internal register                   "
+"    Ctrl+Z                   Undo                                               "
+"    Ctrl+Y                   Redo                                               "
+"    Esc                      Clear the selection / close the save prompt        "
+"    Ctrl+S                   Save                                               "
+"    Ctrl+Q                   Quit (twice if changes cannot be saved)            "
+"    Ctrl+T                   Typewriter mode                                    "
+"    Ctrl+F                   Focus mode                                         "
+"    Ctrl+P                   Settings                                           "
+"    Ctrl+G                   This list of keys                                  "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"    ↑↓ scroll  Esc close                                                        "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+
+cursor: Position { x: 0, y: 0 } visible: false

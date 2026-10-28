@@ -16,6 +16,7 @@ use crate::config::{self, Config};
 use crate::editor::cursor::Cursor;
 use crate::editor::document::Document;
 use crate::editor::{Editor, Effect};
+use crate::help::{self, Help};
 use crate::i18n::{t, t_args};
 use crate::io::file::{self, IoError};
 use crate::keymap::{Keymap, Mode};
@@ -55,6 +56,8 @@ pub struct App {
     config_path: Option<PathBuf>,
     /// 设置面板（Ctrl+P）；打开时吞掉所有按键
     pub(crate) settings: Option<Settings>,
+    /// 键位帮助（Ctrl+G / vim Normal 态 `?`）；同样吞掉所有按键
+    pub(crate) help: Option<Help>,
     /// 待执行的鼠标捕获开关，由事件循环用 `execute!` 执行（Windows 上走 WinAPI）
     mouse_capture: Option<bool>,
     /// 左键拖拽中（仅鼠标开启时）
@@ -118,6 +121,7 @@ impl App {
             config: base,
             config_path: None,
             settings: None,
+            help: None,
             mouse_capture: None,
             drag: None,
             screen: None,
@@ -290,16 +294,32 @@ impl App {
             }
             Event::Mouse(m) => {
                 // 面板不做点击 hit-test
-                if self.config.mouse && self.settings.is_none() {
+                if self.config.mouse && self.settings.is_none() && self.help.is_none() {
                     self.on_mouse(m, now);
                 }
                 return;
             }
             _ => {}
         }
-        // 两个抢占输入的浮层同一时刻最多一个：提示行打开时 Ctrl+P 进了 PromptInput，
-        // 面板打开时 Ctrl+S 被吞掉
-        debug_assert!(!(self.settings.is_some() && self.status.prompt.is_some()));
+        // 抢占输入的浮层同一时刻最多一个：提示行打开时 Ctrl+P / Ctrl+G 进了 PromptInput，
+        // 面板打开时其他面板的快捷键与 Ctrl+S 都被吞掉
+        debug_assert!(
+            [
+                self.settings.is_some(),
+                self.help.is_some(),
+                self.status.prompt.is_some()
+            ]
+            .iter()
+            .filter(|&&open| open)
+            .count()
+                <= 1
+        );
+        if self.help.is_some() {
+            if let Event::Key(key) = ev {
+                self.help_key(key, now);
+            }
+            return;
+        }
         if self.settings.is_some() {
             // 面板吞掉所有按键，不经过 Keymap，mode 保持原样；粘贴丢弃
             if let Event::Key(key) = ev {
@@ -398,6 +418,7 @@ impl App {
                 self.status.info(msg, now, TOGGLE_TTL);
             }
             Action::OpenSettings => self.settings = Some(Settings::open(&self.config)),
+            Action::OpenHelp => self.help = Some(Help::default()),
             Action::Paste(s) => match &mut self.status.prompt {
                 Some(prompt) => prompt.paste(&s),
                 None => self.edit(&Action::Paste(s), now),
@@ -406,6 +427,31 @@ impl App {
         }
         if self.editor.doc().revision() != revision {
             self.last_edit = Some(now);
+        }
+    }
+
+    /// 帮助面板的内容行（随 vim 开关与 tab_width 变化）。
+    pub(crate) fn help_lines(&self) -> Vec<help::Line> {
+        help::lines(self.config.vim, self.config.tab_width)
+    }
+
+    fn help_key(&mut self, key: KeyEvent, now: Instant) {
+        let total = self.help_lines().len();
+        let visible = self.layout().body.height.max(1) as usize;
+        let Some(panel) = &mut self.help else {
+            return;
+        };
+        match panel.handle_key(&key, self.config.vim, total, visible) {
+            help::Outcome::Ignored => {}
+            help::Outcome::Scrolled => self.needs_redraw = true,
+            help::Outcome::Close => {
+                self.help = None;
+                self.needs_redraw = true;
+            }
+            help::Outcome::Quit => {
+                self.help = None;
+                self.dispatch(Action::Quit, now);
+            }
         }
     }
 
@@ -1636,5 +1682,103 @@ mod tests {
             "{msg:?}"
         );
         assert_eq!(app.config.width, 74, "修改仍在本次会话生效");
+    }
+
+    #[test]
+    fn help_panel_opens_swallows_keys_and_closes() {
+        let mut app = App::new(lf_doc("hello"), Size::new(80, 24), false);
+        app.handle(ctrl('g'));
+        assert!(app.help.is_some());
+        // 吞掉所有按键：不编辑、不打开设置、不弹保存提示；粘贴丢弃
+        typed(&mut app, "x?");
+        app.handle(press(KeyCode::Enter));
+        app.handle(ctrl('p'));
+        app.handle(ctrl('s'));
+        app.handle(Event::Paste("pasted".into()));
+        assert_eq!(body(&app), "hello");
+        assert!(app.settings.is_none() && app.status.prompt.is_none());
+        assert!(app.help.is_some(), "默认模式里 ? 不关闭");
+        app.handle(press(KeyCode::Esc));
+        assert!(app.help.is_none());
+        app.handle(ctrl('g'));
+        app.handle(ctrl('g'));
+        assert!(app.help.is_none(), "Ctrl+G 再按一次关闭");
+    }
+
+    #[test]
+    fn help_panel_in_vim_normal_mode() {
+        let mut app = vim_app("hello");
+        typed(&mut app, "\x1b?");
+        assert!(app.help.is_some(), "Normal 态 ? 打开");
+        assert_eq!(app.mode_label(), Some("NOR"));
+        typed(&mut app, "dd");
+        assert_eq!(body(&app), "hello", "面板打开时 dd 不生效");
+        typed(&mut app, "?");
+        assert!(app.help.is_none(), "再按 ? 关闭");
+        assert_eq!(app.mode_label(), Some("NOR"), "模式保持原样");
+        // Insert 态里 ? 是普通字符
+        typed(&mut app, "i?");
+        assert!(app.help.is_none());
+        assert_eq!(body(&app), "?hello");
+    }
+
+    #[test]
+    fn help_scrolls_within_bounds() {
+        let mut app = vim_app("");
+        let total = app.help_lines().len();
+        let visible = app.layout().body.height as usize;
+        assert!(total > visible, "vim 的三组放不进 24 行");
+        app.handle(ctrl('g'));
+        app.handle(press(KeyCode::Up));
+        assert_eq!(app.help.unwrap().scroll, 0);
+        for _ in 0..20 {
+            app.handle(press(KeyCode::PageDown));
+        }
+        assert_eq!(
+            app.help.unwrap().scroll,
+            total - visible,
+            "最后一行停在最下面"
+        );
+        app.handle(press(KeyCode::Down));
+        assert_eq!(app.help.unwrap().scroll, total - visible);
+    }
+
+    #[test]
+    fn help_and_settings_are_exclusive() {
+        let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
+        app.handle(ctrl('p'));
+        app.handle(ctrl('g'));
+        assert!(
+            app.settings.is_some() && app.help.is_none(),
+            "设置面板吞掉 Ctrl+G"
+        );
+        app.handle(press(KeyCode::Esc));
+        app.handle(ctrl('g'));
+        app.handle(ctrl('p'));
+        assert!(
+            app.help.is_some() && app.settings.is_none(),
+            "帮助面板吞掉 Ctrl+P"
+        );
+        app.handle(press(KeyCode::Esc));
+        // 保存提示打开时 Ctrl+G 进了输入框
+        app.handle(ctrl('s'));
+        app.handle(ctrl('g'));
+        assert!(app.help.is_none() && app.status.prompt.is_some());
+    }
+
+    #[test]
+    fn ctrl_q_in_help_closes_then_quits() {
+        let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
+        app.handle(ctrl('g'));
+        app.handle(ctrl('q'));
+        assert!(app.help.is_none() && app.should_quit);
+        // 有未保存修改：先关面板，再照常要求按第二次
+        let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
+        typed(&mut app, "y");
+        app.handle(ctrl('g'));
+        app.handle(ctrl('q'));
+        assert!(app.help.is_none() && !app.should_quit);
+        app.handle(ctrl('q'));
+        assert!(app.should_quit);
     }
 }

@@ -358,6 +358,7 @@ fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockState)
 | `Ctrl+T` | 切换 Typewriter 模式 | M4 |
 | `Ctrl+F` | 切换 Focus 模式（非当前段落 DIM） | M4 |
 | `Ctrl+P` | 打开设置面板（§8.6） | 设置面板 |
+| `Ctrl+G` | 打开键位帮助（§7.5）；取 nano 的 `^G` help 约定，所有键盘都有，Mac 上不需要 Fn | 键位帮助 |
 | `Esc` | 取消选区 / 关闭提示行（vim 键位下的含义见 §7.4） | M1 |
 
 说明：crossterm raw mode 通过 `cfmakeraw` 关闭了 `ISIG` 与 `IXON`，因此 `Ctrl+Z` 不会挂起进程、`Ctrl+S` 不会触发 XOFF 流控，可安全占用。
@@ -404,6 +405,7 @@ pub struct NormalState { pub pending: Option<char>, pub visual: bool }   // pend
 | `p` | `PasteRegister`（寄存器为行级时粘贴到下一行，否则粘贴到光标后） |
 | `u` | `Undo` |
 | `Ctrl+R` | `Redo`（仅 Normal 态绑定，与 vim 一致；Insert 态和默认模式下 `Ctrl+R` 不绑定，重做仍用 `Ctrl+Y`） |
+| `?` | `OpenHelp`：键位帮助（§7.5），和 `Ctrl+G` 相同 |
 | 方向键、`Home/End`、`PageUp/PageDown` | 与 §7.2 相同 |
 | 其他可打印字符（含 IME 提交的文字） | 忽略，返回 `None`，status bar 不提示 |
 
@@ -419,6 +421,23 @@ pub struct NormalState { pub pending: Option<char>, pub visual: bool }   // pend
 2. **u / p / x 与 Ctrl+Z / Ctrl+V 不冲突**：前者只是 Normal 态里的普通字符键，后者是 Ctrl 组合键，在两种模式下都绑定到同一组 Action（`Undo` / `PasteRegister`）。终端的系统粘贴（Cmd+V / Ctrl+Shift+V）走 `Event::Paste`，与 `p` 读取的内部寄存器是两条独立路径。`Ctrl+V` 在 Normal 态**不是**块选择。
 3. **光标形状**：Normal 态 `SetCursorStyle::SteadyBlock`，Insert 态 `SteadyBar`。由 `App` 在模式变化时 `execute!`，渲染层不读 Mode。
 4. **按键事件**：与 §7.1 一样只处理 `KeyEventKind::Press/Repeat`，所以 Windows 上 `dd` 不会因为同时上报 Release 而被识别成 4 次按键。
+
+### 7.5 键位帮助（`Ctrl+G`，vim Normal 态 `?`）
+
+- **形态**：与设置面板（§8.6）相同，只替换正文区，不画边框、不设背景。标题行显示 `Keys`（BOLD），status bar 显示 `↑↓ scroll  Esc close`。内容超过正文高度时，`↑` / `↓` / `PageUp` / `PageDown` 滚动，首尾不循环。`Esc`、`Ctrl+G` 关闭；vim 下再按 `?` 也关闭（默认模式里 `?` 是普通字符，面板吞掉它而不关闭）。
+- **内容**：
+  - 默认模式是一张表；vim 下分 Insert / Normal / Visual 三组，组标题单独一行。
+  - 两列：左列键位（`Ctrl+S`、`gg`、`Shift+→`，不翻译），右列说明（i18n，经 `i18n::t_id` 按表里的 id 取）。
+- **交互边界**：
+  - 打开时吞掉所有按键（不经过 `Keymap`，`mode` 不变），粘贴丢弃，鼠标忽略。
+  - `Ctrl+Q` 先关面板，再走正常退出流程。
+  - 与设置面板、「保存为:」提示行三者同一时刻最多一个，由 `debug_assert!` 守住。
+  - 窗口太小时显示「窗口太小」，恢复后面板还在。
+- **内容不许与 keymap 脱节**：`src/help.rs` 里每条 `Entry { keys, desc_id, expect }` 都写明它应得到的 `Expect { action, mode }`。测试有两个方向：
+  - 把 `keys`（` / ` 分隔的每种写法）解析成 KeyEvent 序列，从该组的模式开始喂给 `Keymap::map_event`：前缀键必须无 Action，最后一键的 Action 必须相符，结束时的模式也必须相符（未写时要求不变）。
+  - 反向：在四种起始状态（默认、Insert、Normal、Visual）下穷举所有单键（含修饰键组合）和 `g` / `d` 前缀的两键序列。keymap 能产生的每个 Action 变体、每个 Motion、每种模式切换，都必须出现在表里。普通字符的插入除外，它就是「打字」本身。
+- **启动提示**：启动后 5 s 只显示 `^G keys` / `^G 键位`，指向能看全键位的地方。
+- 这是对 Action「M1 定稿」约定的第二处有意修订：新增 `Action::OpenHelp`。
 
 ---
 
@@ -570,7 +589,7 @@ notes.md ●                                    1,284 字 · 12:7
 
 宽度不足时的裁剪优先级：先省略位置，再省略字数，文件名从左侧截断为 `…tes.md`；保存状态标记始终保留在截断后的文件名右侧（`…tes.md ●`）。
 
-**启动提示**：打开后前 5 s 右段显示 `^S 保存  ^Q 退出`，之后恢复正常——不常驻帮助，保持界面干净。
+**启动提示**：打开后前 5 s 右段显示 `^G 键位`（英文 `^G keys`），指向能看全键位的帮助面板（§7.5），之后恢复正常——不常驻帮助，保持界面干净。
 
 ---
 
@@ -674,10 +693,12 @@ mustty/
 │   │   ├── viewport.rs      ViewTop、scrolloff / typewriter 滚动
 │   │   ├── theme.rs         Token → Style 映射（code_color 由此注入）
 │   │   ├── settings.rs      SettingsWidget：设置面板的行布局与说明行（§8.6）
+│   │   ├── help.rs          HelpWidget：键位帮助的两列布局（§7.5）
 │   │   ├── mouse.rs         map_mouse：屏幕坐标 → Target / ScrollView（M4，仅 mouse = true 时调用）
 │   │   └── widgets.rs       TitleWidget、BodyWidget、StatusWidget
 │   ├── config.rs            PartialConfig / Config：读取 ~/.mustty.toml、逐键容错、钳制、三层合并（M4）；write_back 写回（§8.6）
 │   ├── settings.rs          设置面板：Field / Kind / Value 表与面板状态机（§8.6）
+│   ├── help.rs              键位帮助：Entry / Expect 表与面板状态机，测试与 keymap 交叉核对（§7.5）
 │   ├── status.rs            StatusModel：模式标识、文件名、dirty、消息队列、提示行状态
 │   ├── i18n.rs              LOCALES 表、语言协商、t / t_args、缺 key 回退 en（§11.4）
 │   └── io/
@@ -770,7 +791,7 @@ pub fn load(path: &Path) -> Result<Document, IoError>;       // 不存在 → Ok
 pub fn save(doc: &Document, path: &Path, check_mtime: bool) -> Result<SystemTime, IoError>;
 
 // action.rs
-// 与 Mode 无关；M1 时全部变体一次定稿，M4 不再增删。唯一的有意修订：设置面板新增 OpenSettings（§8.6）
+// 与 Mode 无关；M1 时全部变体一次定稿，M4 不再增删。有意的修订：设置面板的 OpenSettings（§8.6）、键位帮助的 OpenHelp（§7.5）
 pub enum Action { Insert(String), Paste(String), Newline, DeleteBack, DeleteForward, DeleteWordBack,
                   Move(Motion, /*extend*/ bool), Undo, Redo, Save, Quit, Cancel, SelectAll, Copy, Cut,
                   PasteRegister,          // Ctrl+V / vim p：粘贴内部寄存器（行级寄存器粘贴到下一行）
@@ -778,7 +799,7 @@ pub enum Action { Insert(String), Paste(String), Newline, DeleteBack, DeleteForw
                   OpenLineBelow,          // vim o：移到逻辑行尾并插入 \n，作为一个 Transaction
                   MoveTo(Target, /*extend*/ bool), // 鼠标单击 / 拖拽：直接定位到 char 索引（M3 随选区实现，M4 由 mouse 触发）
                   ScrollView(i32),        // 鼠标滚轮：由 App/Viewport 消费，不进入 Editor::apply
-                  ToggleTypewriter, ToggleFocusMode, OpenSettings, PromptInput(KeyEvent) }
+                  ToggleTypewriter, ToggleFocusMode, OpenSettings, OpenHelp, PromptInput(KeyEvent) }
 pub enum Target { Body(usize), Title(usize) }   // 正文全局 char 索引 / 标题内 char 索引
 pub enum Motion { Left, Right, Up, Down, LineStart, LineEnd, PageUp, PageDown, DocStart, DocEnd,
                   WordLeft,   // 上一个词首（Ctrl+← / vim b）

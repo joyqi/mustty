@@ -90,6 +90,7 @@ fn default_map(key: &KeyEvent, extend: bool, tab_width: u16) -> Option<Action> {
         KeyCode::Char('t' | 'T') => Some(Action::ToggleTypewriter),
         KeyCode::Char('f' | 'F') => Some(Action::ToggleFocusMode),
         KeyCode::Char('p' | 'P') => Some(Action::OpenSettings),
+        KeyCode::Char('g' | 'G') => Some(Action::OpenHelp),
         KeyCode::Backspace if ctrl => Some(Action::DeleteWordBack),
         KeyCode::Enter => Some(Action::Newline),
         KeyCode::Backspace => Some(Action::DeleteBack),
@@ -197,6 +198,7 @@ fn map_normal(key: &KeyEvent, mut st: NormalState, tab_width: u16) -> (Option<Ac
         (None, 'y') if visual => (Some(Action::Copy), leave_visual),
         (None, 'p') => (Some(Action::PasteRegister), leave_visual),
         (None, 'u') => (Some(Action::Undo), normal),
+        (None, '?') => (Some(Action::OpenHelp), normal),
         // 其他可打印字符（含 IME 提交的汉字）一律忽略，不插入
         _ => (None, normal),
     }

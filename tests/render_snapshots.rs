@@ -598,3 +598,79 @@ fn app_lang_shown(terminal: &mut Terminal<TestBackend>, app: &mut App) -> String
 fn sys_locale_or_none() -> Option<String> {
     sys_locale::get_locale()
 }
+
+/// Ctrl+G 打开键位帮助，再依次按 `keys`；返回渲染结果和 App。
+fn help_panel(vim: bool, w: u16, h: u16, keys: &[Event]) -> (TestBackend, App) {
+    mustty::i18n::init_for_test("en");
+    let config = mustty::config::Config {
+        vim,
+        autosave: false,
+        ..mustty::config::Config::default()
+    };
+    let doc = Document::parse("hello\n", FileMeta::new(Some("notes.md".into())));
+    let mut app = App::with_config(doc, Size::new(w, h), &config);
+    app.handle(ctrl('g'));
+    for k in keys {
+        app.handle(k.clone());
+    }
+    let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+    terminal.draw(|f| view::render(f, &mut app)).unwrap();
+    (terminal.backend().clone(), app)
+}
+
+#[test]
+fn help_panel_default() {
+    let (b, _) = help_panel(false, 80, 50, &[]);
+    insta::assert_snapshot!(format!("{}\n{}", styled(&b), snapshot(b.clone())));
+}
+
+#[test]
+fn help_panel_vim_shows_three_groups() {
+    let (b, _) = help_panel(true, 80, 90, &[]);
+    let text = snapshot(b.clone());
+    for group in ["Insert mode", "Normal mode", "Visual (selection)"] {
+        assert!(text.contains(group), "{group}");
+    }
+    insta::assert_snapshot!(text);
+}
+
+#[test]
+fn help_panel_scrolled_to_the_end() {
+    let downs = vec![key(KeyCode::PageDown); 20];
+    let (b, _) = help_panel(true, 80, 24, &downs);
+    let text = snapshot(b.clone());
+    assert!(text.contains("End the selection"), "最后几条可见");
+    insta::assert_snapshot!(text);
+}
+
+/// 窗口太小时和其它界面一样只显示提示；恢复后面板还在。
+#[test]
+fn help_panel_survives_too_small() {
+    let (_, mut app) = help_panel(false, 80, 24, &[]);
+    // 宽度不足 10 列即「窗口太小」
+    let mut terminal = Terminal::new(TestBackend::new(9, 3)).unwrap();
+    app.handle(Event::Resize(9, 3));
+    terminal.draw(|f| view::render(f, &mut app)).unwrap();
+    let tiny: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect();
+    assert!(tiny.starts_with("Window"), "{tiny:?}");
+    app.handle(Event::Resize(80, 24));
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal.draw(|f| view::render(f, &mut app)).unwrap();
+    let back: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect();
+    assert!(
+        back.contains("Keys") && back.contains("Enter"),
+        "恢复后仍是帮助面板"
+    );
+}

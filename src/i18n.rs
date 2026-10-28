@@ -93,6 +93,12 @@ pub fn t(id: &'static str) -> &'static str {
     lookup(id)
 }
 
+/// 按存在数据表里的 id 取文案（键位帮助的说明）。源码里能直接写字面量的地方一律用 `t()`；
+/// 这些 id 由 `help::ids()` 列出，测试同样确认它们都在 en.toml 里。
+pub fn t_id(id: &'static str) -> &'static str {
+    lookup(id)
+}
+
 /// `{name}` 简单替换；缺参数时保留原样。
 pub fn t_args(id: &'static str, args: &[(&str, &str)]) -> String {
     let (s, missing) = substitute(lookup(id), args);
@@ -354,6 +360,10 @@ mod tests {
         }
         let mut used: BTreeSet<&str> = ids.iter().map(|(id, _)| id.as_str()).collect();
         used.extend(META_KEYS);
+        for id in crate::help::ids() {
+            assert!(en.contains_key(id), "help.rs: en.toml 缺少 {id}");
+            used.insert(id);
+        }
         let unused: Vec<&String> = en.keys().filter(|k| !used.contains(k.as_str())).collect();
         assert!(unused.is_empty(), "en.toml 里没被使用的 key：{unused:?}");
     }

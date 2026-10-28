@@ -1,0 +1,30 @@
+---
+source: tests/render_snapshots.rs
+expression: text
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                      Keys                                      "
+"                                                                                "
+"    x                        Delete the next character or the selection         "
+"    dd                       Cut the whole line                                 "
+"    p                        Paste (a cut line goes below)                      "
+"    u                        Undo                                               "
+"    Ctrl+R                   Redo                                               "
+"    ?                        This list of keys                                  "
+"                                                                                "
+"    Visual (selection)                                                          "
+"    l                        Movement keys extend the selection                 "
+"    y                        Copy (also to the system clipboard via OSC 52)     "
+"    d / x                    Cut                                                "
+"    p                        Replace the selection with the register            "
+"    v / Esc                  End the selection                                  "
+"    i                        Insert mode at the cursor                          "
+"                                                                                "
+"    ↑↓ scroll  Esc close                                                        "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+
+cursor: Position { x: 0, y: 0 } visible: false

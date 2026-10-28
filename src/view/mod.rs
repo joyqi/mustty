@@ -1,3 +1,4 @@
+pub mod help;
 pub mod layout;
 pub mod mouse;
 pub mod screen;
@@ -40,6 +41,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     app.sync_body(body);
     if app.settings.is_some() {
         render_settings(frame, app, &layout);
+        return;
+    }
+    if app.help.is_some() {
+        render_help(frame, app, &layout);
         return;
     }
     let placeholder = app.placeholder();
@@ -158,21 +163,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
 }
 
-/// 设置面板：标题行 `Settings`，正文区换成面板，status bar 显示操作提示；不显示光标。
-fn render_settings(frame: &mut Frame, app: &mut App, layout: &Layout) {
+/// 面板共用的外框：标题行显示面板名（BOLD），status bar 显示操作提示；错误消息优先于提示。
+/// 面板打开时不显示光标、不接受鼠标。
+fn render_panel_chrome(frame: &mut Frame, app: &mut App, layout: &Layout, title: &str, hint: &str) {
     app.screen = None;
     let tab = app.config.tab_width;
-    let (rows, _) = settings::list_rows(layout.body.height);
-    let Some(panel) = app.settings.as_mut() else {
-        return;
-    };
-    let scroll = panel.follow(rows);
-    let selected = panel.selected;
     if let Some(rect) = layout.title {
-        let text = t("settings-title");
-        let (pad, scroll) = title_placement(text, None, rect.width, tab);
+        let (pad, scroll) = title_placement(title, None, rect.width, tab);
         let widget = TitleWidget {
-            text,
+            text: title,
             style: Style::from(Modifier::BOLD),
             pad,
             scroll,
@@ -180,22 +179,50 @@ fn render_settings(frame: &mut Frame, app: &mut App, layout: &Layout) {
         };
         frame.render_widget(widget, rect);
     }
+    if let Some(r) = layout.status {
+        // 写回失败等错误消息优先于操作提示
+        let (text, style) = match &app.status.message {
+            Some(m) => (m.text.as_str(), Style::default()),
+            None => (hint, Style::from(Modifier::DIM)),
+        };
+        frame
+            .buffer_mut()
+            .set_stringn(r.x, r.y, text, r.width as usize, style);
+    }
+}
+
+/// 设置面板：正文区换成设置列表。
+fn render_settings(frame: &mut Frame, app: &mut App, layout: &Layout) {
+    render_panel_chrome(frame, app, layout, t("settings-title"), t("settings-hint"));
+    let (rows, _) = settings::list_rows(layout.body.height);
+    let Some(panel) = app.settings.as_mut() else {
+        return;
+    };
+    let scroll = panel.follow(rows);
+    let selected = panel.selected;
     let widget = settings::SettingsWidget {
         config: &app.config,
         selected,
         scroll,
     };
     frame.render_widget(widget, layout.body);
-    if let Some(r) = layout.status {
-        // 写回失败等错误消息优先于操作提示
-        let (text, style) = match &app.status.message {
-            Some(m) => (m.text.as_str(), Style::default()),
-            None => (t("settings-hint"), Style::from(Modifier::DIM)),
-        };
-        frame
-            .buffer_mut()
-            .set_stringn(r.x, r.y, text, r.width as usize, style);
-    }
+}
+
+/// 键位帮助：正文区换成键位表，内容超出时按 `Help::scroll` 滚动。
+fn render_help(frame: &mut Frame, app: &mut App, layout: &Layout) {
+    render_panel_chrome(frame, app, layout, t("help-title"), t("help-hint"));
+    let lines = app.help_lines();
+    let Some(panel) = app.help.as_mut() else {
+        return;
+    };
+    let scroll = panel.clamp(lines.len(), layout.body.height as usize);
+    frame.render_widget(
+        help::HelpWidget {
+            lines: &lines,
+            scroll,
+        },
+        layout.body,
+    );
 }
 
 /// 光标所在段落（相邻非空行）的逻辑行区间，只在 `[lo, hi)` 内查找（可见范围之外无需判断）。

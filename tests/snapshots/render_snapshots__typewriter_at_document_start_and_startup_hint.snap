@@ -12,7 +12,7 @@ expression: snapshot(b)
 "  第三行                                " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
 "                                        "
 "                                        "
-"  notes.md   ^S 保存  ^P 设置  ^Q 退出  " Hidden by multi-width symbols: [(17, " "), (19, " "), (26, " "), (28, " "), (35, " "), (37, " ")]
+"  notes.md                     ^G 键位  " Hidden by multi-width symbols: [(35, " "), (37, " ")]
 "                                        "
 
 cursor: Position { x: 2, y: 6 } visible: true

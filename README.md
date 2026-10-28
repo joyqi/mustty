@@ -53,6 +53,8 @@ When you save an Untitled document, mustty asks for a path in the status bar: `E
 
 ## Keybindings
 
+Press `Ctrl+G` at any time for the full list of keys; with vim keys on it also shows the Normal and Visual mode keys, and `?` in Normal mode opens it too. The list is checked against the real key bindings by the test suite, so it cannot drift out of date.
+
 | Key                                                 | Action                                                                                           |
 |-----------------------------------------------------|--------------------------------------------------------------------------------------------------|
 | Typing / IME commit                                 | Insert text                                                                                      |
@@ -74,6 +76,7 @@ When you save an Untitled document, mustty asks for a path in the status bar: `E
 | `Ctrl+T`                                            | Toggle Typewriter mode                                                                           |
 | `Ctrl+F`                                            | Toggle Focus mode                                                                                |
 | `Ctrl+P`                                            | Open the settings panel                                                                          |
+| `Ctrl+G`                                            | Show all keys (`↑` `↓` `PageUp` `PageDown` scroll, `Esc` or `Ctrl+G` closes)                     |
 | `Esc`                                               | Clear the selection / close the save prompt                                                      |
 | `Ctrl+Q`                                            | Quit; press twice if there are unsaved changes that cannot be autosaved                          |
 
@@ -94,6 +97,7 @@ With `vim = true` (or *Vim keys* in the settings panel), mustty starts in Insert
 | `dd`                            | Cut the whole line                                                |
 | `p`                             | Paste (a cut line goes below the current one)                     |
 | `u` / `Ctrl+R`                  | Undo / redo                                                       |
+| `?`                             | Show all keys, like `Ctrl+G` (press `?` again to close)           |
 | `v`                             | Start or end a visual selection                                   |
 | `y` / `d` / `x` / `p` in visual | Copy / cut / cut / replace with the register                      |
 | `Esc`                           | Leave visual mode                                                 |
