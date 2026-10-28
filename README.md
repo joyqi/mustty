@@ -1,5 +1,7 @@
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg"><img src="assets/logo-light.svg" alt="mustty" width="140"></picture></p>
 
+<h1 align="center">mustty</h1>
+
 <p align="center">A distraction-free Markdown writer for the terminal</p>
 
 <p align="center">
@@ -11,23 +13,23 @@
 mustty opens one Markdown file and gives you a quiet place to write it. The screen has three parts: a title, a 72-column body centered in the terminal, and a one-line status bar. Markdown syntax stays visible but dimmed, so you always see the source you are editing, in the spirit of iA Writer. Saves are atomic, and long lines of mixed English and CJK text wrap where they should.
 
 ```text
-┌──────────────────────────────────────────────────────────────────────┐
-│                                                                      │
-│                             Field Notes                              │
-│                                                                      │
-│          The rain stopped a little after four. I left the            │
-│          window open and wrote down whatever came to mind:           │
-│          the smell of wet stone, the neighbour's radio, a            │
-│          sentence I had been chasing all week.                       │
-│                                                                      │
-│          ## What **mustty** does                                     │
-│                                                                      │
-│          It keeps one column of text in the middle of the            │
-│          screen and gets out of the way.                             │
-│                                                                      │
-│          notes.md ●                         68 words · 7:12          │
-└──────────────────────────────────────────────────────────────────────┘
-           ├───────────── 72 columns, centered ─────────────┤
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                        │
+│                                      Field Notes                                       │
+│                                                                                        │
+│        The rain stopped a little after four. I left the window open and wrote          │
+│        down whatever came to mind: the smell of wet stone, the neighbour's             │
+│        radio, a sentence I had been chasing all week.                                  │
+│                                                                                        │
+│        ## What **mustty** does                                                         │
+│                                                                                        │
+│        It keeps one column of text in the middle of the screen and gets out of         │
+│        the way.                                                                        │
+│                                                                                        │
+│        notes.md ●                                               58 words · 7:12        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+         ────────────────────────────────────────────────────────────────────────
+                                   72 columns, centered
 ```
 
 ## Features
