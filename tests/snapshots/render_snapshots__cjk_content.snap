@@ -11,6 +11,6 @@ expression: "render(raw, 40, 10, &[KeyCode::Down, KeyCode::Right])"
 "                                        "
 "                                        "
 "                                        "
-"  notes.md                        1:20  "
+"  notes.md                44 字 · 1:20  " Hidden by multi-width symbols: [(30, " ")]
 
 cursor: Position { x: 4, y: 2 } visible: true

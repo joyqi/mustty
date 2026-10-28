@@ -3,6 +3,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use crate::editor::document::{Document, FileMeta, LineEnding};
 
@@ -12,6 +13,8 @@ pub enum IoError {
     NotUtf8 { offset: usize },
     #[error("mustty 只编辑文件")]
     IsDirectory,
+    #[error("文件已被外部修改，Ctrl+S 强制覆盖")]
+    ExternallyModified,
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -20,7 +23,11 @@ pub enum IoError {
 pub fn load(path: &Path) -> Result<Document, IoError> {
     match fs::metadata(path) {
         Ok(m) if m.is_dir() => Err(IoError::IsDirectory),
-        Ok(_) => decode(&fs::read(path)?, Some(path.to_path_buf())),
+        Ok(m) => {
+            let mut doc = decode(&fs::read(path)?, Some(path.to_path_buf()))?;
+            doc.meta.mtime = m.modified().ok();
+            Ok(doc)
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             Ok(Document::parse("", FileMeta::new(Some(path.to_path_buf()))))
         }
@@ -44,14 +51,24 @@ pub fn decode(bytes: &[u8], path: Option<PathBuf>) -> Result<Document, IoError> 
         path,
         line_ending,
         has_bom,
+        mtime: None,
     };
     Ok(Document::parse(&raw.replace("\r\n", "\n"), meta))
 }
 
+/// 当前磁盘上的修改时间；文件不存在为 None。
+fn disk_mtime(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
 /// 同目录临时文件写入 → fsync → 原子替换；保留原文件权限（Unix）。
-pub fn save(doc: &Document, path: &Path) -> Result<(), IoError> {
+/// `check_mtime` 时若磁盘上的 mtime 与 `doc.meta.mtime` 不同则放弃。返回保存后的 mtime。
+pub fn save(doc: &Document, path: &Path, check_mtime: bool) -> Result<SystemTime, IoError> {
     if path.is_dir() {
         return Err(IoError::IsDirectory);
+    }
+    if check_mtime && disk_mtime(path) != doc.meta.mtime {
+        return Err(IoError::ExternallyModified);
     }
     let dir = match path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
@@ -72,7 +89,7 @@ pub fn save(doc: &Document, path: &Path) -> Result<(), IoError> {
         fs::set_permissions(tmp.path(), meta.permissions())?;
     }
     tmp.persist(path).map_err(|e| e.error)?;
-    Ok(())
+    Ok(fs::metadata(path)?.modified()?)
 }
 
 #[cfg(test)]

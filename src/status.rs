@@ -1,10 +1,13 @@
 //! status bar 的状态：消息与「保存为: 」提示行（方案 §9）。
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ropey::Rope;
 
+use crate::editor::document::Document;
+use crate::text::count::{count_words, thousands};
 use crate::text::grapheme::{graphemes, next_boundary, prev_boundary};
 use crate::text::wrap::line_text;
 
@@ -25,6 +28,19 @@ impl Prompt {
         } else {
             "保存为: "
         }
+    }
+
+    /// 粘贴进单行输入：换行转为空格。
+    pub fn paste(&mut self, s: &str) {
+        let s = s.replace("\r\n", " ").replace(['\r', '\n'], " ");
+        let at = self
+            .input
+            .char_indices()
+            .nth(self.cursor)
+            .map_or(self.input.len(), |(b, _)| b);
+        self.input.insert_str(at, &s);
+        self.cursor += s.chars().count();
+        self.confirm_overwrite = false;
     }
 
     /// 处理一个按键；返回 true 表示按下了 Enter。
@@ -62,14 +78,87 @@ impl Prompt {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessageKind {
+    /// 到点自动消失
+    Info { expires: Instant },
+    /// 保持到下一次按键
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Message {
+    pub text: String,
+    pub kind: MessageKind,
+}
+
 #[derive(Debug, Default)]
 pub struct StatusModel {
-    /// 覆盖左段，下一次按键时清除。
-    pub message: Option<String>,
+    /// 覆盖左段
+    pub message: Option<Message>,
     pub prompt: Option<Prompt>,
+    /// 自动保存因外部修改被放弃；常驻提示，直到保存成功
+    pub externally_modified: bool,
+    words: usize,
+    words_revision: Option<u64>,
 }
 
 impl StatusModel {
+    pub fn info(&mut self, text: impl Into<String>, now: Instant, ttl: Duration) {
+        let kind = MessageKind::Info { expires: now + ttl };
+        self.message = Some(Message {
+            text: text.into(),
+            kind,
+        });
+    }
+
+    pub fn error(&mut self, text: impl Into<String>) {
+        let kind = MessageKind::Error;
+        self.message = Some(Message {
+            text: text.into(),
+            kind,
+        });
+    }
+
+    /// 有按键时调用：错误类消息到此为止。
+    pub fn on_input(&mut self) {
+        if self
+            .message
+            .as_ref()
+            .is_some_and(|m| m.kind == MessageKind::Error)
+        {
+            self.message = None;
+        }
+    }
+
+    pub fn expiry(&self) -> Option<Instant> {
+        match self.message.as_ref()?.kind {
+            MessageKind::Info { expires } => Some(expires),
+            MessageKind::Error => None,
+        }
+    }
+
+    /// 清掉已过期的消息；返回是否有变化。
+    pub fn expire(&mut self, now: Instant) -> bool {
+        let expired = self.expiry().is_some_and(|t| now >= t);
+        if expired {
+            self.message = None;
+        }
+        expired
+    }
+
+    /// 标题 + 正文的字数，只在 revision 变化时重算；`force` 无视缓存（大文件保存时）。
+    pub fn refresh_words(&mut self, doc: &Document, force: bool) {
+        if force || self.words_revision != Some(doc.revision()) {
+            self.words = count_words(doc.title_text()) + count_words(&doc.body().to_string());
+            self.words_revision = Some(doc.revision());
+        }
+    }
+
+    pub fn words_label(&self) -> String {
+        format!("{} 字", thousands(self.words))
+    }
+
     /// basename；无路径时为 `Untitled`。
     pub fn file_name(path: Option<&Path>) -> String {
         match path {
@@ -121,5 +210,22 @@ mod tests {
         p.edit(k(KeyCode::Char('d')));
         assert!(!p.confirm_overwrite);
         assert!(p.edit(k(KeyCode::Enter)));
+        p.paste("x\r\ny");
+        assert_eq!(p.input, "a.mdx y");
+    }
+
+    #[test]
+    fn messages_expire_or_wait_for_input() {
+        let t0 = Instant::now();
+        let mut s = StatusModel::default();
+        s.info("已保存", t0, Duration::from_secs(2));
+        s.on_input();
+        assert!(s.message.is_some(), "info 不因按键消失");
+        assert!(!s.expire(t0 + Duration::from_millis(1999)));
+        assert!(s.expire(t0 + Duration::from_secs(2)));
+        s.error("保存失败");
+        assert_eq!(s.expiry(), None);
+        s.on_input();
+        assert!(s.message.is_none());
     }
 }

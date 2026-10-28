@@ -11,6 +11,6 @@ expression: "snapshot(draw(Some(\"notes.md\"), \"# 旧标题\\n\\n正文\\n\", 4
 "                                        "
 "                                        "
 "                                        "
-"  notes.md •                      标题  " Hidden by multi-width symbols: [(35, " "), (37, " ")]
+"  notes.md •               6 字 · 标题  " Hidden by multi-width symbols: [(30, " "), (35, " "), (37, " ")]
 
 cursor: Position { x: 24, y: 0 } visible: true

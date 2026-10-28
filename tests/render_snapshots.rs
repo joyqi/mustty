@@ -13,7 +13,7 @@ fn key(code: KeyCode) -> Event {
 fn draw(path: Option<&str>, raw: &str, w: u16, h: u16, events: &[Event]) -> TestBackend {
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     let meta = FileMeta::new(path.map(Into::into));
-    let mut app = App::new(Document::parse(raw, meta), Size::new(w, h));
+    let mut app = App::new(Document::parse(raw, meta), Size::new(w, h), false);
     for ev in events {
         app.handle(ev.clone());
     }

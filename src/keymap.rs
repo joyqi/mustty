@@ -25,7 +25,11 @@ pub struct Keymap {
 impl Keymap {
     /// `mode` 用 `&mut`，是为了让 M4 的模式切换在 keymap 内部完成，不经过 Action。
     pub fn map_event(&self, ev: &Event, _mode: &mut Mode, prompt_active: bool) -> Option<Action> {
-        let Event::Key(key) = ev else { return None };
+        let key = match ev {
+            Event::Key(key) => key,
+            Event::Paste(s) => return Some(Action::Paste(s.clone())),
+            _ => return None,
+        };
         if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
             return None;
         }
@@ -50,6 +54,8 @@ impl Keymap {
             }
             KeyCode::Char('s' | 'S') => Some(Action::Save),
             KeyCode::Char('q' | 'Q') => Some(Action::Quit),
+            KeyCode::Char('z' | 'Z') => Some(Action::Undo),
+            KeyCode::Char('y' | 'Y') => Some(Action::Redo),
             KeyCode::Enter => Some(Action::Newline),
             KeyCode::Backspace => Some(Action::DeleteBack),
             KeyCode::Delete => Some(Action::DeleteForward),
@@ -109,11 +115,15 @@ mod tests {
             (key(End, ctrl), mv(Motion::DocEnd)),
             (key(Char('s'), ctrl), Some(Action::Save)),
             (key(Char('q'), ctrl), Some(Action::Quit)),
-            // M2+ 的键位尚未绑定
-            (key(Char('z'), ctrl), None),
+            (key(Char('z'), ctrl), Some(Action::Undo)),
+            (key(Char('y'), ctrl), Some(Action::Redo)),
+            (
+                Event::Paste("a\r\nb".into()),
+                Some(Action::Paste("a\r\nb".into())),
+            ),
+            // M3+ 的键位尚未绑定
             (key(Char('v'), ctrl), None),
             (key(F(1), none), None),
-            (Event::Paste("x".into()), None),
             (Event::FocusLost, None),
         ];
         let keymap = Keymap { vim: false };

@@ -182,6 +182,18 @@ impl WrapCache {
         self.lines.splice(lines, std::iter::repeat_n(None, new_len));
     }
 
+    /// `lines` 内已缓存的行都与重新换行的结果一致，且槽位数与文档行数对得上。
+    pub fn is_consistent(&self, rope: &Rope, lines: Range<usize>) -> bool {
+        if self.lines.is_empty() {
+            return true;
+        }
+        self.lines.len() == rope.len_lines()
+            && lines.into_iter().all(|l| match &self.lines[l] {
+                Some(rows) => *rows == wrap_line(&line_text(rope, l), self.width),
+                None => true,
+            })
+    }
+
     pub fn rows(&mut self, rope: &Rope, line: usize) -> &[VisualRow] {
         // 槽位数与文档对不上（首次使用或 invalidate 无法定位）时整体重建
         if self.lines.len() != rope.len_lines() {

@@ -2,6 +2,7 @@
 
 use std::ops::Range;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use ropey::Rope;
 
@@ -23,6 +24,8 @@ pub struct FileMeta {
     pub path: Option<PathBuf>,
     pub line_ending: LineEnding,
     pub has_bom: bool,
+    /// 上次读 / 写时的修改时间，用于外部修改检测
+    pub mtime: Option<SystemTime>,
 }
 
 impl FileMeta {
@@ -31,6 +34,7 @@ impl FileMeta {
             path,
             line_ending: LineEnding::platform(),
             has_bom: false,
+            mtime: None,
         }
     }
 }
@@ -47,9 +51,12 @@ pub enum TitleField {
 
 pub struct Document {
     pub title: TitleField,
-    pub body: Rope,
+    /// 只能经 `replace` 修改
+    body: Rope,
     pub meta: FileMeta,
+    /// 当前内容的版本号。undo 会回到旧值，所以新版本号从 `last_revision` 递增取得，永不复用。
     revision: u64,
+    last_revision: u64,
 }
 
 impl Document {
@@ -77,6 +84,7 @@ impl Document {
             body: Rope::from_str(body),
             meta,
             revision: 0,
+            last_revision: 0,
         }
     }
 
@@ -109,7 +117,7 @@ impl Document {
     pub fn replace(&mut self, range: Range<usize>, text: &str) {
         self.body.remove(range.clone());
         self.body.insert(range.start, text);
-        self.revision += 1;
+        self.bump();
     }
 
     /// 写入标题；Unbound 时变为 `Bound { sep: "\n\n" }`。
@@ -123,7 +131,21 @@ impl Document {
                 }
             }
         }
-        self.revision += 1;
+        self.bump();
+    }
+
+    fn bump(&mut self) {
+        self.last_revision += 1;
+        self.revision = self.last_revision;
+    }
+
+    /// undo / redo 回到某个版本。
+    pub(crate) fn set_revision(&mut self, revision: u64) {
+        self.revision = revision;
+    }
+
+    pub fn body(&self) -> &Rope {
+        &self.body
     }
 
     pub fn title_text(&self) -> &str {
@@ -181,7 +203,7 @@ mod tests {
         for (raw, title, body) in cases {
             let doc = parse(raw);
             assert_eq!(doc.title, title, "{raw:?}");
-            assert_eq!(doc.body.to_string(), body, "{raw:?}");
+            assert_eq!(doc.body().to_string(), body, "{raw:?}");
             assert_eq!(doc.serialize(), raw, "round trip {raw:?}");
         }
     }
@@ -203,7 +225,7 @@ mod tests {
     fn replace_bumps_revision() {
         let mut doc = parse("abc");
         doc.replace(1..2, "中文");
-        assert_eq!(doc.body.to_string(), "a中文c");
+        assert_eq!(doc.body().to_string(), "a中文c");
         assert_eq!(doc.revision(), 1);
     }
 
@@ -213,6 +235,7 @@ mod tests {
             path: None,
             line_ending: LineEnding::CrLf,
             has_bom: true,
+            mtime: None,
         };
         let doc = Document::parse("# T\n\na\nb", meta);
         assert_eq!(doc.serialize(), "\u{feff}# T\r\n\r\na\r\nb");

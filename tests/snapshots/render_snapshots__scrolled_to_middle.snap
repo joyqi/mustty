@@ -22,7 +22,7 @@ expression: "render(&raw, 80, 24, &keys)"
 "    Line 70 of a long document.                                                 "
 "    Line 71 of a long document.                                                 "
 "                                                                                "
-"    notes.md                                                            61:1    "
+"    notes.md                                                 1,200 字 · 61:1    " Hidden by multi-width symbols: [(68, " ")]
 "                                                                                "
 "                                                                                "
 "                                                                                "

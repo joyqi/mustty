@@ -110,28 +110,31 @@ pub struct StatusWidget<'a> {
     /// 文件名 + 修改标记，或临时消息
     pub left: &'a str,
     pub left_style: Style,
+    /// `1,284 字`
+    pub words: &'a str,
     /// `行:列` 或 `标题`
-    pub right: &'a str,
+    pub position: &'a str,
 }
 
 impl Widget for StatusWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let dim = Style::from(Modifier::DIM);
-        let (left_w, right_w) = (text_width(self.left), text_width(self.right));
-        if left_w + 1 + right_w <= area.width {
-            draw_text(buf, area.x, area.y, left_w, self.left, self.left_style, 0);
-            draw_text(
-                buf,
-                area.right() - right_w,
-                area.y,
-                right_w,
-                self.right,
-                dim,
-                0,
-            );
-        } else {
-            let left = truncate_left(self.left, area.width);
-            draw_text(buf, area.x, area.y, area.width, &left, self.left_style, 0);
+        let left_w = text_width(self.left);
+        // 宽度不足时先省略位置，再省略字数，最后从左截断左段
+        let full = format!("{} · {}", self.words, self.position);
+        let right = [full.as_str(), self.words]
+            .into_iter()
+            .find(|r| left_w + 1 + text_width(r) <= area.width);
+        match right {
+            Some(right) => {
+                let right_w = text_width(right);
+                draw_text(buf, area.x, area.y, left_w, self.left, self.left_style, 0);
+                draw_text(buf, area.right() - right_w, area.y, right_w, right, dim, 0);
+            }
+            None => {
+                let left = truncate_left(self.left, area.width);
+                draw_text(buf, area.x, area.y, area.width, &left, self.left_style, 0);
+            }
         }
     }
 }
