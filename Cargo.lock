@@ -505,6 +505,7 @@ dependencies = [
  "proptest",
  "ratatui",
  "ropey",
+ "tempfile",
  "thiserror",
  "unicode-linebreak",
  "unicode-segmentation",

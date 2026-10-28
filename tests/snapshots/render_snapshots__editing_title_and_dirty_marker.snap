@@ -1,0 +1,16 @@
+---
+source: tests/render_snapshots.rs
+expression: "snapshot(draw(Some(\"notes.md\"), \"# 旧标题\\n\\n正文\\n\", 40, 10, &events))"
+---
+"                旧标题新                " Hidden by multi-width symbols: [(17, " "), (19, " "), (21, " "), (23, " ")]
+"  正文                                  " Hidden by multi-width symbols: [(3, " "), (5, " ")]
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"  notes.md •                      标题  " Hidden by multi-width symbols: [(35, " "), (37, " ")]
+
+cursor: Position { x: 24, y: 0 } visible: true

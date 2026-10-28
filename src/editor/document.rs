@@ -1,6 +1,39 @@
-//! 文档模型：标题（首行 H1）与正文分离（方案 §5.5）。
+//! 文档模型：标题（首行 H1）与正文分离（方案 §4.1、§5.5、§8.3）。
+
+use std::ops::Range;
+use std::path::PathBuf;
 
 use ropey::Rope;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineEnding {
+    Lf,
+    CrLf,
+}
+
+impl LineEnding {
+    /// 新文件的换行符：Windows 上为 CRLF，其他平台 LF。
+    pub fn platform() -> Self {
+        if cfg!(windows) { Self::CrLf } else { Self::Lf }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileMeta {
+    pub path: Option<PathBuf>,
+    pub line_ending: LineEnding,
+    pub has_bom: bool,
+}
+
+impl FileMeta {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self {
+            path,
+            line_ending: LineEnding::platform(),
+            has_bom: false,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TitleField {
@@ -15,36 +48,103 @@ pub enum TitleField {
 pub struct Document {
     pub title: TitleField,
     pub body: Rope,
+    pub meta: FileMeta,
+    revision: u64,
 }
 
 impl Document {
     /// `raw` 已去 BOM、换行已统一为 `\n`。
-    pub fn parse(raw: &str) -> Self {
+    pub fn parse(raw: &str, meta: FileMeta) -> Self {
         let (first, rest) = raw.split_once('\n').unwrap_or((raw, ""));
-        let title = first.strip_prefix("# ").filter(|_| !first.ends_with('#'));
-        match title {
+        // 空标题不绑定：保存时会被删除，无法保证字节往返
+        let title = first
+            .strip_prefix("# ")
+            .filter(|t| !t.is_empty() && !first.ends_with('#'));
+        let (title, body) = match title {
             Some(text) => {
                 let body = rest.trim_start_matches('\n');
                 let newlines = raw.len() - first.len() - body.len();
-                Self {
-                    title: TitleField::Bound {
-                        text: text.to_owned(),
-                        sep: "\n".repeat(newlines),
-                    },
-                    body: Rope::from_str(body),
+                let title = TitleField::Bound {
+                    text: text.to_owned(),
+                    sep: "\n".repeat(newlines),
+                };
+                (title, body)
+            }
+            None => (TitleField::Unbound, raw),
+        };
+        Self {
+            title,
+            body: Rope::from_str(body),
+            meta,
+            revision: 0,
+        }
+    }
+
+    /// BOM? + 标题行 + sep + 正文，并还原换行符。
+    pub fn serialize(&self) -> String {
+        let mut out = String::new();
+        if self.meta.has_bom {
+            out.push('\u{feff}');
+        }
+        if let TitleField::Bound { text, sep } = &self.title
+            && !text.is_empty()
+        {
+            out.push_str("# ");
+            out.push_str(text);
+            // 原文件只有标题行、之后又写了正文时，补一个换行
+            out.push_str(if sep.is_empty() && self.body.len_chars() > 0 {
+                "\n"
+            } else {
+                sep
+            });
+        }
+        out.push_str(&self.body.to_string());
+        match self.meta.line_ending {
+            LineEnding::Lf => out,
+            LineEnding::CrLf => out.replace('\n', "\r\n"),
+        }
+    }
+
+    /// 正文唯一写入口。
+    pub fn replace(&mut self, range: Range<usize>, text: &str) {
+        self.body.remove(range.clone());
+        self.body.insert(range.start, text);
+        self.revision += 1;
+    }
+
+    /// 写入标题；Unbound 时变为 `Bound { sep: "\n\n" }`。
+    pub fn set_title(&mut self, text: String) {
+        match &mut self.title {
+            TitleField::Bound { text: t, .. } => *t = text,
+            TitleField::Unbound => {
+                self.title = TitleField::Bound {
+                    text,
+                    sep: "\n\n".into(),
                 }
             }
-            None => Self {
-                title: TitleField::Unbound,
-                body: Rope::from_str(raw),
-            },
         }
+        self.revision += 1;
+    }
+
+    pub fn title_text(&self) -> &str {
+        match &self.title {
+            TitleField::Bound { text, .. } => text,
+            TitleField::Unbound => "",
+        }
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse(raw: &str) -> Document {
+        Document::parse(raw, FileMeta::new(None))
+    }
 
     fn bound(text: &str, sep: &str) -> TitleField {
         TitleField::Bound {
@@ -58,10 +158,19 @@ mod tests {
         let cases = [
             ("# 标题\n\n正文\n", bound("标题", "\n\n"), "正文\n"),
             ("# 只有标题", bound("只有标题", ""), ""),
+            ("# 只有标题\n", bound("只有标题", "\n"), ""),
             ("# T\n正文", bound("T", "\n"), "正文"),
+            ("# T\n\n\n\n正文", bound("T", "\n\n\n\n"), "正文"),
+            ("# ", TitleField::Unbound, "# "),
             ("# 闭合 #\n正文", TitleField::Unbound, "# 闭合 #\n正文"),
             ("## 二级\n", TitleField::Unbound, "## 二级\n"),
             ("#无空格\n", TitleField::Unbound, "#无空格\n"),
+            (" # 前导空格\n", TitleField::Unbound, " # 前导空格\n"),
+            (
+                "正文\n# 不在首行\n",
+                TitleField::Unbound,
+                "正文\n# 不在首行\n",
+            ),
             (
                 "---\ntitle: x\n---\n# T\n",
                 TitleField::Unbound,
@@ -70,9 +179,42 @@ mod tests {
             ("", TitleField::Unbound, ""),
         ];
         for (raw, title, body) in cases {
-            let doc = Document::parse(raw);
+            let doc = parse(raw);
             assert_eq!(doc.title, title, "{raw:?}");
             assert_eq!(doc.body.to_string(), body, "{raw:?}");
+            assert_eq!(doc.serialize(), raw, "round trip {raw:?}");
         }
+    }
+
+    #[test]
+    fn title_edits_serialize() {
+        let mut doc = parse("正文\n");
+        doc.set_title("新标题".into());
+        assert_eq!(doc.serialize(), "# 新标题\n\n正文\n");
+        doc.set_title(String::new());
+        assert_eq!(doc.serialize(), "正文\n");
+
+        let mut doc = parse("# 只有标题");
+        doc.replace(0..0, "补上正文");
+        assert_eq!(doc.serialize(), "# 只有标题\n补上正文");
+    }
+
+    #[test]
+    fn replace_bumps_revision() {
+        let mut doc = parse("abc");
+        doc.replace(1..2, "中文");
+        assert_eq!(doc.body.to_string(), "a中文c");
+        assert_eq!(doc.revision(), 1);
+    }
+
+    #[test]
+    fn crlf_and_bom_restored() {
+        let meta = FileMeta {
+            path: None,
+            line_ending: LineEnding::CrLf,
+            has_bom: true,
+        };
+        let doc = Document::parse("# T\n\na\nb", meta);
+        assert_eq!(doc.serialize(), "\u{feff}# T\r\n\r\na\r\nb");
     }
 }

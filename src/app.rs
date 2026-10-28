@@ -1,47 +1,49 @@
-//! App 状态与同步事件循环（方案 §11.3）。M0 只读：只有浏览与退出。
+//! App 状态与同步事件循环（方案 §11.3）。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyEvent};
 use ratatui::DefaultTerminal;
 use ratatui::layout::{Rect, Size};
 
-use crate::editor::cursor::Cursor;
+use crate::action::{Action, Motion};
+use crate::editor::Editor;
 use crate::editor::document::Document;
-use crate::status::StatusModel;
+use crate::io::file;
+use crate::keymap::{Keymap, Mode};
+use crate::status::{Prompt, StatusModel};
 use crate::text::wrap::WrapCache;
 use crate::view;
 use crate::view::layout::{Layout, MEASURE, compute_layout};
 use crate::view::viewport::Viewport;
 
 pub struct App {
-    pub(crate) doc: Document,
-    pub(crate) placeholder: String,
+    pub(crate) editor: Editor,
+    keymap: Keymap,
+    mode: Mode,
     pub(crate) status: StatusModel,
-    pub(crate) cursor: Cursor,
     pub(crate) wrap: WrapCache,
     pub(crate) viewport: Viewport,
     area: Rect,
+    /// 有未保存修改时按过一次 Ctrl+Q
+    quit_armed: bool,
     pub should_quit: bool,
     pub needs_redraw: bool,
 }
 
 impl App {
-    pub fn new(doc: Document, path: &Path, size: Size) -> Self {
+    pub fn new(doc: Document, size: Size) -> Self {
         let area = Rect::new(0, 0, size.width, size.height);
-        let placeholder = path.file_stem().map_or_else(
-            || "Untitled".to_owned(),
-            |s| s.to_string_lossy().into_owned(),
-        );
         Self {
-            doc,
-            placeholder,
-            status: StatusModel::new(path),
-            cursor: Cursor::default(),
+            editor: Editor::new(doc),
+            keymap: Keymap { vim: false },
+            mode: Mode::Insert,
+            status: StatusModel::default(),
             wrap: WrapCache::new(compute_layout(area, MEASURE).body.width),
             viewport: Viewport::default(),
             area,
+            quit_armed: false,
             should_quit: false,
             needs_redraw: true,
         }
@@ -51,67 +53,119 @@ impl App {
         compute_layout(self.area, MEASURE)
     }
 
-    pub fn handle(&mut self, ev: Event) {
-        match ev {
-            Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
-                self.on_key(key)
-            }
-            Event::Resize(w, h) => {
-                // 同一批里的多个 Resize 只记下尺寸，重排在下一次绘制时进行一次
-                self.area = Rect::new(0, 0, w, h);
-                self.needs_redraw = true;
-            }
-            _ => {}
-        }
+    /// Unbound 标题的占位：文件名去扩展名，或 `Untitled`。
+    pub(crate) fn placeholder(&self) -> String {
+        self.editor
+            .doc
+            .meta
+            .path
+            .as_deref()
+            .and_then(Path::file_stem)
+            .map_or_else(
+                || "Untitled".to_owned(),
+                |s| s.to_string_lossy().into_owned(),
+            )
     }
 
-    fn on_key(&mut self, key: KeyEvent) {
+    pub fn handle(&mut self, ev: Event) {
+        if let Event::Resize(w, h) = ev {
+            // 同一批里的多个 Resize 只记下尺寸，重排在下一次绘制时进行一次
+            self.area = Rect::new(0, 0, w, h);
+            self.needs_redraw = true;
+            return;
+        }
         #[cfg(debug_assertions)]
-        if key.code == KeyCode::F(12)
+        if let Event::Key(key) = &ev
+            && key.code == crossterm::event::KeyCode::F(12)
             && std::env::var_os("MUSTTY_DEBUG_PANIC").is_some_and(|v| v == "1")
         {
             panic!("MUSTTY_DEBUG_PANIC: F12");
         }
-        if key.modifiers.contains(KeyModifiers::CONTROL)
-            && matches!(key.code, KeyCode::Char('q' | 'Q'))
-        {
-            self.should_quit = true;
-            return;
+        let prompt_active = self.status.prompt.is_some();
+        if let Some(action) = self.keymap.map_event(&ev, &mut self.mode, prompt_active) {
+            self.dispatch(action);
         }
+    }
+
+    fn dispatch(&mut self, action: Action) {
+        self.needs_redraw = true;
+        self.status.message = None;
+        let armed = std::mem::take(&mut self.quit_armed);
+        match action {
+            Action::Quit => {
+                if armed || !self.editor.is_dirty() {
+                    self.should_quit = true;
+                } else {
+                    self.quit_armed = true;
+                    self.status.message = Some("未保存，再按 Ctrl+Q 放弃".into());
+                }
+            }
+            Action::Cancel => self.status.prompt = None,
+            Action::Save => match self.editor.doc.meta.path.clone() {
+                Some(path) => self.save_to(path),
+                None => self.status.prompt = Some(Prompt::default()),
+            },
+            Action::PromptInput(key) => self.prompt_input(key),
+            action => self.edit(&action),
+        }
+    }
+
+    fn edit(&mut self, action: &Action) {
         let layout = self.layout();
         if layout.too_small {
             return;
         }
         self.sync_body(layout.body);
-        let rope = &self.doc.body;
         let page = (layout.body.height as isize - 2).max(1);
-        match key.code {
-            KeyCode::Left => self.cursor.move_left(rope),
-            KeyCode::Right => self.cursor.move_right(rope),
-            KeyCode::Up => self.cursor.move_vertical(rope, &mut self.wrap, -1),
-            KeyCode::Down => self.cursor.move_vertical(rope, &mut self.wrap, 1),
-            KeyCode::PageUp | KeyCode::PageDown => {
-                let delta = if key.code == KeyCode::PageUp {
-                    -page
-                } else {
-                    page
-                };
-                self.cursor.move_vertical(rope, &mut self.wrap, delta);
-                self.viewport.scroll(delta, &mut self.wrap, rope);
+        self.editor.apply(action, &mut self.wrap, page);
+        match action {
+            Action::Move(Motion::PageUp, _) => {
+                self.viewport
+                    .scroll(-page, &mut self.wrap, &self.editor.doc.body)
             }
-            _ => return,
+            Action::Move(Motion::PageDown, _) => {
+                self.viewport
+                    .scroll(page, &mut self.wrap, &self.editor.doc.body)
+            }
+            _ => {}
         }
         self.sync_body(layout.body);
-        self.needs_redraw = true;
+    }
+
+    fn prompt_input(&mut self, key: KeyEvent) {
+        let Some(prompt) = &mut self.status.prompt else {
+            return;
+        };
+        if !prompt.edit(key) || prompt.input.is_empty() {
+            return;
+        }
+        // 相对 cwd，不做 ~ 展开
+        let path = PathBuf::from(&prompt.input);
+        if path.exists() && !prompt.confirm_overwrite {
+            prompt.confirm_overwrite = true;
+            return;
+        }
+        self.status.prompt = None;
+        self.save_to(path);
+    }
+
+    fn save_to(&mut self, path: PathBuf) {
+        match file::save(&self.editor.doc, &path) {
+            Ok(()) => {
+                self.editor.doc.meta.path = Some(path);
+                self.editor.mark_saved();
+            }
+            Err(e) => self.status.message = Some(format!("保存失败：{e}")),
+        }
     }
 
     /// 让换行宽度与视口适配当前正文区域，并保证光标可见。
     pub(crate) fn sync_body(&mut self, body: Rect) {
-        let rope = &self.doc.body;
+        let rope = &self.editor.doc.body;
         if self.wrap.width() != body.width {
             self.viewport.rewrap(body.width, &mut self.wrap, rope);
         }
-        let pos = self.wrap.char_to_visual(rope, self.cursor.head);
+        let pos = self.editor.cursor.visual(rope, &mut self.wrap);
         self.viewport.follow(pos, body.height, &mut self.wrap, rope);
     }
 }
@@ -123,7 +177,7 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
             app.needs_redraw = false;
         }
         app.handle(event::read()?);
-        // 先排空同一批事件再重绘
+        // 先排空同一批事件再重绘：IME 一次提交的多个字符只重绘一次
         while event::poll(Duration::ZERO)? {
             app.handle(event::read()?);
         }

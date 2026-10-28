@@ -1,9 +1,12 @@
 //! 软换行（方案 §4.3）：UAX #14 断行机会 + 悬挂空白 + 超长词强制断行。
 
+use std::ops::Range;
+
 use ropey::Rope;
 use unicode_linebreak::{BreakOpportunity, linebreaks};
 
 use super::grapheme::{grapheme_width, graphemes, is_whitespace};
+use crate::editor::cursor::Affinity;
 
 /// 一个视觉行，区间为行内 char 偏移 `[start, end)`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,9 +96,14 @@ pub fn wrap_line(line: &str, width: u16) -> Vec<VisualRow> {
     rows
 }
 
-/// 行内 char 偏移 → `(row, col)`。软换行处的偏移显示在下一视觉行行首。
-pub fn char_to_visual(line: &str, rows: &[VisualRow], idx: usize) -> (usize, u16) {
-    let row = rows.iter().rposition(|r| r.start <= idx).unwrap_or(0);
+/// 行内 char 偏移 → `(row, col)`。软换行处的偏移按 `Downstream` 显示在下一视觉行行首，
+/// `Upstream` 显示在上一视觉行行尾。
+pub fn char_to_visual(line: &str, rows: &[VisualRow], idx: usize, aff: Affinity) -> (usize, u16) {
+    let upstream = match aff {
+        Affinity::Upstream => rows.iter().position(|r| r.start < idx && idx <= r.end),
+        Affinity::Downstream => None,
+    };
+    let row = upstream.unwrap_or_else(|| rows.iter().rposition(|r| r.start <= idx).unwrap_or(0));
     let start = rows[row].start;
     let mut col = 0;
     for (c, g) in graphemes(line) {
@@ -164,20 +172,30 @@ impl WrapCache {
         }
     }
 
+    /// 编辑后标脏：`lines` 为编辑前受影响的逻辑行，`inserted` 为行数净增量。
+    pub fn invalidate(&mut self, lines: Range<usize>, inserted: isize) {
+        if lines.end > self.lines.len() {
+            self.lines.clear();
+            return;
+        }
+        let new_len = (lines.len() as isize + inserted).max(0) as usize;
+        self.lines.splice(lines, std::iter::repeat_n(None, new_len));
+    }
+
     pub fn rows(&mut self, rope: &Rope, line: usize) -> &[VisualRow] {
-        // 只读文档的行数不会变，这里只负责首次分配槽位
+        // 槽位数与文档对不上（首次使用或 invalidate 无法定位）时整体重建
         if self.lines.len() != rope.len_lines() {
-            self.lines.resize(rope.len_lines(), None);
+            self.lines = vec![None; rope.len_lines()];
         }
         let width = self.width;
         self.lines[line].get_or_insert_with(|| wrap_line(&line_text(rope, line), width))
     }
 
-    pub fn char_to_visual(&mut self, rope: &Rope, idx: usize) -> VisualPos {
+    pub fn char_to_visual(&mut self, rope: &Rope, idx: usize, aff: Affinity) -> VisualPos {
         let line = rope.char_to_line(idx);
         let text = line_text(rope, line);
-        let (row, col) =
-            char_to_visual(&text, self.rows(rope, line), idx - rope.line_to_char(line));
+        let local = idx - rope.line_to_char(line);
+        let (row, col) = char_to_visual(&text, self.rows(rope, line), local, aff);
         VisualPos { line, row, col }
     }
 
@@ -294,10 +312,50 @@ mod tests {
     fn mapping_wrap_point_is_downstream() {
         let line = "hello world foo";
         let rows = wrap_line(line, 11);
-        assert_eq!(char_to_visual(line, &rows, 12), (1, 0));
-        assert_eq!(char_to_visual(line, &rows, 15), (1, 3));
+        assert_eq!(
+            char_to_visual(line, &rows, 12, Affinity::Downstream),
+            (1, 0)
+        );
+        assert_eq!(
+            char_to_visual(line, &rows, 15, Affinity::Downstream),
+            (1, 3)
+        );
         // 非末行超出行尾：停在最后一个 grapheme 上
         assert_eq!(visual_to_char(line, &rows, 0, 40), 11);
+    }
+
+    #[test]
+    fn mapping_affinity_at_row_boundaries() {
+        use Affinity::{Downstream, Upstream};
+        // 恰好写满一行：同一个偏移，Upstream 在本行行尾（第 6 列），Downstream 在下一行行首
+        let full = "一二三四五六";
+        let rows = wrap_line(full, 6);
+        assert_eq!(char_to_visual(full, &rows, 3, Upstream), (0, 6));
+        assert_eq!(char_to_visual(full, &rows, 3, Downstream), (1, 0));
+        // 悬挂空白之后
+        let line = "hello world foo";
+        let rows = wrap_line(line, 11);
+        assert_eq!(char_to_visual(line, &rows, 12, Upstream), (0, 12));
+        // 非边界处两种 affinity 结果相同；行首、行尾、空行不受影响
+        assert_eq!(char_to_visual(line, &rows, 5, Upstream), (0, 5));
+        assert_eq!(char_to_visual(line, &rows, 0, Upstream), (0, 0));
+        assert_eq!(char_to_visual(line, &rows, 15, Upstream), (1, 3));
+        assert_eq!(char_to_visual("", &wrap_line("", 6), 0, Upstream), (0, 0));
+    }
+
+    #[test]
+    fn invalidate_tracks_line_count() {
+        let mut rope = Rope::from_str("a\nb\nc");
+        let mut wrap = WrapCache::new(10);
+        for l in 0..3 {
+            wrap.rows(&rope, l);
+        }
+        rope.insert(1, "x\ny\nz"); // 第 0 行拆成 3 行
+        wrap.invalidate(0..1, 2);
+        assert_eq!(wrap.lines.len(), 5);
+        assert!(wrap.lines[0].is_none() && wrap.lines[2].is_none());
+        assert!(wrap.lines[3].is_some() && wrap.lines[4].is_some());
+        assert_eq!(wrap.rows(&rope, 2)[0].end, 1);
     }
 
     fn boundaries(line: &str) -> Vec<usize> {
@@ -336,7 +394,7 @@ mod tests {
             let line: String = parts.concat();
             let rows = wrap_line(&line, width);
             for idx in boundaries(&line) {
-                let (row, col) = char_to_visual(&line, &rows, idx);
+                let (row, col) = char_to_visual(&line, &rows, idx, Affinity::Downstream);
                 prop_assert_eq!(visual_to_char(&line, &rows, row, col), idx);
             }
         }

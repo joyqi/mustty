@@ -1,0 +1,16 @@
+---
+source: tests/render_snapshots.rs
+expression: "snapshot(draw(None, \"\", 40, 10, &events))"
+---
+"                Untitled                "
+"  hi                                    "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"  保存为: a.md                          " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+
+cursor: Position { x: 14, y: 9 } visible: true

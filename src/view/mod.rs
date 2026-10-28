@@ -4,12 +4,13 @@ pub mod widgets;
 
 use ratatui::Frame;
 use ratatui::layout::Position;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 
 use crate::app::App;
+use crate::editor::Focus;
 use crate::status::StatusModel;
 use layout::{MEASURE, compute_layout};
-use widgets::{BodyWidget, StatusWidget, TitleWidget};
+use widgets::{BodyWidget, PromptWidget, StatusWidget, TitleWidget, text_width};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
@@ -27,43 +28,90 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
     let body = layout.body;
     app.sync_body(body);
+    let placeholder = app.placeholder();
+    let ed = &app.editor;
+    let mut cursor = None;
 
     if let Some(r) = layout.title {
-        frame.render_widget(
+        let focused = ed.focus == Focus::Title;
+        let text = ed.doc.title_text();
+        let title = if text.is_empty() && !focused {
             TitleWidget {
-                title: &app.doc.title,
-                placeholder: &app.placeholder,
-            },
-            r,
-        );
+                text: &placeholder,
+                style: Modifier::DIM.into(),
+                cursor_col: None,
+            }
+        } else {
+            let before: String = text.chars().take(ed.title_cursor).collect();
+            TitleWidget {
+                text,
+                style: Modifier::BOLD.into(),
+                cursor_col: focused.then(|| text_width(&before)),
+            }
+        };
+        if let Some(col) = title.cursor_col {
+            let (pad, scroll) = title.placement(r.width);
+            cursor = Some(Position::new(r.x + pad + col - scroll, r.y));
+        }
+        frame.render_widget(title, r);
     }
+
     let top = app.viewport.top;
     frame.render_widget(
         BodyWidget {
-            rope: &app.doc.body,
+            rope: &ed.doc.body,
             wrap: &mut app.wrap,
             top,
         },
         body,
     );
-    if let Some(r) = layout.status {
-        let position = StatusModel::position(&app.doc.body, app.cursor.head);
-        frame.render_widget(
-            StatusWidget {
-                file_name: &app.status.file_name,
-                position: &position,
-            },
-            r,
-        );
+    if ed.focus == Focus::Body {
+        let pos = ed.cursor.visual(&ed.doc.body, &mut app.wrap);
+        let dy = app
+            .wrap
+            .rows_between(&ed.doc.body, (top.line, top.row), (pos.line, pos.row));
+        if (0..body.height as isize).contains(&dy) {
+            // 写满一行的行尾、悬挂空白之后：光标放在正文右侧第一格，不与最后一个字重叠
+            let x = (body.x + pos.col.min(body.width)).min(area.right() - 1);
+            cursor = Some(Position::new(x, body.y + dy as u16));
+        }
     }
 
-    let pos = app.wrap.char_to_visual(&app.doc.body, app.cursor.head);
-    let dy = app
-        .wrap
-        .rows_between(&app.doc.body, (top.line, top.row), (pos.line, pos.row));
-    if (0..body.height as isize).contains(&dy) {
-        // 悬挂空白或恰好满行时，光标停在最后一列
-        let x = body.x + pos.col.min(body.width - 1);
-        frame.set_cursor_position(Position::new(x, body.y + dy as u16));
+    if let Some(r) = layout.status {
+        if let Some(p) = &app.status.prompt {
+            let before: String = p.input.chars().take(p.cursor).collect();
+            let prompt = PromptWidget {
+                label: p.label(),
+                input: &p.input,
+                cursor_col: text_width(&before),
+            };
+            cursor = Some(Position::new(r.x + prompt.cursor_x(r.width), r.y));
+            frame.render_widget(prompt, r);
+        } else {
+            let (left, left_style) = match &app.status.message {
+                Some(m) => (m.clone(), Style::default()),
+                None => {
+                    let name = StatusModel::file_name(ed.doc.meta.path.as_deref());
+                    let mark = if ed.is_dirty() { " •" } else { "" };
+                    (format!("{name}{mark}"), Modifier::DIM.into())
+                }
+            };
+            let right = match ed.focus {
+                Focus::Title => "标题".to_owned(),
+                Focus::Body => StatusModel::position(&ed.doc.body, ed.cursor.head),
+            };
+            frame.render_widget(
+                StatusWidget {
+                    left: &left,
+                    left_style,
+                    right: &right,
+                },
+                r,
+            );
+        }
+    }
+
+    if let Some(p) = cursor {
+        frame.set_cursor_position(p);
     }
 }

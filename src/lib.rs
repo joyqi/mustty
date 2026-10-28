@@ -1,6 +1,8 @@
+pub mod action;
 pub mod app;
 pub mod editor;
 pub mod io;
+pub mod keymap;
 pub mod status;
 pub mod terminal;
 pub mod text;

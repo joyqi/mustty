@@ -2,6 +2,7 @@
 
 use ropey::Rope;
 
+use crate::editor::cursor::Affinity;
 use crate::text::wrap::{VisualPos, WrapCache};
 
 pub const SCROLLOFF: u16 = 3;
@@ -28,7 +29,13 @@ impl Viewport {
             SCROLLOFF as isize
         };
         let cur = (cursor.line, cursor.row);
-        let top = (self.top.line, self.top.row);
+        // 编辑可能让原来的顶部行消失或变短
+        let last = rope.len_lines() - 1;
+        let top_line = self.top.line.min(last);
+        let top = (
+            top_line,
+            self.top.row.min(wrap.rows(rope, top_line).len() - 1),
+        );
         let d = wrap.rows_between(rope, top, cur);
         let new_top = if d < so {
             wrap.step_rows(rope, cur, -so)
@@ -37,7 +44,6 @@ impl Viewport {
         } else {
             top
         };
-        let last = rope.len_lines() - 1;
         let end = (last, wrap.rows(rope, last).len() - 1);
         let max_top = wrap.step_rows(rope, end, -(h - 1));
         let (line, row) = new_top.min(max_top);
@@ -54,7 +60,7 @@ impl Viewport {
         let row = wrap.rows(rope, self.top.line)[self.top.row];
         let anchor = rope.line_to_char(self.top.line) + row.start;
         wrap.set_width(width);
-        let pos = wrap.char_to_visual(rope, anchor);
+        let pos = wrap.char_to_visual(rope, anchor, Affinity::Downstream);
         self.top = ViewTop {
             line: pos.line,
             row: pos.row,
