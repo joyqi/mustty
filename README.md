@@ -12,25 +12,9 @@
 
 mustty opens one Markdown file and gives you a quiet place to write it. The screen has three parts: a title, a 72-column body centered in the terminal, and a one-line status bar. Markdown syntax stays visible but dimmed, so you always see the source you are editing, in the spirit of iA Writer. Saves are atomic, and long lines of mixed English and CJK text wrap where they should.
 
-```text
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                        │
-│                                      Field Notes                                       │
-│                                                                                        │
-│        The rain stopped a little after four. I left the window open and wrote          │
-│        down whatever came to mind: the smell of wet stone, the neighbour's             │
-│        radio, a sentence I had been chasing all week.                                  │
-│                                                                                        │
-│        ## What **mustty** does                                                         │
-│                                                                                        │
-│        It keeps one column of text in the middle of the screen and gets out of         │
-│        the way.                                                                        │
-│                                                                                        │
-│        notes.md ●                                               58 words · 7:12        │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-         ────────────────────────────────────────────────────────────────────────
-                                   72 columns, centered
-```
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.svg"><img src="assets/screenshot-light.svg" alt="Screenshot of the mustty interface: a bold centered title, a 72-column body of Markdown with dimmed markers, and a status bar showing notes.md with a green saved dot, the word count and the cursor position" width="760"></picture></p>
+
+<p align="center"><sub>A real frame rendered by mustty. After changing the UI, regenerate it with <code>cargo run --example screenshot</code>.</sub></p>
 
 ## Features
 

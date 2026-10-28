@@ -107,13 +107,16 @@ pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, 
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
     };
-    let mut builder = tempfile::Builder::new();
+    let builder = tempfile::Builder::new();
+    // 只有 unix 需要改 builder；重新绑定，免得 Windows 上 `mut` 未使用
     #[cfg(unix)]
-    {
+    let builder = {
         use std::os::unix::fs::PermissionsExt;
+        let mut b = builder;
         // 新文件与普通创建一致：0666 再经 umask
-        builder.permissions(fs::Permissions::from_mode(0o666));
-    }
+        b.permissions(fs::Permissions::from_mode(0o666));
+        b
+    };
     let mut tmp = builder.tempfile_in(dir)?;
     tmp.write_all(doc.serialize().as_bytes())?;
     tmp.as_file().sync_all()?;
