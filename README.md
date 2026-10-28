@@ -25,7 +25,15 @@ mustty is an old-fashioned place to write by hand, one word at a time, inside th
 
 ## Install
 
-Requires Rust 1.88 or newer on Linux, macOS, or Windows:
+With [Homebrew](https://brew.sh) on macOS or Linux:
+
+```sh
+brew install joyqi/tap/mustty
+```
+
+Or download a prebuilt archive from [Releases](https://github.com/joyqi/mustty/releases) for macOS (Apple Silicon / Intel), Linux (x86_64 / arm64, static musl), or Windows (x86_64), unpack it, and run `mustty`.
+
+Or build from source with Rust 1.88 or newer:
 
 ```sh
 cargo install --git https://github.com/joyqi/mustty
