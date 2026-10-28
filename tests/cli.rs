@@ -1,4 +1,5 @@
-//! 真实二进制的命令行：只接受 FILE、--help、--version；语言只看配置文件与 LC_* / LANG。
+//! 真实二进制的命令行：只接受 FILE、--help、--version；语言只看配置文件与 LC_* / LANG；
+//! 不读任何 MUSTTY_* 环境变量。
 
 use std::process::Command;
 
@@ -57,4 +58,33 @@ fn config_lang_applies_to_help() {
     let out = mustty(home.path()).arg("--help").output().unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("终端里的极简 Markdown 写作器"), "{text}");
+}
+
+/// 日志已删除：设置 MUSTTY_LOG 不会创建文件，输出与退出码和不设置时完全一样。
+/// 测试进程没有终端，进入全屏那一步会失败，但原来的日志文件在那之前就会建好。
+#[test]
+fn mustty_log_has_no_effect() {
+    let home = tempfile::tempdir().unwrap();
+    let file = home.path().join("file.md");
+    std::fs::write(&file, "hello\n").unwrap();
+    let log = home.path().join("x.log");
+    let run = |cmd: &mut Command| {
+        let out = cmd
+            .arg(&file)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        (out.status.code(), out.stdout, out.stderr)
+    };
+    let plain = run(&mut mustty(home.path()));
+    let with_log = run(mustty(home.path()).env("MUSTTY_LOG", &log));
+    assert!(!log.exists(), "MUSTTY_LOG 仍然创建了日志文件");
+    assert_eq!(plain, with_log);
+    let help = |cmd: &mut Command| cmd.arg("--help").output().unwrap().stdout;
+    assert_eq!(
+        help(&mut mustty(home.path())),
+        help(mustty(home.path()).env("MUSTTY_LOG", &log))
+    );
+    assert!(!log.exists());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n");
 }

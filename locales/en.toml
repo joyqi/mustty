@@ -86,7 +86,6 @@ color-cyan = "cyan"
 color-white = "white"
 
 # startup errors
-startup-log-file = "Cannot open log file {path}: {error}"
 startup-open = "Cannot open {path}: {error}"
 
 # --help

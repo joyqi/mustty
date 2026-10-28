@@ -7,8 +7,8 @@
 
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
 
 /// (语言标签, 文件内容)。新增一门语言：在这里加一行。第一行必须是 `en`。
 pub const LOCALES: &[(&str, &str)] = &[
@@ -102,12 +102,9 @@ pub fn t_args(id: &'static str, args: &[(&str, &str)]) -> String {
 
 fn lookup(id: &'static str) -> &'static str {
     let locale = active();
+    // 缺译文时回退 en：每份译文的 key 都由测试检查，这里不再另外报告
     match resolve(catalogs(), locale, id) {
-        Some((s, false)) => s,
-        Some((s, true)) => {
-            warn_missing(locale, id);
-            s
-        }
+        Some((s, _)) => s,
         None => {
             debug_assert!(false, "unknown message id {id}");
             id
@@ -136,20 +133,6 @@ fn catalogs() -> &'static [Catalog] {
             .map(|(tag, src)| parse(src).unwrap_or_else(|e| panic!("locales/{tag}.toml: {e}")))
             .collect()
     })
-}
-
-/// 每个 (语言, id) 只记一次日志：status bar 每帧都会取文案。
-fn warn_missing(locale: usize, id: &'static str) {
-    static WARNED: Mutex<Vec<(usize, &str)>> = Mutex::new(Vec::new());
-    let mut warned = WARNED.lock().unwrap_or_else(|e| e.into_inner());
-    if !warned.contains(&(locale, id)) {
-        warned.push((locale, id));
-        tracing::warn!(
-            locale = LOCALES[locale].0,
-            id,
-            "missing translation, falling back to en"
-        );
-    }
 }
 
 /// 扁平的 `id = "文案"` 表；值必须是字符串。

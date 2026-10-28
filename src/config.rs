@@ -165,8 +165,8 @@ impl PartialConfig {
         let mut warnings = Vec::new();
         let mut p = Self::default();
         for (key, value) in &table {
+            // 未知键（含其他表）直接忽略，便于以后加键或与其他工具共用文件
             let Some(&key) = KEYS.iter().find(|&&k| k == key) else {
-                tracing::debug!(key, "unknown config key ignored");
                 continue;
             };
             let mut warn = |message: String| {

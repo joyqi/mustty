@@ -85,7 +85,6 @@ color-cyan = "青"
 color-white = "白"
 
 # 启动错误
-startup-log-file = "无法打开日志文件 {path}：{error}"
 startup-open = "无法打开 {path}：{error}"
 
 # --help

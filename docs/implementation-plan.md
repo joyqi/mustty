@@ -83,9 +83,6 @@
 | `unicode-width` | `0.2.2` | 显示宽度（CJK = 2） | **必须与 ratatui-core 使用同一版本**（其约束为 `>=0.2.0, <=0.2.2`），否则我们算的列宽与 ratatui 写入 Buffer 的宽度不一致，会出现光标错位 |
 | `unicode-linebreak` | `0.1.5` | UAX #14 断行机会（中英混排软换行、避头尾） | 否决 `textwrap 0.16`：它返回 `Cow<str>` 行而非源偏移，我们需要的是 char 区间映射；否决自写"空格 + CJK 任意断"规则：不处理 `，。」` 等避头尾 |
 | `anyhow` | `1.0.104` | `main` / `App` 层错误聚合 | 应用层惯例 |
-| `tracing` | `0.1.44` | 调试日志宏 | 否决 `log`+`env_logger`：后者默认写 stderr，会污染 TUI |
-| `tracing-subscriber` | `0.3.23`，features `["env-filter", "fmt"]` | 日志过滤与格式化 | — |
-| `tracing-appender` | `0.2.5` | 写文件（非阻塞） | 日志**只在设置 `MUSTTY_LOG=<path>` 时启用**，永不写 stdout/stderr |
 | `clap` | `4.6.7`，features `["derive"]` | CLI：`mustty [FILE]`，只有一个文件参数和 `--help` / `--version`。M1–M4 曾有 `--width`、`--[no-]autosave`、`--[no-]vim`、`--[no-]mouse` 四组覆盖项，设置面板（§8.6）上线后已删除：所有设置只走配置文件，少一个入口就少一层"这个值到底从哪来"的心智负担 | 免费获得 `--help/--version` 和参数校验；否决 `lexopt`/`pico-args`：省下的编译时间不值得手写 help |
 | `serde` | `1.0.229`，features `["derive"]` | 给 `CodeColor` 等配置值类型派生 `Deserialize`（M4） | 事实标准，`toml` 的反序列化也建立在它之上 |
 | `toml` | `1.1.8`（默认 features） | 解析 `~/.mustty.toml`：先解析成 `toml::Table`，再逐个键 `Value::try_into::<T>()`，这样单个键类型错误不会拖垮整个文件（§8.5）（M4） | 否决 `serde_json` / `serde_yaml`：用户已拍板使用 TOML；否决 `toml_edit`：只读不写，不需要保留格式 |
@@ -107,6 +104,7 @@ M4 的 vim 键位**不新增任何 crate**：Normal/Insert 状态机和按键序
 
 此外明确不引入：`pulldown-cmark`（理由 §6.3）、`syntect`（体积 + 非目标）、`arboard`（系统剪贴板在 SSH / Linux 无 X 下不可靠，改用 OSC 52，§7.3）、`tokio`（同步事件循环足够，§11.3）、`undo`（§4.5）、`notify`（配置不做热重载，§8.5）。`dirs` 已从这里移出，因为配置文件需要它（§3.1）。
 `thiserror` 已移除：`IoError` 的文案要按界面语言取，`#[error]` 只收字面量，改为手写 `Display`（§11.4）。
+日志（`tracing`、`tracing-subscriber`、`tracing-appender` 与 `MUSTTY_LOG`）已整体删除：唯一真正有用的是帧耗时，其余内容（保存失败、外部修改、配置错误、写回失败）都已经显示在 status bar 上。mustty 不读任何环境变量来改变行为（`LC_ALL` / `LC_MESSAGES` / `LANG` 只在 `lang = "auto"` 时用于判断语言；`MUSTTY_DEBUG_PANIC` 只存在于 debug 构建，是测试钩子）。
 
 ---
 
@@ -513,11 +511,11 @@ effective = Config::default().merge(file_layer)   // file_layer 是 PartialConfi
 | TOML 语法错误 | 整个文件作废，使用默认值；启动警告带行号（来自 `toml::de::Error::span()`），例如 `~/.mustty.toml 第 3 行语法错误，已使用默认配置` |
 | 某个键类型错误（如 `width = "wide"`）或 `code_color` 不是这 8 个名字 | 只有这个键回退到默认值，其他键照常生效，启动警告列出该键 |
 | 数值越界 | 钳制到边界值，启动警告列出该键，例如 `width=200 → 120` |
-| 未知键 | 忽略，不报错也不显示警告，只写一条 `tracing::debug!`（设置 `MUSTTY_LOG` 时可见） |
+| 未知键 | 忽略，不报错也不显示警告（便于以后加键，或与其他工具共用文件） |
 
-**启动警告的显示方式**：TUI 一启动就进入 alternate screen，所以 stderr 上的输出用户看不到。警告改为汇总成**一条** status bar 错误消息，保留到用户第一次按键（§9）；同时写一条 `tracing::warn!`。
+**启动警告的显示方式**：TUI 一启动就进入 alternate screen，所以 stderr 上的输出用户看不到。警告改为汇总成**一条** status bar 错误消息，保留到用户第一次按键（§9）；进入全屏前同时打到 stderr，退出后仍可见。
 
-**明确不做**：自定义键位、主题配色（除 `code_color` 外不开放任何颜色或样式）、项目级配置（如 `./.mustty.toml`）、status line 开关或布局定制、热重载（在编辑器外修改配置后需要重启 mustty）、命令行覆盖、环境变量覆盖（`MUSTTY_LOG` 是日志开关，不属于配置；`MUSTTY_DEBUG_PANIC` 只是 debug 构建的测试钩子）。
+**明确不做**：自定义键位、主题配色（除 `code_color` 外不开放任何颜色或样式）、项目级配置（如 `./.mustty.toml`）、status line 开关或布局定制、热重载（在编辑器外修改配置后需要重启 mustty）、命令行覆盖、环境变量覆盖（`MUSTTY_DEBUG_PANIC` 只是 debug 构建的测试钩子，不属于配置）。
 
 **模块与边界**：`config.rs` 产出 `Config`，`main.rs` 合并完成后交给 `App`。`Editor`、`Document` 不读取 `Config`：`tab_width` 由 `Keymap` 用来生成 `Insert(" ".repeat(n))`，由 `WrapCache` 用来计算 `\t` 宽度；`width`、`scrolloff`、`typewriter`、`code_color` 只交给 view 层。`Config.code_color` 存的是 `CodeColor` 枚举而不是 `ratatui::Color`：`white` 和 `gray` 都映射到 `Color::Gray`，反推不出选项，面板需要原值。
 
@@ -655,7 +653,7 @@ ratatui::restore()
 mustty/
 ├── Cargo.toml
 ├── src/
-│   ├── main.rs              语言初始化、CLI 解析(clap)、日志初始化、调用 app::run，错误转退出码
+│   ├── main.rs              语言初始化、CLI 解析(clap)、读取配置、调用 app::run，错误转退出码
 │   ├── lib.rs               re-export 各模块，供集成测试使用
 │   ├── app.rs               App 状态机 + 事件循环 + Action 分发
 │   ├── terminal.rs          TerminalGuard：进入/恢复终端模式
@@ -842,7 +840,7 @@ loop {
 - **文件**：`locales/<tag>.toml` 是扁平的 `id = "文案"` 表，`include_str!` 编译期嵌入。`en` 是源语言和回退语言，id 用英文 kebab-case。
 - **API**：只有 `t("id") -> &'static str` 和 `t_args("id", &[("name", value)]) -> String`，没有宏。第一个参数必须是字符串字面量。占位符写成 `{name}`，做简单替换；缺参数时原样保留并 `debug_assert`。
 - **复数**：只有英文字数一处，拆成 `status-words-one` / `status-words-other` 两条 key，不做复数规则。
-- **回退**：当前语言缺 key 时取 `en`，每个 (语言, id) 只 `tracing::warn!` 一次；`en` 也没有则返回 id 本身。
+- **回退**：当前语言缺 key 时取 `en`，不另外报告（每份译文的 key 由测试检查）；`en` 也没有则返回 id 本身。
 - **协商**（`negotiate_with`）：配置项 `lang`（不是 `auto` 时，§8.5）→ `LC_ALL` → `LC_MESSAGES` → `LANG` 中第一个非空值，都没有时用 `sys-locale`，再没有用 `en`。环境变量必须排在 `sys-locale` 前面，因为 macOS 的 `sys-locale` 返回 `zh-Hans-CN`，且忽略 `LANG`。曾有的 `MUSTTY_LANG` 覆盖已删除，语言只由配置文件（设置面板）和系统环境决定。
 - **运行时切换**：当前语言存在 `AtomicUsize` 里（文案表仍是 `OnceLock`，只加载一次）。`use_config(lang)` 重新协商并 `set_language`，下一帧起 `t()` 就返回新语言；`App::apply_config` 在 `lang` 变化时调用它，启动和设置面板都走这条路径。测试线程用 `init_for_test` 固定过语言时，`set_language` 只改这个线程。
 - **语言名**：每份译文的 `language-name` 用本语言写出自己的名字（English、简体中文），设置面板里按这个显示，不随界面语言翻译。它不经 `t()` 读取，列在 `META_KEYS` 中，测试会检查每份译文都提供了它。
@@ -882,7 +880,7 @@ loop {
 
 ### M2 — 不丢字
 
-- 内容：undo/redo 与合并规则；bracketed paste（及 Windows 批量合并）；自动保存（2 s 空闲 / FocusLost / 退出）；外部修改检测；字数统计；`已保存` 提示；关闭自动保存的开关；`MUSTTY_LOG` 日志。
+- 内容：undo/redo 与合并规则；bracketed paste（及 Windows 批量合并）；自动保存（2 s 空闲 / FocusLost / 退出）；外部修改检测；字数统计；`已保存` 提示；关闭自动保存的开关。（当时还有 `MUSTTY_LOG` 日志，后已删除，§3.3）
 - 验收：
   1. 粘贴 5000 行文本 < 200 ms 显示完毕，一次 `Ctrl+Z` 全部撤销；
   2. 连续打 "hello world foo" 后 `Ctrl+Z` 三次依次撤回三个词；undo 回到保存点时 `•` 消失；
@@ -894,7 +892,7 @@ loop {
 - 内容：标记变暗高亮（§6）与增量缓存；按词移动 / 删除；选区（Shift+移动、`Ctrl+A`）；`Ctrl+C/X/V` 内部寄存器 + OSC 52；视觉行 `Home/End` 的 affinity 细节。另外实现并单测为 M4 预留的、与模式无关的内核能力：`Motion::WordEnd`、`Action::DeleteLine`、`Action::OpenLineBelow`、行级 / 字符级寄存器与 `PasteRegister`，以及为鼠标预留的 `MoveTo(Target, extend)`。默认键位只绑定 `PasteRegister`（`Ctrl+V`），其余几个此时没有绑定按键。**不实现任何 modal 逻辑。**
 - 验收：
   1. `insta` 快照覆盖 §6.1 表中每一种元素以及未闭合标记；
-  2. 输入 ```` ``` ```` 开启代码块时，只有其后的行变色，在 1 万行文档中输入延迟无可感知变化（< 16 ms/帧，`MUSTTY_LOG` 中记录帧耗时）；
+  2. 输入 ```` ``` ```` 开启代码块时，只有其后的行变色，在 1 万行文档中输入延迟无可感知变化（< 16 ms/帧，用测试或临时埋点验证）；
   3. iTerm2 / WezTerm 中 `Ctrl+C` 选区后可在其他应用粘贴；tmux + SSH 下同样可用。
 
 ### M4 — 打磨与发布
@@ -972,4 +970,4 @@ loop {
 | 2 | **vim 键位下 Normal 态与中文 IME 冲突**：输入法处于中文状态时，`j`/`k`/`d` 等按键会被 IME 截获成拼音，程序收不到；IME 状态对终端程序不可见，无法自动切换 | 不尝试切换或探测 IME。Normal 态收到的可打印字符（包括 IME 提交的汉字）一律忽略，不会误插入；README 建议 vim 用户为终端单独设置英文输入源，或用 `Esc` 前先切到英文。这只影响主动开启 vim 键位的用户，默认模式不受影响 |
 | 3 | **自动保存覆盖用户不想保存的修改** | 默认 **开启**（2 s 空闲）；保留完整 undo 历史作为后悔药；可在配置或设置面板里关闭自动保存；不做 swap / 备份文件 |
 | 4 | **标题绑定 H1 的回写边界**（setext 标题 `===`、front matter、`# 标题 #`）可能让用户困惑"为什么这篇没有标题" | 只识别首行 `"# "` 且不以 `#` 结尾的 ATX 标题；其余情况 Unbound，标题区以 DIM 显示文件名作为提示；front matter 支持推迟到 M4 之后 |
-| 5 | **配置文件带来的不确定性**：① 非法值（越界、类型错、`code_color` 拼错）；② TOML 语法错误；③ 配置项变多后，同一个二进制在不同机器上行为不同，bug 报告难以复现（"我这里 Esc 不取消选区"其实是对方开了 `vim = true`） | ① 逐键回退默认或钳制，汇总成一条 status bar 警告，**永不阻止启动**；② 整个文件回退默认，并给出带行号的警告；③ 配置项**冻结为 10 个**，新增需要走方案评审；不加诊断类命令行参数。issue 模板要求附上 `~/.mustty.toml` 的内容；`MUSTTY_LOG` 日志的第一行写入最终生效的配置；需要纯默认行为来复现问题时，临时改名 `~/.mustty.toml` 即可 |
+| 5 | **配置文件带来的不确定性**：① 非法值（越界、类型错、`code_color` 拼错）；② TOML 语法错误；③ 配置项变多后，同一个二进制在不同机器上行为不同，bug 报告难以复现（"我这里 Esc 不取消选区"其实是对方开了 `vim = true`） | ① 逐键回退默认或钳制，汇总成一条 status bar 警告，**永不阻止启动**；② 整个文件回退默认，并给出带行号的警告；③ 配置项**冻结为 10 个**，新增需要走方案评审；不加诊断类命令行参数。issue 模板要求附上 `~/.mustty.toml` 的内容；需要纯默认行为来复现问题时，临时改名 `~/.mustty.toml` 即可 |

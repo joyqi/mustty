@@ -51,8 +51,6 @@ mustty [FILE]
 
 When you save an Untitled document, mustty asks for a path in the status bar: `Enter` saves, `Esc` cancels. If the file already exists, a second `Enter` overwrites it.
 
-Set `MUSTTY_LOG=<path>` to write debug logs, including frame timings, to that file. Logs never go to stdout or stderr.
-
 ## Keybindings
 
 | Key                                                 | Action                                                                                           |

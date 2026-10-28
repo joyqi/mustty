@@ -163,8 +163,7 @@ impl App {
         }
         if new.lang != old.lang {
             // 下一帧起所有文案（含面板自己）都用新语言；Auto 时按环境变量重新协商
-            let tag = crate::i18n::use_config(new.lang);
-            tracing::debug!(lang = new.lang, tag, "language");
+            crate::i18n::use_config(new.lang);
         }
         self.keymap.vim = new.vim;
         if old.vim && !new.vim {
@@ -448,11 +447,9 @@ impl App {
         match config::write_back(path, snapshot, &self.config) {
             Ok(()) => {}
             Err(config::WriteBackError::Syntax) => {
-                tracing::warn!(path = %path.display(), "config has a syntax error, not written");
                 self.status.error(t("settings-syntax-error"));
             }
             Err(config::WriteBackError::Io(e)) => {
-                tracing::warn!(path = %path.display(), error = %e, "config write failed");
                 self.status.error(t_args(
                     "settings-write-failed",
                     &[("error", &e.to_string())],
@@ -545,7 +542,6 @@ impl App {
         self.needs_redraw = true;
         match file::save(self.editor.doc(), &path, auto) {
             Ok(mtime) => {
-                tracing::debug!(path = %path.display(), auto, "saved");
                 self.editor.mark_saved(path, mtime);
                 // 保存状态由文件名后的标记表示，不再显示「已保存」文案
                 self.status.externally_modified = false;
@@ -555,12 +551,10 @@ impl App {
                 true
             }
             Err(IoError::ExternallyModified) => {
-                tracing::warn!(path = %path.display(), "externally modified, autosave skipped");
                 self.status.externally_modified = true;
                 false
             }
             Err(e) => {
-                tracing::warn!(path = %path.display(), error = %e, "save failed");
                 self.status
                     .error(t_args("msg-save-failed", &[("error", &e.to_string())]));
                 false
@@ -745,8 +739,6 @@ fn typed_char(k: &KeyEvent) -> Option<char> {
 }
 
 pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> {
-    // 上一批事件的处理耗时，与随后的绘制耗时一起记为一帧
-    let mut handle_us = 0;
     loop {
         if let Some(on) = app.take_mouse_capture() {
             crate::terminal::set_mouse_capture(terminal.backend_mut(), on)?;
@@ -760,11 +752,8 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
             backend.flush()?;
         }
         if app.needs_redraw {
-            let start = Instant::now();
             terminal.draw(|frame| view::render(frame, app))?;
             app.needs_redraw = false;
-            let draw_us = start.elapsed().as_micros() as u64;
-            tracing::debug!(target: "mustty::frame", handle_us, draw_us, total_us = handle_us + draw_us, "frame");
         }
         let timeout = app
             .next_deadline()
@@ -784,11 +773,9 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
         if cfg!(windows) {
             batch = coalesce_paste(batch);
         }
-        let start = Instant::now();
         for ev in batch {
             app.handle(ev);
         }
-        handle_us = start.elapsed().as_micros() as u64;
         app.tick(Instant::now());
         if app.should_quit {
             return Ok(());
@@ -1612,5 +1599,42 @@ mod tests {
             (app.config.lang, crate::i18n::current()),
             ("zh-CN", "zh-CN")
         );
+    }
+
+    /// 原来只写进日志的失败，用户在 status bar 上都看得到。
+    #[test]
+    fn failures_reach_the_status_bar() {
+        crate::i18n::init_for_test("zh-CN");
+        let dir = tempfile::tempdir().unwrap();
+        // 保存失败：目标目录不存在
+        let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
+        app.handle(ctrl('s'));
+        let target = dir.path().join("no/such/dir/a.md");
+        app.handle(Event::Paste(target.display().to_string()));
+        app.handle(press(KeyCode::Enter));
+        let msg = app
+            .status
+            .message
+            .as_ref()
+            .map(|m| m.text.clone())
+            .unwrap_or_default();
+        assert!(msg.starts_with("保存失败："), "{msg:?}");
+        // 写回配置失败（不是语法错误）：配置路径是个目录
+        let mut app = App::new(lf_doc(""), Size::new(80, 24), false);
+        app.set_config_path(Some(dir.path().to_path_buf()));
+        app.handle(ctrl('p'));
+        app.handle(press(KeyCode::Right));
+        app.handle(press(KeyCode::Enter));
+        let msg = app
+            .status
+            .message
+            .as_ref()
+            .map(|m| m.text.clone())
+            .unwrap_or_default();
+        assert!(
+            msg.starts_with("无法写入配置文件") && msg.ends_with("修改仅本次有效"),
+            "{msg:?}"
+        );
+        assert_eq!(app.config.width, 74, "修改仍在本次会话生效");
     }
 }

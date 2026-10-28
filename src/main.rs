@@ -1,4 +1,3 @@
-use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -11,8 +10,6 @@ use mustty::editor::document::{Document, FileMeta};
 use mustty::i18n::{self, t, t_args};
 use mustty::io::file::{IoError, load};
 use mustty::terminal::TerminalGuard;
-use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::EnvFilter;
 
 // 说明文字按界面语言在运行时填入（见 `command`），这里不写 doc comment。
 // 只有一个文件参数：其余设置都在配置文件里，可以用 Ctrl+P 的设置面板修改
@@ -38,56 +35,20 @@ fn main() -> ExitCode {
     i18n::init();
     i18n::use_config(config::load().0.lang);
     let cli = Cli::from_arg_matches(&Cli::command().get_matches()).unwrap_or_else(|e| e.exit());
-    let _log = match init_log() {
-        Ok(guard) => guard,
-        Err(e) => {
-            eprintln!("{e:#}");
-            return ExitCode::FAILURE;
-        }
-    };
     let (config, warnings) = config::load();
     // 配置写错不阻止启动：警告打到 stderr（进入全屏前，退出后仍可见），
     // 同时汇总成一条 status bar 消息，保留到第一次按键
     let warning = config::summarize(&warnings);
     if let Some(w) = &warning {
         eprintln!("mustty: {w}");
-        tracing::warn!("{w}");
     }
     match run(cli.file.as_deref(), &config, warning) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            tracing::error!("{e:#}");
             eprintln!("{e:#}");
             ExitCode::FAILURE
         }
     }
-}
-
-/// 只在设置 `MUSTTY_LOG=<path>` 时写日志文件，永不写 stdout / stderr。
-fn init_log() -> anyhow::Result<Option<WorkerGuard>> {
-    let Some(path) = std::env::var_os("MUSTTY_LOG") else {
-        return Ok(None);
-    };
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| {
-            let path = Path::new(&path).display().to_string();
-            anyhow!(t_args(
-                "startup-log-file",
-                &[("path", &path), ("error", &e.to_string())]
-            ))
-        })?;
-    let (writer, guard) = tracing_appender::non_blocking(file);
-    tracing_subscriber::fmt()
-        .with_writer(writer)
-        .with_ansi(false)
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")),
-        )
-        .init();
-    Ok(Some(guard))
 }
 
 fn run(path: Option<&Path>, config: &Config, warning: Option<String>) -> anyhow::Result<()> {
@@ -104,7 +65,6 @@ fn run(path: Option<&Path>, config: &Config, warning: Option<String>) -> anyhow:
         })?,
         None => Document::parse("", FileMeta::new(None)),
     };
-    tracing::info!(path = ?path, ?config, "start");
     let mut guard = TerminalGuard::new(config.mouse)?;
     let mut app = App::with_config(doc, guard.terminal.size()?, config);
     app.set_config_path(config::path());
