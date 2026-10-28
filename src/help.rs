@@ -16,6 +16,8 @@ pub struct Expect {
     pub action: Option<Action>,
     /// 按完之后的模式；None 表示模式不变
     pub mode: Option<Mode>,
+    /// 「输入任意可打印字符」这一条：没有固定的按键，测试改用一组样例字符核对它们都插入自身
+    pub typing: bool,
 }
 
 impl Expect {
@@ -23,6 +25,15 @@ impl Expect {
         Self {
             action: Some(a),
             mode: None,
+            typing: false,
+        }
+    }
+
+    fn typing() -> Self {
+        Self {
+            action: None,
+            mode: None,
+            typing: true,
         }
     }
 
@@ -37,6 +48,7 @@ impl Expect {
         Self {
             action: None,
             mode: Some(mode),
+            typing: false,
         }
     }
 }
@@ -91,6 +103,7 @@ fn base_entries(vim: bool, tab_width: u16) -> Vec<Entry> {
         entry("Esc", "help-esc", a(Cancel))
     };
     vec![
+        entry("a b c… 中文", "help-typing", Expect::typing()),
         entry("Enter", "help-newline", a(Newline)),
         entry("Backspace", "help-delete-back", a(DeleteBack)),
         entry("Delete", "help-delete-forward", a(DeleteForward)),
@@ -255,7 +268,8 @@ pub struct Help {
 }
 
 impl Help {
-    /// `total` 行内容、正文区 `visible` 行高。滚动首尾不循环；`?` 只在 vim 下关闭（默认模式里它就是个普通字符）。
+    /// `total` 行内容、正文区 `visible` 行高。滚动首尾不循环；一页是 `visible - 2` 行，与正文的
+    /// PageUp / PageDown 一致。`?` 只在 vim 下关闭（默认模式里它就是个普通字符）。
     pub fn handle_key(
         &mut self,
         key: &KeyEvent,
@@ -267,7 +281,8 @@ impl Help {
             return Outcome::Ignored;
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        let page = visible.saturating_sub(1).max(1) as isize;
+        let page = visible.saturating_sub(2).max(1) as isize;
+        let max = total.saturating_sub(visible);
         let delta = match key.code {
             KeyCode::Char('q' | 'Q') if ctrl => return Outcome::Quit,
             KeyCode::Char('g' | 'G') if ctrl => return Outcome::Close,
@@ -277,9 +292,10 @@ impl Help {
             KeyCode::Down => 1,
             KeyCode::PageUp => -page,
             KeyCode::PageDown => page,
+            KeyCode::Home => -(self.scroll as isize),
+            KeyCode::End => max as isize - self.scroll as isize,
             _ => return Outcome::Ignored,
         };
-        let max = total.saturating_sub(visible);
         let next = self.scroll.saturating_add_signed(delta).min(max);
         if next == self.scroll {
             return Outcome::Ignored;
@@ -372,6 +388,20 @@ mod tests {
         for vim in [false, true] {
             for g in groups(vim, TAB) {
                 for e in &g.entries {
+                    if e.expect.typing {
+                        // 没有固定按键：样例字符（含空格、标点、汉字、假名）都插入自身，模式不变
+                        for c in ['a', 'Z', '7', ' ', '#', '中', 'あ'] {
+                            let k = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+                            assert_eq!(
+                                press(vim, g.mode, &[k]),
+                                (Some(Action::Insert(c.to_string())), g.mode),
+                                "vim={vim} {:?} 组：输入 {c:?}",
+                                g.title_id
+                            );
+                            checked += 1;
+                        }
+                        continue;
+                    }
                     for alt in e.keys.split(" / ") {
                         let keys = parse_keys(alt);
                         assert!(!keys.is_empty(), "{alt:?}");
@@ -575,11 +605,30 @@ mod tests {
             Outcome::Ignored
         );
         h.handle_key(&key(KeyCode::PageUp), false, total, visible);
-        assert_eq!(h.scroll, 11, "一页 = 可见行数 - 1");
+        assert_eq!(h.scroll, 12, "一页 = 正文高度 - 2，与正文的分页一致");
         for _ in 0..5 {
             h.handle_key(&key(KeyCode::PageUp), false, total, visible);
         }
         assert_eq!(h.scroll, 0);
+        // Home / End 跳到首尾，已在那里时不再变化
+        assert_eq!(
+            h.handle_key(&key(KeyCode::End), false, total, visible),
+            Outcome::Scrolled
+        );
+        assert_eq!(h.scroll, 20);
+        assert_eq!(
+            h.handle_key(&key(KeyCode::End), false, total, visible),
+            Outcome::Ignored
+        );
+        assert_eq!(
+            h.handle_key(&key(KeyCode::Home), false, total, visible),
+            Outcome::Scrolled
+        );
+        assert_eq!(h.scroll, 0);
+        assert_eq!(
+            h.handle_key(&key(KeyCode::Home), false, total, visible),
+            Outcome::Ignored
+        );
         // 放得下时不滚动
         let mut short = Help::default();
         assert_eq!(

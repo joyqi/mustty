@@ -87,10 +87,11 @@ color-white = "white"
 
 # keys panel (Ctrl+G)
 help-title = "Keys"
-help-hint = "↑↓ scroll  Esc close"
+help-hint = "↑↓ PgUp/PgDn Home/End scroll  Esc close"
 help-group-insert = "Insert mode"
 help-group-normal = "Normal mode"
 help-group-visual = "Visual (selection)"
+help-typing = "Type text (including IME input)"
 help-newline = "New line (in the title: go to the body)"
 help-delete-back = "Delete the previous character or the selection"
 help-delete-forward = "Delete the next character or the selection"

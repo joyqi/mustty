@@ -424,9 +424,9 @@ pub struct NormalState { pub pending: Option<char>, pub visual: bool }   // pend
 
 ### 7.5 键位帮助（`Ctrl+G`，vim Normal 态 `?`）
 
-- **形态**：与设置面板（§8.6）相同，只替换正文区，不画边框、不设背景。标题行显示 `Keys`（BOLD），status bar 显示 `↑↓ scroll  Esc close`。内容超过正文高度时，`↑` / `↓` / `PageUp` / `PageDown` 滚动，首尾不循环。`Esc`、`Ctrl+G` 关闭；vim 下再按 `?` 也关闭（默认模式里 `?` 是普通字符，面板吞掉它而不关闭）。
+- **形态**：与设置面板（§8.6）相同，只替换正文区，不画边框、不设背景。标题行显示 `Keys`（BOLD），status bar 显示 `↑↓ PgUp/PgDn Home/End scroll  Esc close`。内容超过正文高度时，`↑` / `↓` 逐行滚动，`PageUp` / `PageDown` 一次 `body_h - 2` 行（与正文分页一致），`Home` / `End` 跳到首尾，首尾不循环。`Esc`、`Ctrl+G` 关闭；vim 下再按 `?` 也关闭（默认模式里 `?` 是普通字符，面板吞掉它而不关闭）。
 - **内容**：
-  - 默认模式是一张表；vim 下分 Insert / Normal / Visual 三组，组标题单独一行。
+  - 默认模式是一张表；vim 下分 Insert / Normal / Visual 三组，组标题单独一行。默认表和 Insert 组的第一条是「输入文字」：它没有固定按键，`Expect.typing` 标记，测试改用一组样例字符（字母、数字、空格、标点、汉字、假名）核对它们都插入自身。
   - 两列：左列键位（`Ctrl+S`、`gg`、`Shift+→`，不翻译），右列说明（i18n，经 `i18n::t_id` 按表里的 id 取）。
 - **交互边界**：
   - 打开时吞掉所有按键（不经过 `Keymap`，`mode` 不变），粘贴丢弃，鼠标忽略。

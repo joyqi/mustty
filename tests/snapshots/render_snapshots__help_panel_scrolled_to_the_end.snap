@@ -22,7 +22,7 @@ expression: text
 "    v / Esc                  End the selection                                  "
 "    i                        Insert mode at the cursor                          "
 "                                                                                "
-"    ↑↓ scroll  Esc close                                                        "
+"    ↑↓ PgUp/PgDn Home/End scroll  Esc close                                     "
 "                                                                                "
 "                                                                                "
 "                                                                                "

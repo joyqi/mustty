@@ -55,30 +55,30 @@ When you save an Untitled document, mustty asks for a path in the status bar: `E
 
 Press `Ctrl+G` at any time for the full list of keys; with vim keys on it also shows the Normal and Visual mode keys, and `?` in Normal mode opens it too. The list is checked against the real key bindings by the test suite, so it cannot drift out of date.
 
-| Key                                                 | Action                                                                                           |
-|-----------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| Typing / IME commit                                 | Insert text                                                                                      |
-| `Enter`                                             | New line (in the title: move to the body)                                                        |
-| `Backspace` / `Delete`                              | Delete the previous / next character, or the selection                                           |
-| `Tab`                                               | Insert `tab_width` spaces                                                                        |
-| `←` `→`                                             | Move by character                                                                                |
-| `↑` `↓`                                             | Move by screen line; `↑` on the first line enters the title, `↓` or `Enter` leaves it            |
-| `Home` / `End`                                      | Start / end of the screen line                                                                   |
-| `PageUp` / `PageDown`                               | Move one page up / down                                                                          |
-| `Ctrl+Home` / `Ctrl+End`                            | Start / end of the document                                                                      |
-| `Ctrl+←` `Ctrl+→`, `Alt+B` `Alt+F`                  | Move by word (`Alt+B` / `Alt+F` match the Option key in macOS terminals)                         |
-| `Ctrl+Backspace`, `Ctrl+W`                          | Delete the previous word (`Ctrl+H` too, which is what many Unix terminals send)                  |
-| `Shift` + arrows, `Home`/`End`, `PageUp`/`PageDown` | Extend the selection (also with `Ctrl+←` `Ctrl+→` and `Ctrl+Home` `Ctrl+End`)                    |
-| `Ctrl+A`                                            | Select the whole body                                                                            |
-| `Ctrl+C` / `Ctrl+X` / `Ctrl+V`                      | Copy / cut / paste with the internal register; copy also goes to the system clipboard via OSC 52 |
-| `Ctrl+Z` / `Ctrl+Y`                                 | Undo / redo                                                                                      |
-| `Ctrl+S`                                            | Save (asks for a path when Untitled)                                                             |
-| `Ctrl+T`                                            | Toggle Typewriter mode                                                                           |
-| `Ctrl+F`                                            | Toggle Focus mode                                                                                |
-| `Ctrl+P`                                            | Open the settings panel                                                                          |
-| `Ctrl+G`                                            | Show all keys (`↑` `↓` `PageUp` `PageDown` scroll, `Esc` or `Ctrl+G` closes)                     |
-| `Esc`                                               | Clear the selection / close the save prompt                                                      |
-| `Ctrl+Q`                                            | Quit; press twice if there are unsaved changes that cannot be autosaved                          |
+| Key                                                 | Action                                                                                                                    |
+|-----------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| Typing / IME commit                                 | Insert text                                                                                                               |
+| `Enter`                                             | New line (in the title: move to the body)                                                                                 |
+| `Backspace` / `Delete`                              | Delete the previous / next character, or the selection                                                                    |
+| `Tab`                                               | Insert `tab_width` spaces                                                                                                 |
+| `←` `→`                                             | Move by character                                                                                                         |
+| `↑` `↓`                                             | Move by screen line; `↑` on the first line enters the title, `↓` or `Enter` leaves it                                     |
+| `Home` / `End`                                      | Start / end of the screen line                                                                                            |
+| `PageUp` / `PageDown`                               | Move one page up / down                                                                                                   |
+| `Ctrl+Home` / `Ctrl+End`                            | Start / end of the document                                                                                               |
+| `Ctrl+←` `Ctrl+→`, `Alt+B` `Alt+F`                  | Move by word (`Alt+B` / `Alt+F` match the Option key in macOS terminals)                                                  |
+| `Ctrl+Backspace`, `Ctrl+W`                          | Delete the previous word (`Ctrl+H` too, which is what many Unix terminals send)                                           |
+| `Shift` + arrows, `Home`/`End`, `PageUp`/`PageDown` | Extend the selection (also with `Ctrl+←` `Ctrl+→` and `Ctrl+Home` `Ctrl+End`)                                             |
+| `Ctrl+A`                                            | Select the whole body                                                                                                     |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V`                      | Copy / cut / paste with the internal register; copy also goes to the system clipboard via OSC 52                          |
+| `Ctrl+Z` / `Ctrl+Y`                                 | Undo / redo                                                                                                               |
+| `Ctrl+S`                                            | Save (asks for a path when Untitled)                                                                                      |
+| `Ctrl+T`                                            | Toggle Typewriter mode                                                                                                    |
+| `Ctrl+F`                                            | Toggle Focus mode                                                                                                         |
+| `Ctrl+P`                                            | Open the settings panel                                                                                                   |
+| `Ctrl+G`                                            | Show all keys (`↑` `↓` scroll by line, `PageUp` `PageDown` by page, `Home` `End` to either end; `Esc` or `Ctrl+G` closes) |
+| `Esc`                                               | Clear the selection / close the save prompt                                                                               |
+| `Ctrl+Q`                                            | Quit; press twice if there are unsaved changes that cannot be autosaved                                                   |
 
 Your terminal's own paste (`Cmd+V`, `Ctrl+Shift+V`, right click) arrives as a single paste, so one `Ctrl+Z` undoes it. OSC 52 works over SSH; inside tmux it needs `set -g set-clipboard on`. macOS Terminal.app does not support OSC 52, so copies there stay in the internal register.
 

@@ -16,6 +16,7 @@ expression: text
 "                                      Keys                                      "
 "                                                                                "
 "    Insert mode                                                                 "
+"    a b c… 中文              Type text (including IME input)                    " Hidden by multi-width symbols: [(12, " "), (14, " ")]
 "    Enter                    New line (in the title: go to the body)            "
 "    Backspace                Delete the previous character or the selection     "
 "    Delete                   Delete the next character or the selection         "
@@ -79,8 +80,7 @@ expression: text
 "    v / Esc                  End the selection                                  "
 "    i                        Insert mode at the cursor                          "
 "                                                                                "
-"                                                                                "
-"    ↑↓ scroll  Esc close                                                        "
+"    ↑↓ PgUp/PgDn Home/End scroll  Esc close                                     "
 "                                                                                "
 "                                                                                "
 "                                                                                "

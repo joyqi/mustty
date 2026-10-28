@@ -86,10 +86,11 @@ color-white = "白"
 
 # 键位面板（Ctrl+G）
 help-title = "键位"
-help-hint = "↑↓ 滚动  Esc 关闭"
+help-hint = "↑↓ PgUp/PgDn Home/End 滚动  Esc 关闭"
 help-group-insert = "Insert 模式"
 help-group-normal = "Normal 模式"
 help-group-visual = "Visual（选区）"
+help-typing = "输入文字（含输入法提交）"
 help-newline = "换行（在标题里：回到正文）"
 help-delete-back = "删除前一个字或选区"
 help-delete-forward = "删除后一个字或选区"
