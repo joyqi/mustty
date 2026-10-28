@@ -30,8 +30,8 @@ use crate::view::viewport::Viewport;
 pub const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
 /// 启动键位提示的显示时长。
 pub const HINT_TTL: Duration = Duration::from_secs(5);
-/// 「已保存」类提示的显示时长。
-pub const SAVED_TTL: Duration = Duration::from_secs(2);
+/// Typewriter / Focus 模式切换提示的显示时长。
+pub const TOGGLE_TTL: Duration = Duration::from_secs(2);
 /// 其他临时提示的显示时长。
 pub const INFO_TTL: Duration = Duration::from_secs(3);
 /// 超过此大小的正文不实时刷新字数，改为保存时刷新。
@@ -210,7 +210,7 @@ impl App {
             }
             Event::FocusLost => {
                 if self.editor.is_dirty() {
-                    self.autosave_now(now);
+                    self.autosave_now();
                 }
                 return;
             }
@@ -282,15 +282,15 @@ impl App {
         let armed = std::mem::take(&mut self.quit_armed);
         let revision = self.editor.doc().revision();
         match action {
-            Action::Quit => self.quit(armed, now),
+            Action::Quit => self.quit(armed),
             Action::Cancel if self.status.prompt.is_some() => self.status.prompt = None,
             Action::Save => match self.editor.doc().meta.path.clone() {
                 Some(path) => {
-                    self.save(path, false, now);
+                    self.save(path, false);
                 }
                 None => self.status.prompt = Some(Prompt::default()),
             },
-            Action::PromptInput(key) => self.prompt_input(key, now),
+            Action::PromptInput(key) => self.prompt_input(key),
             Action::ScrollView(delta) => self.scroll_view(delta, now),
             Action::ToggleTypewriter => {
                 self.viewport.typewriter = !self.viewport.typewriter;
@@ -300,7 +300,7 @@ impl App {
                     "关"
                 };
                 self.status
-                    .info(format!("Typewriter 模式：{state}"), now, SAVED_TTL);
+                    .info(format!("Typewriter 模式：{state}"), now, TOGGLE_TTL);
                 let body = self.layout().body;
                 self.sync_body(body);
             }
@@ -308,7 +308,7 @@ impl App {
                 self.focus_mode = !self.focus_mode;
                 let state = if self.focus_mode { "开" } else { "关" };
                 self.status
-                    .info(format!("Focus 模式：{state}"), now, SAVED_TTL);
+                    .info(format!("Focus 模式：{state}"), now, TOGGLE_TTL);
             }
             Action::Paste(s) => match &mut self.status.prompt {
                 Some(prompt) => prompt.paste(&s),
@@ -321,8 +321,8 @@ impl App {
         }
     }
 
-    fn quit(&mut self, armed: bool, now: Instant) {
-        if armed || !self.editor.is_dirty() || (self.can_autosave() && self.autosave_now(now)) {
+    fn quit(&mut self, armed: bool) {
+        if armed || !self.editor.is_dirty() || (self.can_autosave() && self.autosave_now()) {
             self.should_quit = true;
         } else {
             self.quit_armed = true;
@@ -368,7 +368,7 @@ impl App {
         std::mem::take(&mut self.output)
     }
 
-    fn prompt_input(&mut self, key: KeyEvent, now: Instant) {
+    fn prompt_input(&mut self, key: KeyEvent) {
         let Some(prompt) = &mut self.status.prompt else {
             return;
         };
@@ -382,7 +382,7 @@ impl App {
             return;
         }
         self.status.prompt = None;
-        self.save(path, false, now);
+        self.save(path, false);
     }
 
     fn can_autosave(&self) -> bool {
@@ -390,23 +390,22 @@ impl App {
     }
 
     /// 立即自动保存（检查外部修改）；返回是否成功。
-    fn autosave_now(&mut self, now: Instant) -> bool {
+    fn autosave_now(&mut self) -> bool {
         self.last_edit = None;
         match self.editor.doc().meta.path.clone() {
-            Some(path) if self.can_autosave() => self.save(path, true, now),
+            Some(path) if self.can_autosave() => self.save(path, true),
             _ => false,
         }
     }
 
-    fn save(&mut self, path: PathBuf, auto: bool, now: Instant) -> bool {
+    fn save(&mut self, path: PathBuf, auto: bool) -> bool {
         self.needs_redraw = true;
         match file::save(self.editor.doc(), &path, auto) {
             Ok(mtime) => {
                 tracing::debug!(path = %path.display(), auto, "saved");
                 self.editor.mark_saved(path, mtime);
+                // 保存状态由文件名后的标记表示，不再显示「已保存」文案
                 self.status.externally_modified = false;
-                self.status
-                    .info(if auto { "已自动保存" } else { "已保存" }, now, SAVED_TTL);
                 if self.large {
                     self.status.words = self.editor.word_count();
                 }
@@ -447,7 +446,7 @@ impl App {
     /// 处理到期的自动保存与消息。
     pub fn tick(&mut self, now: Instant) {
         if self.autosave_deadline().is_some_and(|d| now >= d) {
-            self.autosave_now(now);
+            self.autosave_now();
         }
         if self.status.expire(now) {
             self.needs_redraw = true;
@@ -681,8 +680,11 @@ mod tests {
         app.tick(t0 + AUTOSAVE_IDLE);
         assert_eq!(fs::read_to_string(&path).unwrap(), "xv1");
         assert!(!app.editor.is_dirty());
-        // 「已自动保存」2 s 后消失
-        assert_eq!(app.next_deadline(), Some(t0 + AUTOSAVE_IDLE + SAVED_TTL));
+        // 保存成功不再显示文案，也就没有需要醒来的定时器
+        assert_eq!(
+            (app.status.message.clone(), app.next_deadline()),
+            (None, None)
+        );
 
         // 外部修改后：放弃自动保存、常驻提示、不再安排自动保存
         fs::write(&path, "external").unwrap();

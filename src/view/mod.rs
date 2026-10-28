@@ -12,7 +12,7 @@ use ratatui::style::{Modifier, Style};
 use crate::app::App;
 use crate::editor::Focus;
 use crate::io::file::IoError;
-use crate::status::StatusModel;
+use crate::status::{SaveMark, StatusModel};
 use crate::text::wrap::line_text;
 use layout::compute_layout;
 use screen::{ScreenMap, TitleMap};
@@ -112,15 +112,18 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             frame.render_widget(prompt, r);
         } else {
             let status = &app.status;
-            let (left, left_style) = match &status.message {
-                Some(m) => (m.text.clone(), Style::default()),
-                None if status.externally_modified => {
-                    (IoError::ExternallyModified.to_string(), Style::default())
-                }
+            // 消息与外部修改提示覆盖左段（连同标记）；否则是文件名 + 保存状态标记
+            let (left, left_style, mark) = match &status.message {
+                Some(m) => (m.text.clone(), Style::default(), None),
+                None if status.externally_modified => (
+                    IoError::ExternallyModified.to_string(),
+                    Style::default(),
+                    None,
+                ),
                 None => {
                     let name = StatusModel::file_name(ed.doc().meta.path.as_deref());
-                    let mark = if ed.is_dirty() { " •" } else { "" };
-                    (format!("{name}{mark}"), Modifier::DIM.into())
+                    let mark = SaveMark::of(ed.is_dirty(), ed.doc().meta.stamp.is_some());
+                    (name, Modifier::DIM.into(), mark)
                 }
             };
             let left = match app.mode_label() {
@@ -135,6 +138,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 StatusWidget {
                     left: &left,
                     left_style,
+                    mark: mark.map(|m| (m.symbol(), m.style())),
                     words: &status.words_label(),
                     position: &position,
                     hint: status.hint_until.map(|_| "^S 保存  ^Q 退出"),

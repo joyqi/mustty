@@ -203,3 +203,117 @@ fn focus_mode_dims_other_paragraphs_and_vim_label() {
     let b = draw_with(&config, raw, 40, 12, &events, false);
     insta::assert_snapshot!(format!("{}\n{}", styled(&b), snapshot(b.clone())));
 }
+
+fn draw_meta(meta: FileMeta, raw: &str, w: u16, h: u16, events: &[Event]) -> TestBackend {
+    let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+    let mut app = App::new(Document::parse(raw, meta), Size::new(w, h), false);
+    for ev in events {
+        app.handle(ev.clone());
+    }
+    terminal.draw(|f| view::render(f, &mut app)).unwrap();
+    terminal.backend().clone()
+}
+
+/// 磁盘上存在的文件（打开时记录过 mtime / 大小）。
+fn on_disk(path: &str) -> FileMeta {
+    FileMeta {
+        stamp: Some(mustty::editor::document::DiskStamp {
+            mtime: std::time::SystemTime::UNIX_EPOCH,
+            len: 0,
+        }),
+        ..FileMeta::new(Some(path.into()))
+    }
+}
+
+/// 只取 status bar 那一行的样式分段。
+fn status_line(b: &TestBackend, y: u16) -> String {
+    styled(b)
+        .lines()
+        .find(|l| l.starts_with(&format!("{y:2}:")))
+        .unwrap_or("")
+        .to_owned()
+}
+
+#[test]
+fn save_mark_states() {
+    let typed = [key(KeyCode::Char('x'))];
+    let cases = [
+        (
+            "已保存：打开已有文件未修改",
+            draw_meta(on_disk("notes.md"), "正文\n", 40, 10, &[]),
+        ),
+        (
+            "有未保存修改",
+            draw_meta(on_disk("notes.md"), "正文\n", 40, 10, &typed),
+        ),
+        (
+            "空 Untitled",
+            draw_meta(FileMeta::new(None), "", 40, 10, &[]),
+        ),
+        (
+            "Untitled 有修改",
+            draw_meta(FileMeta::new(None), "", 40, 10, &typed),
+        ),
+        (
+            "尚未创建的新文件",
+            draw_meta(FileMeta::new(Some("new.md".into())), "", 40, 10, &[]),
+        ),
+        // 24 列：正文宽 20，文件名从左截断，标记仍在截断后的文件名右侧
+        (
+            "窄窗口截断文件名",
+            draw_meta(on_disk("a-rather-long-file-name.md"), "", 24, 10, &[]),
+        ),
+    ];
+    let rows: Vec<String> = cases
+        .iter()
+        .map(|(name, b)| format!("{name}\n{}", status_line(b, 9)))
+        .collect();
+    insta::assert_snapshot!(rows.join("\n"));
+    // 标记不 DIM：已保存为绿色 ●，未保存为默认前景色 *
+    let saved = &cases[0].1;
+    let cell = (0..40)
+        .map(|x| &saved.buffer()[(x, 9)])
+        .find(|c| c.symbol() == "●")
+        .unwrap();
+    assert_eq!(
+        (cell.fg, cell.modifier),
+        (
+            ratatui::style::Color::Green,
+            ratatui::style::Modifier::empty()
+        )
+    );
+    let dirty = &cases[1].1;
+    let cell = (0..40)
+        .map(|x| &dirty.buffer()[(x, 9)])
+        .find(|c| c.symbol() == "*")
+        .unwrap();
+    assert_eq!(
+        (cell.fg, cell.modifier),
+        (
+            ratatui::style::Color::Reset,
+            ratatui::style::Modifier::empty()
+        )
+    );
+}
+
+#[test]
+fn prompt_hides_save_mark() {
+    let ctrl_s = Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    let b = draw_meta(
+        FileMeta::new(None),
+        "",
+        40,
+        10,
+        &[key(KeyCode::Char('x')), ctrl_s.clone()],
+    );
+    assert!(!status_line(&b, 9).contains('*'), "{}", status_line(&b, 9));
+    // Esc 关闭提示行后恢复
+    let b = draw_meta(
+        FileMeta::new(None),
+        "",
+        40,
+        10,
+        &[key(KeyCode::Char('x')), ctrl_s, key(KeyCode::Esc)],
+    );
+    assert!(status_line(&b, 9).contains('*'), "{}", status_line(&b, 9));
+}

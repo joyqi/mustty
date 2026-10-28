@@ -4,6 +4,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::style::{Color, Style};
 use ropey::Rope;
 
 use crate::text::count::thousands;
@@ -74,6 +75,45 @@ impl Prompt {
             _ => {}
         }
         false
+    }
+}
+
+/// 文件名后的保存状态标记（方案 §9）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveMark {
+    /// 有未保存修改：`*`，默认前景色
+    Dirty,
+    /// 内容与磁盘一致（打开的已有文件未改动、手动或自动保存过）：绿色 `●`
+    Saved,
+}
+
+impl SaveMark {
+    /// `on_disk`：文件在磁盘上存在且记录过它的状态（打开已有文件或保存过）。
+    /// 空 Untitled、尚未创建的新文件在未修改时不显示标记。
+    pub fn of(dirty: bool, on_disk: bool) -> Option<Self> {
+        if dirty {
+            Some(Self::Dirty)
+        } else if on_disk {
+            Some(Self::Saved)
+        } else {
+            None
+        }
+    }
+
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Dirty => "*",
+            // East Asian Width 为 Ambiguous，按 narrow（1 列）计，与方案 §14 风险 1 一致
+            Self::Saved => "\u{25CF}",
+        }
+    }
+
+    /// 都不 DIM，与 DIM 的文件名形成对比。
+    pub fn style(self) -> Style {
+        match self {
+            Self::Dirty => Style::default(),
+            Self::Saved => Style::default().fg(Color::Green),
+        }
     }
 }
 
@@ -208,10 +248,30 @@ mod tests {
     }
 
     #[test]
+    fn save_mark_states() {
+        assert_eq!(SaveMark::of(true, true), Some(SaveMark::Dirty));
+        assert_eq!(
+            SaveMark::of(true, false),
+            Some(SaveMark::Dirty),
+            "Untitled 有修改也是星号"
+        );
+        assert_eq!(SaveMark::of(false, true), Some(SaveMark::Saved));
+        assert_eq!(
+            SaveMark::of(false, false),
+            None,
+            "空 Untitled / 未创建的新文件"
+        );
+        assert_eq!(SaveMark::Dirty.symbol(), "*");
+        assert_eq!(SaveMark::Saved.symbol(), "●");
+        assert_eq!(SaveMark::Dirty.style(), Style::default());
+        assert_eq!(SaveMark::Saved.style(), Style::default().fg(Color::Green));
+    }
+
+    #[test]
     fn messages_expire_or_wait_for_input() {
         let t0 = Instant::now();
         let mut s = StatusModel::default();
-        s.info("已保存", t0, Duration::from_secs(2));
+        s.info("Typewriter 模式：开", t0, Duration::from_secs(2));
         s.on_input();
         assert!(s.message.is_some(), "info 不因按键消失");
         assert!(!s.expire(t0 + Duration::from_millis(1999)));

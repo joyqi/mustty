@@ -1,0 +1,16 @@
+---
+source: tests/render_snapshots.rs
+expression: "rows.join(\"\\n\")"
+---
+已保存：打开已有文件未修改
+ 9: "notes.md" DIM | "●" NONE fg=Green | "2 字" DIM | " · 1:1" DIM
+有未保存修改
+ 9: "notes.md" DIM | " *" NONE | "3 字" DIM | " · 1:2" DIM
+空 Untitled
+ 9: "Untitled" DIM | "0 字" DIM | " · 1:1" DIM
+Untitled 有修改
+ 9: "Untitled" DIM | " *" NONE | "1 字" DIM | " · 1:2" DIM
+尚未创建的新文件
+ 9: "new.md" DIM | "0 字" DIM | " · 1:1" DIM
+窄窗口截断文件名
+ 9: "…long-file-name.md" DIM | "●" NONE fg=Green

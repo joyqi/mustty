@@ -17,6 +17,7 @@ mustty [FILE] [--width N] [--[no-]autosave] [--[no-]vim] [--[no-]mouse]
 ```
 
 停手 2 秒自动保存，切走窗口（FocusLost）与退出时也会保存；保存为原子写入，BOM / CRLF / 末尾换行原样保留。
+status bar 里文件名后的标记表示保存状态：`*` 为有未保存修改，绿色 `●` 为已与磁盘一致，空的 Untitled 不显示。
 另一个程序改了文件时不会自动覆盖，status bar 会常驻提示，`Ctrl+S` 强制覆盖。
 设置 `MUSTTY_LOG=<path>` 时把调试日志（含帧耗时）写到该文件，永不写 stdout / stderr。
 
