@@ -4,22 +4,29 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::Command;
+use crossterm::cursor::SetCursorStyle;
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
 use ratatui::DefaultTerminal;
 use ratatui::layout::{Rect, Size};
+use ratatui::style::Color;
 
-use crate::action::{Action, Motion};
+use crate::action::{Action, Motion, Target};
+use crate::config::Config;
 use crate::editor::document::Document;
 use crate::editor::{Editor, Effect};
 use crate::io::file::{self, IoError};
 use crate::keymap::{Keymap, Mode};
 use crate::status::{Prompt, StatusModel};
 use crate::view;
-use crate::view::layout::{Layout, MEASURE, compute_layout};
+use crate::view::layout::{Layout, compute_layout};
+use crate::view::mouse::{DRAG_SCROLL_INTERVAL, DragState, drag_target, map_mouse};
 use crate::view::viewport::Viewport;
 
-/// 最后一次编辑后空闲多久自动保存。
+/// 默认：最后一次编辑后空闲多久自动保存（配置项 autosave_idle_ms）。
 pub const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
+/// 启动键位提示的显示时长。
+pub const HINT_TTL: Duration = Duration::from_secs(5);
 /// 「已保存」类提示的显示时长。
 pub const SAVED_TTL: Duration = Duration::from_secs(2);
 /// 其他临时提示的显示时长。
@@ -36,15 +43,24 @@ pub struct App {
     pub(crate) status: StatusModel,
     pub(crate) viewport: Viewport,
     area: Rect,
+    /// 正文宽度（配置项 width / --width）
+    measure: u16,
     autosave: bool,
+    autosave_idle: Duration,
+    /// 处理鼠标事件（配置项 mouse / --mouse；关闭时终端不会送来鼠标事件）
+    mouse: bool,
+    /// 左键拖拽中（仅鼠标开启时）
+    drag: Option<DragState>,
+    pub(crate) focus_mode: bool,
+    pub(crate) code_color: Color,
     /// 大文件：字数只在保存时刷新
     large: bool,
     /// 最后一次改动内容的时刻；自动保存尝试后清空，避免失败时反复重试
     last_edit: Option<Instant>,
     /// 有未保存修改时按过一次 Ctrl+Q
     quit_armed: bool,
-    /// 待写给终端的 OSC 52 序列（由事件循环写出）
-    osc52: Vec<String>,
+    /// 待写给终端的控制序列（OSC 52、光标形状），由事件循环写出
+    output: Vec<String>,
     /// 终端支持 OSC 52（macOS Terminal 不支持）
     osc52_supported: bool,
     osc52_warned: bool,
@@ -53,10 +69,19 @@ pub struct App {
 }
 
 impl App {
+    /// 默认配置，只指定是否自动保存。
     pub fn new(doc: Document, size: Size, autosave: bool) -> Self {
+        let config = Config {
+            autosave,
+            ..Config::default()
+        };
+        Self::with_config(doc, size, &config)
+    }
+
+    pub fn with_config(doc: Document, size: Size, config: &Config) -> Self {
         let area = Rect::new(0, 0, size.width, size.height);
         let large = doc.body().len_bytes() > LARGE_FILE;
-        let editor = Editor::new(doc, compute_layout(area, MEASURE).body.width);
+        let editor = Editor::new(doc, compute_layout(area, config.width).body.width);
         let mut status = StatusModel::default();
         if large {
             status.info(
@@ -68,16 +93,26 @@ impl App {
         status.words = editor.word_count();
         Self {
             editor,
-            keymap: Keymap { vim: false },
+            keymap: Keymap { vim: config.vim },
             mode: Mode::Insert,
             status,
-            viewport: Viewport::default(),
+            viewport: Viewport {
+                typewriter: config.typewriter,
+                scrolloff: config.scrolloff,
+                ..Viewport::default()
+            },
             area,
-            autosave,
+            measure: config.width,
+            autosave: config.autosave,
+            autosave_idle: config.autosave_idle,
+            mouse: config.mouse,
+            drag: None,
+            focus_mode: config.focus_mode,
+            code_color: config.code_color,
             large,
             last_edit: None,
             quit_armed: false,
-            osc52: Vec::new(),
+            output: Vec::new(),
             osc52_supported: std::env::var_os("TERM_PROGRAM").is_none_or(|t| t != "Apple_Terminal"),
             osc52_warned: false,
             should_quit: false,
@@ -86,7 +121,30 @@ impl App {
     }
 
     pub fn layout(&self) -> Layout {
-        compute_layout(self.area, MEASURE)
+        compute_layout(self.area, self.measure)
+    }
+
+    pub fn measure(&self) -> u16 {
+        self.measure
+    }
+
+    /// 启动后 5 s 在 status bar 右段显示键位提示。
+    pub fn show_startup_hint(&mut self, now: Instant) {
+        self.status.hint_until = Some(now + HINT_TTL);
+    }
+
+    /// 配置文件的警告：一条 status bar 错误消息，保留到第一次按键。
+    pub fn show_startup_warning(&mut self, text: String) {
+        self.status.error(text);
+    }
+
+    /// status bar 最前的模式标识，仅 vim 开启时显示。
+    pub(crate) fn mode_label(&self) -> Option<&'static str> {
+        self.keymap.vim.then_some(match self.mode {
+            Mode::Insert => "INS",
+            Mode::Normal(s) if s.visual => "VIS",
+            Mode::Normal(_) => "NOR",
+        })
     }
 
     /// Unbound 标题的占位：文件名去扩展名，或 `Untitled`。
@@ -121,6 +179,12 @@ impl App {
                 }
                 return;
             }
+            Event::Mouse(m) => {
+                if self.mouse {
+                    self.on_mouse(m, now);
+                }
+                return;
+            }
             _ => {}
         }
         #[cfg(debug_assertions)]
@@ -131,8 +195,32 @@ impl App {
             panic!("MUSTTY_DEBUG_PANIC: F12");
         }
         let prompt_active = self.status.prompt.is_some();
-        if let Some(action) = self.keymap.map_event(&ev, &mut self.mode, prompt_active) {
+        let before = matches!(self.mode, Mode::Normal(_));
+        let was_visual = matches!(self.mode, Mode::Normal(s) if s.visual);
+        let action = self.keymap.map_event(&ev, &mut self.mode, prompt_active);
+        let after = matches!(self.mode, Mode::Normal(_));
+        let left_visual = was_visual && !matches!(self.mode, Mode::Normal(s) if s.visual);
+        if before != after || self.mode_label().is_some() {
+            self.needs_redraw = true;
+        }
+        if before != after {
+            // Normal 态块状光标，Insert 态竖线
+            let style = if after {
+                SetCursorStyle::SteadyBlock
+            } else {
+                SetCursorStyle::SteadyBar
+            };
+            let mut seq = String::new();
+            if style.write_ansi(&mut seq).is_ok() {
+                self.output.push(seq);
+            }
+        }
+        if let Some(action) = action {
             self.dispatch(action, now);
+        }
+        // 离开 visual（y 复制之后等）：与 vim 一样不再保留选区
+        if left_visual && self.editor.selection().is_some() {
+            self.edit(&Action::Cancel, now);
         }
     }
 
@@ -151,6 +239,25 @@ impl App {
                 None => self.status.prompt = Some(Prompt::default()),
             },
             Action::PromptInput(key) => self.prompt_input(key, now),
+            Action::ScrollView(delta) => self.scroll_view(delta, now),
+            Action::ToggleTypewriter => {
+                self.viewport.typewriter = !self.viewport.typewriter;
+                let state = if self.viewport.typewriter {
+                    "开"
+                } else {
+                    "关"
+                };
+                self.status
+                    .info(format!("Typewriter 模式：{state}"), now, SAVED_TTL);
+                let body = self.layout().body;
+                self.sync_body(body);
+            }
+            Action::ToggleFocusMode => {
+                self.focus_mode = !self.focus_mode;
+                let state = if self.focus_mode { "开" } else { "关" };
+                self.status
+                    .info(format!("Focus 模式：{state}"), now, SAVED_TTL);
+            }
             Action::Paste(s) => match &mut self.status.prompt {
                 Some(prompt) => prompt.paste(&s),
                 None => self.edit(&Action::Paste(s), now),
@@ -194,7 +301,7 @@ impl App {
     /// 内部寄存器已由 Editor 写入；这里再通过 OSC 52 写系统剪贴板（可穿透 SSH / tmux）。
     fn copy_to_clipboard(&mut self, text: &str, now: Instant) {
         if self.osc52_supported {
-            self.osc52.push(crate::terminal::osc52(text));
+            self.output.push(crate::terminal::osc52(text));
         } else if !std::mem::replace(&mut self.osc52_warned, true) {
             self.status.info(
                 "此终端不支持 OSC 52：已复制到内部寄存器，Ctrl+V 可粘贴",
@@ -206,7 +313,7 @@ impl App {
 
     /// 取出待写给终端的控制序列。
     pub fn take_terminal_output(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.osc52)
+        std::mem::take(&mut self.output)
     }
 
     fn prompt_input(&mut self, key: KeyEvent, now: Instant) {
@@ -269,15 +376,20 @@ impl App {
     fn autosave_deadline(&self) -> Option<Instant> {
         self.last_edit
             .filter(|_| self.can_autosave() && self.editor.is_dirty())
-            .map(|t| t + AUTOSAVE_IDLE)
+            .map(|t| t + self.autosave_idle)
     }
 
     /// 下一次需要醒来的时刻：自动保存与消息过期中较早者。
     pub fn next_deadline(&self) -> Option<Instant> {
-        [self.autosave_deadline(), self.status.expiry()]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            self.autosave_deadline(),
+            self.status.expiry(),
+            self.status.hint_until,
+            self.drag.and_then(|d| d.deadline),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// 处理到期的自动保存与消息。
@@ -288,6 +400,95 @@ impl App {
         if self.status.expire(now) {
             self.needs_redraw = true;
         }
+        self.drag_autoscroll(now);
+        if self.status.hint_until.is_some_and(|t| now >= t) {
+            self.status.hint_until = None;
+            self.needs_redraw = true;
+        }
+    }
+
+    /// 鼠标（方案 §10.5）：由 `view::mouse::map_mouse` 转成 Action，与键盘共用同一条编辑路径。
+    fn on_mouse(&mut self, m: MouseEvent, now: Instant) {
+        if self.status.prompt.is_some() {
+            return;
+        }
+        let layout = self.layout();
+        if layout.too_small {
+            return;
+        }
+        self.sync_body(layout.body);
+        let title = self.editor.doc().title_text().to_owned();
+        let (doc, wrap, _) = self.editor.view();
+        let action = map_mouse(
+            &m,
+            &layout,
+            &self.viewport,
+            wrap,
+            doc.body(),
+            &title,
+            &mut self.drag,
+            now,
+        );
+        if let Some(action) = action {
+            self.mouse_action(action, now);
+        }
+    }
+
+    fn mouse_action(&mut self, action: Action, now: Instant) {
+        // vim Normal 态拖拽出选区：同时进入 visual，之后可以直接 d / y
+        if let (Action::MoveTo(_, true), Mode::Normal(state)) = (&action, &mut self.mode) {
+            state.visual = true;
+        }
+        self.dispatch(action, now);
+    }
+
+    /// 滚轮：只移动视口；光标若离开 scrolloff 区间，就拉回可见区域边缘（保持 preferred_col），
+    /// 光标必须始终在屏幕上，IME 候选框才有处锚定。
+    fn scroll_view(&mut self, delta: i32, now: Instant) {
+        let layout = self.layout();
+        if layout.too_small {
+            return;
+        }
+        let body = layout.body;
+        let h = body.height as isize;
+        let so = self.viewport.margin(body.height) as isize;
+        let cursor = self.editor.cursor;
+        let (doc, wrap, _) = self.editor.view();
+        self.viewport.scroll(delta as isize, wrap, doc.body());
+        let top = (self.viewport.top.line, self.viewport.top.row);
+        let pos = cursor.visual(doc.body(), wrap);
+        let d = self.viewport.top_padding as isize
+            + wrap.rows_between(doc.body(), top, (pos.line, pos.row));
+        let pull = if d < so {
+            Some((Motion::PageDown, so - d))
+        } else if d > h - 1 - so {
+            Some((Motion::PageUp, d - (h - 1 - so)))
+        } else {
+            None
+        };
+        if let Some((motion, rows)) = pull {
+            self.editor.apply(&Action::Move(motion, false), rows, now);
+        }
+        self.sync_body(body);
+        self.needs_redraw = true;
+    }
+
+    /// 拖到正文上下边缘之外并保持不动：每 50 ms 滚动一行，光标跟到新的边缘行。
+    fn drag_autoscroll(&mut self, now: Instant) {
+        let Some(state) = self.drag else { return };
+        if state.deadline.is_none_or(|d| now < d) {
+            return;
+        }
+        let body = self.layout().body;
+        let delta = if state.last.y < body.y { -1 } else { 1 };
+        let (doc, wrap, _) = self.editor.view();
+        self.viewport.scroll(delta, wrap, doc.body());
+        let at = drag_target(body, state.last, &self.viewport, wrap, doc.body());
+        self.drag = Some(DragState {
+            deadline: Some(now + DRAG_SCROLL_INTERVAL),
+            ..state
+        });
+        self.mouse_action(Action::MoveTo(Target::Body(at), true), now);
     }
 
     /// 绘制前调用：让换行宽度与视口适配当前正文区域，保证光标可见；刷新字数。
@@ -400,7 +601,7 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::KeyEventState;
+    use crossterm::event::{KeyEventState, MouseButton, MouseEventKind};
 
     fn press(c: KeyCode) -> Event {
         Event::Key(KeyEvent::new(c, KeyModifiers::NONE))
@@ -475,6 +676,284 @@ mod tests {
         app.handle_at(Event::FocusLost, t0);
         assert_eq!(app.next_deadline(), None);
         assert!(!dir.path().join("n.md").exists());
+    }
+
+    fn vim_app(text: &str) -> App {
+        let doc = Document::parse(text, crate::editor::document::FileMeta::new(None));
+        let config = Config {
+            vim: true,
+            autosave: false,
+            ..Config::default()
+        };
+        App::with_config(doc, Size::new(80, 24), &config)
+    }
+
+    fn typed(app: &mut App, keys: &str) {
+        for c in keys.chars() {
+            let code = if c == '\x1b' {
+                KeyCode::Esc
+            } else {
+                KeyCode::Char(c)
+            };
+            app.handle(press(code));
+        }
+    }
+
+    fn body(app: &App) -> String {
+        app.editor.doc().body().to_string()
+    }
+
+    #[test]
+    fn vim_flow_moves_first_line_to_end() {
+        // 方案 §12 M4 验收 5：i 输入 → Esc → gg → dd → G → p
+        let mut app = vim_app("");
+        typed(&mut app, "\x1bione");
+        app.handle(press(KeyCode::Enter));
+        typed(&mut app, "two");
+        app.handle(press(KeyCode::Enter));
+        typed(&mut app, "three\x1b");
+        assert_eq!(app.mode_label(), Some("NOR"));
+        typed(&mut app, "ggddGp");
+        assert_eq!(body(&app), "two\nthree\none");
+        // u 与 Ctrl+Z 效果相同
+        typed(&mut app, "u");
+        assert_eq!(body(&app), "two\nthree");
+        app.handle(Event::Key(KeyEvent::new(
+            KeyCode::Char('z'),
+            KeyModifiers::CONTROL,
+        )));
+        assert_eq!(body(&app), "one\ntwo\nthree");
+        app.handle(Event::Key(KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::CONTROL,
+        )));
+        assert_eq!(body(&app), "two\nthree");
+    }
+
+    #[test]
+    fn vim_visual_word_delete_and_ignored_chars() {
+        let mut app = vim_app("hello world foo");
+        typed(&mut app, "\x1b");
+        // Normal 态的可打印字符（含汉字）不插入
+        typed(&mut app, "中q");
+        assert_eq!(body(&app), "hello world foo");
+        // v + w + d 删除一个词
+        typed(&mut app, "vw");
+        assert_eq!(app.mode_label(), Some("VIS"));
+        typed(&mut app, "d");
+        assert_eq!(
+            (body(&app).as_str(), app.mode_label()),
+            ("world foo", Some("NOR"))
+        );
+        // v + w + y 复制后选区消失，p 粘贴到光标处
+        typed(&mut app, "vwy");
+        assert_eq!(
+            (
+                app.editor.register().unwrap().text.as_str(),
+                app.editor.selection()
+            ),
+            ("world ", None)
+        );
+        typed(&mut app, "0p");
+        assert_eq!(body(&app), "world world foo");
+        // 选区不含光标所在的字（竖线光标模型）：v + e 停在词的最后一个字之前
+        typed(&mut app, "0vey");
+        assert_eq!(app.editor.register().unwrap().text, "worl");
+    }
+
+    #[test]
+    fn vim_cursor_shape_follows_mode() {
+        let mut app = vim_app("x");
+        app.take_terminal_output();
+        typed(&mut app, "\x1b");
+        assert_eq!(
+            app.take_terminal_output(),
+            vec!["\x1b[2 q".to_owned()],
+            "Normal：SteadyBlock"
+        );
+        typed(&mut app, "v\x1b");
+        assert!(
+            app.take_terminal_output().is_empty(),
+            "visual 仍是 Normal，不换形状"
+        );
+        typed(&mut app, "i");
+        assert_eq!(
+            app.take_terminal_output(),
+            vec!["\x1b[6 q".to_owned()],
+            "Insert：SteadyBar"
+        );
+        // 默认模式从不改变光标形状、不显示模式
+        let mut plain = App::new(
+            Document::parse("x", crate::editor::document::FileMeta::new(None)),
+            Size::new(80, 24),
+            false,
+        );
+        typed(&mut plain, "\x1bab");
+        assert!(plain.take_terminal_output().is_empty());
+        assert_eq!(plain.mode_label(), None);
+    }
+
+    fn mouse(kind: MouseEventKind, column: u16, row: u16) -> Event {
+        Event::Mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
+    fn mouse_app(text: &str, enabled: bool) -> App {
+        let doc = Document::parse(text, crate::editor::document::FileMeta::new(None));
+        let config = Config {
+            mouse: enabled,
+            autosave: false,
+            ..Config::default()
+        };
+        App::with_config(doc, Size::new(80, 24), &config)
+    }
+
+    #[test]
+    fn mouse_click_drag_and_wheel_use_move_actions() {
+        // 80×24：正文 x = 4、y = 5、高 14
+        let text: String = (0..100).map(|i| format!("第{i:02}行 line\n")).collect();
+        let mut app = mouse_app(&text, true);
+        let left = MouseButton::Left;
+        let t0 = Instant::now();
+        // 每行 "第NN行 line\n" 共 10 个 char：「第」占第 0–1 列，「0」第 2 列，「2」第 3 列
+        app.handle_at(mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2), t0);
+        assert_eq!(app.editor.cursor.head, 2 * 10 + 2);
+        // 宽字符右半格吸附左侧
+        app.handle_at(mouse(MouseEventKind::Down(left), 4 + 1, 5 + 2), t0);
+        assert_eq!(app.editor.cursor.head, 2 * 10);
+        app.handle_at(mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2), t0);
+        // 点在正文之外：忽略
+        app.handle_at(mouse(MouseEventKind::Down(left), 1, 7), t0);
+        app.handle_at(mouse(MouseEventKind::Down(left), 4, 22), t0);
+        assert_eq!(app.editor.cursor.head, 2 * 10 + 2);
+        app.handle_at(mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2), t0);
+        // 拖拽形成选区
+        app.handle_at(mouse(MouseEventKind::Drag(left), 4, 5 + 4), t0);
+        assert_eq!(app.editor.selection(), Some(2 * 10 + 2..4 * 10));
+        // 拖到正文下方并保持不动：每 50 ms 滚动一行，选区跟着延伸；松开后停止
+        let top = app.viewport.top.line;
+        app.handle_at(mouse(MouseEventKind::Drag(left), 10, 23), t0);
+        assert_eq!(app.next_deadline(), Some(t0 + DRAG_SCROLL_INTERVAL));
+        for k in 1..=10 {
+            app.tick(t0 + DRAG_SCROLL_INTERVAL * k);
+        }
+        assert_eq!(app.viewport.top.line, top + 10, "持续滚动");
+        let sel = app.editor.selection().unwrap();
+        assert_eq!(sel.start, 2 * 10 + 2);
+        assert!(sel.end > 20 * 10, "{sel:?}");
+        app.handle_at(mouse(MouseEventKind::Up(left), 10, 23), t0);
+        app.tick(t0 + DRAG_SCROLL_INTERVAL * 20);
+        assert_eq!(app.viewport.top.line, top + 10, "松开后停止");
+        // 滚轮只移动视口；光标离开 scrolloff 区间时被拉回边缘，始终可见
+        let line = |app: &App| app.editor.doc().body().char_to_line(app.editor.cursor.head);
+        let (top, cursor_line) = (app.viewport.top.line, line(&app));
+        app.handle_at(mouse(MouseEventKind::ScrollDown, 10, 10), t0);
+        assert_eq!(
+            (app.viewport.top.line, line(&app)),
+            (top + 3, cursor_line),
+            "光标仍在区间内：不动"
+        );
+        for _ in 0..10 {
+            app.handle_at(mouse(MouseEventKind::ScrollDown, 10, 10), t0);
+        }
+        assert_eq!(app.viewport.top.line, top + 33);
+        assert_eq!(line(&app), top + 33 + 3, "被拉到上边缘（scrolloff 3）");
+        // 鼠标关闭：完全忽略鼠标事件
+        let mut off = mouse_app(&text, false);
+        off.handle(mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2));
+        assert_eq!(off.editor.cursor.head, 0);
+    }
+
+    #[test]
+    fn vim_normal_drag_enters_visual() {
+        let doc = Document::parse(
+            "hello world\nsecond",
+            crate::editor::document::FileMeta::new(None),
+        );
+        let config = Config {
+            vim: true,
+            mouse: true,
+            autosave: false,
+            ..Config::default()
+        };
+        let mut app = App::with_config(doc, Size::new(80, 24), &config);
+        typed(&mut app, "\x1b");
+        app.handle(mouse(MouseEventKind::Down(MouseButton::Left), 4, 5));
+        app.handle(mouse(MouseEventKind::Drag(MouseButton::Left), 4 + 6, 5));
+        assert_eq!(app.mode_label(), Some("VIS"));
+        typed(&mut app, "d");
+        assert_eq!(
+            (body(&app).as_str(), app.mode_label()),
+            ("world\nsecond", Some("NOR"))
+        );
+    }
+
+    #[test]
+    fn click_from_title_returns_to_body() {
+        let mut app = mouse_app("# T\n\nabc", true);
+        app.handle(press(KeyCode::Up));
+        assert_eq!(app.editor.focus, crate::editor::Focus::Title);
+        app.handle(mouse(MouseEventKind::Down(MouseButton::Left), 4 + 2, 5));
+        assert_eq!(
+            (app.editor.focus, app.editor.cursor.head),
+            (crate::editor::Focus::Body, 2)
+        );
+    }
+
+    #[test]
+    fn typewriter_toggle_and_config() {
+        let text: String = (0..100).map(|i| format!("{i}\n")).collect();
+        let doc = Document::parse(&text, crate::editor::document::FileMeta::new(None));
+        let config = Config {
+            typewriter: true,
+            autosave: false,
+            ..Config::default()
+        };
+        let mut app = App::with_config(doc, Size::new(80, 24), &config);
+        let body = app.layout().body; // 高 14 → 中线第 7 行
+        app.sync_body(body);
+        assert_eq!(app.viewport.top_padding, 7);
+        for _ in 0..30 {
+            app.handle(press(KeyCode::Down));
+            let cur = app.editor.cursor;
+            let (doc, wrap, _) = app.editor.view();
+            let pos = cur.visual(doc.body(), wrap);
+            let row = app.viewport.top_padding as isize
+                + wrap.rows_between(
+                    doc.body(),
+                    (app.viewport.top.line, app.viewport.top.row),
+                    (pos.line, pos.row),
+                );
+            assert_eq!(row, 7);
+        }
+        app.handle(Event::Key(KeyEvent::new(
+            KeyCode::Char('t'),
+            KeyModifiers::CONTROL,
+        )));
+        assert!(!app.viewport.typewriter);
+        assert_eq!(app.viewport.top_padding, 0);
+    }
+
+    #[test]
+    fn config_width_idle_and_startup_hint() {
+        let doc = Document::parse("", crate::editor::document::FileMeta::new(None));
+        let config = Config {
+            width: 50,
+            autosave_idle: Duration::from_millis(500),
+            ..Config::default()
+        };
+        let mut app = App::with_config(doc, Size::new(120, 40), &config);
+        assert_eq!(app.layout().body.width, 50);
+        assert_eq!(app.autosave_idle, Duration::from_millis(500));
+        let t0 = Instant::now();
+        app.show_startup_hint(t0);
+        assert_eq!(app.next_deadline(), Some(t0 + HINT_TTL));
+        app.tick(t0 + HINT_TTL);
+        assert_eq!(app.status.hint_until, None);
     }
 
     #[test]

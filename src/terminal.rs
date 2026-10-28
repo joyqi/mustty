@@ -3,21 +3,41 @@
 use std::io;
 
 use crossterm::cursor::SetCursorStyle;
-use crossterm::event::{DisableFocusChange, EnableFocusChange};
+use crossterm::event::{
+    DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture,
+};
 use crossterm::execute;
 use ratatui::DefaultTerminal;
 
-/// 持有终端；`Drop` 时恢复光标形状、raw mode 与 alternate screen，`?` 早退也不例外。
-/// panic 时由 `ratatui::try_init` 安装的 hook 先恢复终端再打印信息。
+/// 持有终端；`Drop` 时恢复鼠标、粘贴、焦点事件、光标形状、raw mode 与 alternate screen，
+/// `?` 早退也不例外。panic 时由下面包装的 hook 先恢复终端再打印信息。
 pub struct TerminalGuard {
     pub terminal: DefaultTerminal,
+    mouse: bool,
 }
 
 impl TerminalGuard {
-    pub fn new() -> io::Result<Self> {
+    /// `mouse` 为 false 时不执行 EnableMouseCapture，终端原生的拖选复制照常可用。
+    pub fn new(mouse: bool) -> io::Result<Self> {
         let guard = Self {
             terminal: ratatui::try_init()?,
+            mouse,
         };
+        if mouse {
+            execute!(io::stdout(), EnableMouseCapture)?;
+        }
+        // ratatui 的 hook 只恢复 raw mode 与 alternate screen：先关掉其余模式，再交给它打印 panic 信息
+        let ratatui_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let mut out = io::stdout();
+            if mouse {
+                let _ = execute!(out, DisableMouseCapture);
+            }
+            #[cfg(not(windows))]
+            let _ = execute!(out, crossterm::event::DisableBracketedPaste);
+            let _ = execute!(out, DisableFocusChange, SetCursorStyle::DefaultUserShape);
+            ratatui_hook(info);
+        }));
         // Windows 的 Console API 不产生 Event::Paste，改由 app::coalesce_paste 合并
         #[cfg(not(windows))]
         execute!(io::stdout(), crossterm::event::EnableBracketedPaste)?;
@@ -28,6 +48,9 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        if self.mouse {
+            let _ = execute!(io::stdout(), DisableMouseCapture);
+        }
         #[cfg(not(windows))]
         let _ = execute!(io::stdout(), crossterm::event::DisableBracketedPaste);
         let _ = execute!(

@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 use ropey::Rope;
 use unicode_width::UnicodeWidthStr;
@@ -101,16 +101,36 @@ pub struct BodyWidget<'a> {
     pub wrap: &'a mut WrapCache,
     pub highlight: &'a mut HighlightCache,
     pub top: ViewTop,
+    /// Typewriter 模式在文档开头时的上方留白行数
+    pub top_padding: u16,
     /// 全局 char 区间
     pub selection: Option<Range<usize>>,
+    /// Focus 模式：当前段落的逻辑行区间，之外的行 DIM
+    pub focus: Option<Range<usize>>,
+    pub code_color: Color,
 }
 
 impl Widget for BodyWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let (mut line, mut row) = (self.top.line, self.top.row);
+        let code = self.code_color;
+        let dimmed = |line: usize| self.focus.as_ref().is_some_and(|f| !f.contains(&line));
+        let styles_of = |hl: &mut HighlightCache, line: usize, len: usize| {
+            let mut styles = line_styles(hl.ranges(self.rope, line), len, code);
+            if dimmed(line) {
+                styles
+                    .iter_mut()
+                    .for_each(|s| *s = s.add_modifier(Modifier::DIM));
+            }
+            styles
+        };
         let mut text = line_text(self.rope, line);
-        let mut styles = line_styles(self.highlight.ranges(self.rope, line), text.chars().count());
-        for y in area.top()..area.bottom() {
+        let mut styles = styles_of(self.highlight, line, text.chars().count());
+        let first = area
+            .top()
+            .saturating_add(self.top_padding)
+            .min(area.bottom());
+        for y in first..area.bottom() {
             let rows = self.wrap.rows(self.rope, line);
             let r = rows[row];
             let last_row = row + 1 == rows.len();
@@ -130,7 +150,7 @@ impl Widget for BodyWidget<'_> {
             } else if line + 1 < self.rope.len_lines() {
                 (line, row) = (line + 1, 0);
                 text = line_text(self.rope, line);
-                styles = line_styles(self.highlight.ranges(self.rope, line), text.chars().count());
+                styles = styles_of(self.highlight, line, text.chars().count());
             } else {
                 break;
             }
@@ -139,11 +159,11 @@ impl Widget for BodyWidget<'_> {
 }
 
 /// 把一行的样式区间按顺序叠加成每个 char 的样式（外层在前，内层覆盖）。
-fn line_styles(ranges: &[StyledRange], len: usize) -> Vec<Style> {
+fn line_styles(ranges: &[StyledRange], len: usize, code: Color) -> Vec<Style> {
     let mut styles = vec![Style::default(); len];
     for r in ranges {
         for s in &mut styles[r.start.min(len)..r.end.min(len)] {
-            *s = s.patch(theme::style(r.token));
+            *s = s.patch(theme::style(r.token, code));
         }
     }
     styles
@@ -157,6 +177,8 @@ pub struct StatusWidget<'a> {
     pub words: &'a str,
     /// `行:列` 或 `标题`
     pub position: &'a str,
+    /// 启动键位提示：在提示期内取代右段
+    pub hint: Option<&'a str>,
 }
 
 impl Widget for StatusWidget<'_> {
@@ -165,7 +187,11 @@ impl Widget for StatusWidget<'_> {
         let left_w = text_width(self.left);
         // 宽度不足时先省略位置，再省略字数，最后从左截断左段
         let full = format!("{} · {}", self.words, self.position);
-        let right = [full.as_str(), self.words]
+        let candidates = match self.hint {
+            Some(hint) => vec![hint],
+            None => vec![full.as_str(), self.words],
+        };
+        let right = candidates
             .into_iter()
             .find(|r| left_w + 1 + text_width(r) <= area.width);
         match right {

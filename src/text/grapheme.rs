@@ -1,9 +1,20 @@
 //! grapheme cluster 边界与显示宽度。所有偏移均为行内 char 偏移。
 
+use std::sync::atomic::{AtomicU16, Ordering};
+
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-pub const TAB_WIDTH: u16 = 4;
+/// Tab 的显示宽度。换行与渲染必须用同一个值，所以是进程级设置，启动时按配置设一次。
+static TAB_WIDTH: AtomicU16 = AtomicU16::new(4);
+
+pub fn set_tab_width(width: u16) {
+    TAB_WIDTH.store(width.max(1), Ordering::Relaxed);
+}
+
+pub fn tab_width() -> u16 {
+    TAB_WIDTH.load(Ordering::Relaxed)
+}
 
 /// 依次产出 `(char 起点, grapheme)`。
 pub fn graphemes(s: &str) -> impl Iterator<Item = (usize, &str)> {
@@ -32,10 +43,11 @@ pub fn next_boundary(s: &str, char_idx: usize) -> usize {
         .unwrap_or_else(|| s.chars().count())
 }
 
-/// grapheme 在第 `col` 列开始时的显示宽度：Tab 对齐到 `TAB_WIDTH`，其余至少 1。
+/// grapheme 在第 `col` 列开始时的显示宽度：Tab 对齐到 `tab_width()`，其余至少 1。
 pub fn grapheme_width(g: &str, col: u16) -> u16 {
     if g == "\t" {
-        TAB_WIDTH - col % TAB_WIDTH
+        let tab = tab_width();
+        tab - col % tab
     } else {
         (g.width() as u16).max(1)
     }

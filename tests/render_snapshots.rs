@@ -146,3 +146,60 @@ fn selection_is_reversed() {
     let b = draw(Some("hl.md"), MARKDOWN, 60, 24, &events);
     insta::assert_snapshot!(format!("{}\n{}", styled(&b), snapshot(b.clone())));
 }
+
+fn draw_with(
+    config: &mustty::config::Config,
+    raw: &str,
+    w: u16,
+    h: u16,
+    events: &[Event],
+    hint: bool,
+) -> TestBackend {
+    let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+    let meta = FileMeta::new(Some("notes.md".into()));
+    let mut app = App::with_config(Document::parse(raw, meta), Size::new(w, h), config);
+    if hint {
+        app.show_startup_hint(std::time::Instant::now());
+    }
+    for ev in events {
+        app.handle(ev.clone());
+    }
+    terminal.draw(|f| view::render(f, &mut app)).unwrap();
+    terminal.backend().clone()
+}
+
+#[test]
+fn typewriter_at_document_start_and_startup_hint() {
+    let config = mustty::config::Config {
+        typewriter: true,
+        ..Default::default()
+    };
+    // 40×12：正文高 6，光标行恒在第 3 行；文档开头上方留白
+    let b = draw_with(
+        &config,
+        "第一行\n第二行\n第三行\n",
+        40,
+        12,
+        &[key(KeyCode::Down)],
+        true,
+    );
+    insta::assert_snapshot!(snapshot(b));
+}
+
+#[test]
+fn focus_mode_dims_other_paragraphs_and_vim_label() {
+    let config = mustty::config::Config {
+        focus_mode: true,
+        vim: true,
+        ..Default::default()
+    };
+    let raw = "第一段第一行\n第一段第二行\n\n第二段（光标在这里）\n第二段续\n\n第三段\n";
+    let events = [
+        key(KeyCode::Esc),
+        key(KeyCode::Char('j')),
+        key(KeyCode::Char('j')),
+        key(KeyCode::Char('j')),
+    ];
+    let b = draw_with(&config, raw, 40, 12, &events, false);
+    insta::assert_snapshot!(format!("{}\n{}", styled(&b), snapshot(b.clone())));
+}

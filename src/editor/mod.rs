@@ -15,7 +15,7 @@ use std::time::Instant;
 use ropey::Rope;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::action::{Action, Motion};
+use crate::action::{Action, Motion, Target as MoveTarget};
 use crate::markdown::HighlightCache;
 use crate::text::count::count_words;
 use crate::text::grapheme::{next_boundary, prev_boundary};
@@ -121,6 +121,11 @@ impl Editor {
         match action {
             Action::Undo => self.undo(),
             Action::Redo => self.redo(),
+            &Action::MoveTo(target, extend) => {
+                self.history.seal();
+                self.move_to(target, extend);
+                return Effect::None;
+            }
             Action::Move(..) | Action::SelectAll | Action::Cancel => self.history.seal(),
             _ => {}
         }
@@ -243,6 +248,24 @@ impl Editor {
             Motion::WordEnd => c.set(Cursor::word_end(rope, head)),
         }
         self.cursor.anchor = anchor;
+    }
+
+    /// 鼠标定位：正文中按 `extend` 保留 / 建立选区；标题中只移动标题光标。
+    fn move_to(&mut self, target: MoveTarget, extend: bool) {
+        match target {
+            MoveTarget::Body(at) => {
+                let from_body = self.focus == Focus::Body;
+                self.focus = Focus::Body;
+                let anchor =
+                    (extend && from_body).then(|| self.cursor.anchor.unwrap_or(self.cursor.head));
+                self.cursor.set(at.min(self.doc.body().len_chars()));
+                self.cursor.anchor = anchor;
+            }
+            MoveTarget::Title(at) => {
+                self.focus = Focus::Title;
+                self.title_cursor = at.min(self.doc.title_text().chars().count());
+            }
+        }
     }
 
     fn paste_register(&mut self, now: Instant) {

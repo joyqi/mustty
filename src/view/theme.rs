@@ -4,7 +4,8 @@ use ratatui::style::{Color, Modifier, Style};
 
 use crate::markdown::Token;
 
-pub fn style(token: Token) -> Style {
+/// `code` 为行内代码与代码块的前景色（配置项 code_color，限 8 个 ANSI 基本色）。
+pub fn style(token: Token, code: Color) -> Style {
     let m = |m: Modifier| Style::default().add_modifier(m);
     match token {
         Token::HeadingMark
@@ -19,7 +20,7 @@ pub fn style(token: Token) -> Style {
         | Token::Rule => m(Modifier::DIM),
         Token::Heading(_) | Token::Strong => m(Modifier::BOLD),
         Token::Emph | Token::Quote => m(Modifier::ITALIC),
-        Token::Code | Token::FencedCode => Style::default().fg(Color::Cyan),
+        Token::Code | Token::FencedCode => Style::default().fg(code),
         Token::LinkText => m(Modifier::UNDERLINED),
     }
 }

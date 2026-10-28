@@ -100,6 +100,8 @@ pub struct StatusModel {
     pub externally_modified: bool,
     /// 显示的字数（标题 + 正文）
     pub words: usize,
+    /// 启动键位提示的截止时刻
+    pub hint_until: Option<Instant>,
 }
 
 impl StatusModel {

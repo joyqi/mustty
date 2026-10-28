@@ -1,4 +1,5 @@
 pub mod layout;
+pub mod mouse;
 pub mod theme;
 pub mod viewport;
 pub mod widgets;
@@ -11,12 +12,13 @@ use crate::app::App;
 use crate::editor::Focus;
 use crate::io::file::IoError;
 use crate::status::StatusModel;
-use layout::{MEASURE, compute_layout};
+use crate::text::wrap::line_text;
+use layout::compute_layout;
 use widgets::{BodyWidget, PromptWidget, StatusWidget, TitleWidget, text_width};
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
-    let layout = compute_layout(area, MEASURE);
+    let layout = compute_layout(area, app.measure());
     if layout.too_small {
         // 不设置光标位置 → ratatui 隐藏硬件光标
         frame.buffer_mut().set_stringn(
@@ -59,9 +61,16 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
 
     let top = app.viewport.top;
+    let padding = app.viewport.top_padding;
     let focus = ed.focus;
     let caret = ed.cursor;
     let selection = ed.selection();
+    let paragraph = (app.focus_mode && focus == Focus::Body).then(|| {
+        let rope = ed.doc().body();
+        let visible_end = (top.line + body.height as usize + 1).min(rope.len_lines());
+        current_paragraph(rope, rope.char_to_line(caret.head), top.line, visible_end)
+    });
+    let code_color = app.code_color;
     let (doc, wrap, highlight) = app.editor.view();
     frame.render_widget(
         BodyWidget {
@@ -69,14 +78,18 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             wrap,
             highlight,
             top,
+            top_padding: padding,
             selection,
+            focus: paragraph,
+            code_color,
         },
         body,
     );
     if focus == Focus::Body {
         let (doc, wrap, _) = app.editor.view();
         let pos = caret.visual(doc.body(), wrap);
-        let dy = wrap.rows_between(doc.body(), (top.line, top.row), (pos.line, pos.row));
+        let dy = padding as isize
+            + wrap.rows_between(doc.body(), (top.line, top.row), (pos.line, pos.row));
         if (0..body.height as isize).contains(&dy) {
             // 写满一行的行尾、悬挂空白之后：光标放在正文右侧第一格，不与最后一个字重叠
             let x = (body.x + pos.col.min(body.width)).min(area.right() - 1);
@@ -108,6 +121,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     (format!("{name}{mark}"), Modifier::DIM.into())
                 }
             };
+            let left = match app.mode_label() {
+                Some(mode) => format!("{mode} {left}"),
+                None => left,
+            };
             let position = match ed.focus {
                 Focus::Title => "标题".to_owned(),
                 Focus::Body => StatusModel::position(ed.doc().body(), ed.cursor.head),
@@ -118,6 +135,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     left_style,
                     words: &status.words_label(),
                     position: &position,
+                    hint: status.hint_until.map(|_| "^S 保存  ^Q 退出"),
                 },
                 r,
             );
@@ -127,4 +145,26 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     if let Some(p) = cursor {
         frame.set_cursor_position(p);
     }
+}
+
+/// 光标所在段落（相邻非空行）的逻辑行区间，只在 `[lo, hi)` 内查找（可见范围之外无需判断）。
+fn current_paragraph(
+    rope: &ropey::Rope,
+    line: usize,
+    lo: usize,
+    hi: usize,
+) -> std::ops::Range<usize> {
+    let blank = |l: usize| line_text(rope, l).trim().is_empty();
+    if blank(line) {
+        return line..line + 1;
+    }
+    let mut start = line;
+    while start > lo && !blank(start - 1) {
+        start -= 1;
+    }
+    let mut end = line + 1;
+    while end < hi && !blank(end) {
+        end += 1;
+    }
+    start..end
 }

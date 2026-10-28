@@ -30,6 +30,10 @@ pub enum Action {
     ToggleTypewriter,
     ToggleFocusMode,
     PromptInput(KeyEvent),
+    /// 鼠标单击 / 拖拽：直接定位到 char 索引；`bool` 为是否扩展选区
+    MoveTo(Target, bool),
+    /// 鼠标滚轮：由 App / Viewport 消费，不进入 `Editor::apply`
+    ScrollView(i32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,4 +54,11 @@ pub enum Motion {
     WordRight,
     /// 当前或下一个词尾（仅 vim `e` 绑定）
     WordEnd,
+}
+
+/// 鼠标定位的目标：正文全局 char 索引，或标题内 char 索引。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    Body(usize),
+    Title(usize),
 }

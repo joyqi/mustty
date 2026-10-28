@@ -1,0 +1,18 @@
+---
+source: tests/render_snapshots.rs
+expression: snapshot(b)
+---
+"                                        "
+"                 notes                  "
+"                                        "
+"                                        "
+"                                        "
+"  第一行                                " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"  第二行                                " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"  第三行                                " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"                                        "
+"                                        "
+"  notes.md            ^S 保存  ^Q 退出  " Hidden by multi-width symbols: [(26, " "), (28, " "), (35, " "), (37, " ")]
+"                                        "
+
+cursor: Position { x: 2, y: 6 } visible: true

@@ -1,0 +1,25 @@
+---
+source: tests/render_snapshots.rs
+expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
+---
+ 1: "notes" DIM
+ 3: "第" DIM | "一" DIM | "段" DIM | "第" DIM | "一" DIM | "行" DIM
+ 4: "第" DIM | "一" DIM | "段" DIM | "第" DIM | "二" DIM | "行" DIM
+ 6: "  第 二 段 （ 光 标 在 这 里 ）" NONE
+ 7: "  第 二 段 续" NONE
+10: "NOR notes.md" DIM | "27 字" DIM | " · 4:1" DIM
+
+"                                        "
+"                 notes                  "
+"                                        "
+"  第一段第一行                          " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " "), (9, " "), (11, " "), (13, " ")]
+"  第一段第二行                          " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " "), (9, " "), (11, " "), (13, " ")]
+"                                        "
+"  第二段（光标在这里）                  " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " "), (19, " "), (21, " ")]
+"  第二段续                              " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " "), (9, " ")]
+"                                        "
+"                                        "
+"  NOR notes.md             27 字 · 4:1  " Hidden by multi-width symbols: [(31, " ")]
+"                                        "
+
+cursor: Position { x: 2, y: 6 } visible: true
