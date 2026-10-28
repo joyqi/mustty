@@ -3,38 +3,21 @@ source: tests/render_snapshots.rs
 expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 ---
  6: "Keys" BOLD
- 8: "    a b c… 中 文" NONE | "Type text (including IME input)" DIM
- 9: "    Enter" NONE | "New line (in the title: go to the body)" DIM
-10: "    Backspace" NONE | "Delete the previous character or the selection" DIM
-11: "    Delete" NONE | "Delete the next character or the selection" DIM
+ 8: "    ↑↓←→ Home End PgUp PgDn" NONE | "Move the cursor" DIM
+ 9: "    Ctrl+← / Ctrl+→" NONE | "Previous / next word" DIM
+10: "    Ctrl+Home / Ctrl+End" NONE | "Start / end of the document" DIM
+11: "    Shift+↑↓←→" NONE | "Extend the selection (Shift + any move key)" DIM
 12: "    Ctrl+Backspace / Ctrl+W" NONE | "Delete the previous word" DIM
-13: "    Tab" NONE | "Insert spaces (tab width)" DIM
-14: "    ←" NONE | "Left" DIM
-15: "    →" NONE | "Right" DIM
-16: "    ↑" NONE | "Up a line (on the first line: into the title)" DIM
-17: "    ↓" NONE | "Down a line" DIM
-18: "    Ctrl+← / Alt+B" NONE | "Previous word" DIM
-19: "    Ctrl+→ / Alt+F" NONE | "Next word" DIM
-20: "    Home" NONE | "Start of the screen line" DIM
-21: "    End" NONE | "End of the screen line" DIM
-22: "    PageUp" NONE | "Page up" DIM
-23: "    PageDown" NONE | "Page down" DIM
-24: "    Ctrl+Home" NONE | "Start of the document" DIM
-25: "    Ctrl+End" NONE | "End of the document" DIM
-26: "    Shift+→" NONE | "Extend the selection (Shift + any move key)" DIM
-27: "    Ctrl+A" NONE | "Select the whole body" DIM
-28: "    Ctrl+C" NONE | "Copy (also to the system clipboard via OSC 52)" DIM
-29: "    Ctrl+X" NONE | "Cut" DIM
-30: "    Ctrl+V" NONE | "Paste from the internal register" DIM
-31: "    Ctrl+Z" NONE | "Undo" DIM
-32: "    Ctrl+Y" NONE | "Redo" DIM
-33: "    Esc" NONE | "Clear the selection / close the save prompt" DIM
-34: "    Ctrl+S" NONE | "Save" DIM
-35: "    Ctrl+Q" NONE | "Quit (twice if changes cannot be saved)" DIM
-36: "    Ctrl+T" NONE | "Typewriter mode" DIM
-37: "    Ctrl+F" NONE | "Focus mode" DIM
-38: "    Ctrl+P" NONE | "Settings" DIM
-39: "    Ctrl+G" NONE | "This list of keys" DIM
+13: "    Ctrl+A" NONE | "Select the whole body" DIM
+14: "    Ctrl+C / Ctrl+X / Ctrl+V" NONE | "Copy / cut / paste (copies also via OSC 52)" DIM
+15: "    Ctrl+Z / Ctrl+Y" NONE | "Undo / redo" DIM
+16: "    Esc" NONE | "Clear the selection / close the save prompt" DIM
+17: "    Ctrl+S" NONE | "Save" DIM
+18: "    Ctrl+Q" NONE | "Quit (twice if changes cannot be saved)" DIM
+19: "    Ctrl+T" NONE | "Typewriter mode" DIM
+20: "    Ctrl+F" NONE | "Focus mode" DIM
+21: "    Ctrl+P" NONE | "Settings" DIM
+22: "    Ctrl+G" NONE | "This list of keys" DIM
 43: "↑↓ PgUp/PgDn Home/End scroll  Esc close" DIM
 
 "                                                                                "
@@ -45,38 +28,38 @@ expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 "                                                                                "
 "                                      Keys                                      "
 "                                                                                "
-"    a b c… 中文              Type text (including IME input)                    " Hidden by multi-width symbols: [(12, " "), (14, " ")]
-"    Enter                    New line (in the title: go to the body)            "
-"    Backspace                Delete the previous character or the selection     "
-"    Delete                   Delete the next character or the selection         "
-"    Ctrl+Backspace / Ctrl+W  Delete the previous word                           "
-"    Tab                      Insert spaces (tab width)                          "
-"    ←                        Left                                               "
-"    →                        Right                                              "
-"    ↑                        Up a line (on the first line: into the title)      "
-"    ↓                        Down a line                                        "
-"    Ctrl+← / Alt+B           Previous word                                      "
-"    Ctrl+→ / Alt+F           Next word                                          "
-"    Home                     Start of the screen line                           "
-"    End                      End of the screen line                             "
-"    PageUp                   Page up                                            "
-"    PageDown                 Page down                                          "
-"    Ctrl+Home                Start of the document                              "
-"    Ctrl+End                 End of the document                                "
-"    Shift+→                  Extend the selection (Shift + any move key)        "
-"    Ctrl+A                   Select the whole body                              "
-"    Ctrl+C                   Copy (also to the system clipboard via OSC 52)     "
-"    Ctrl+X                   Cut                                                "
-"    Ctrl+V                   Paste from the internal register                   "
-"    Ctrl+Z                   Undo                                               "
-"    Ctrl+Y                   Redo                                               "
-"    Esc                      Clear the selection / close the save prompt        "
-"    Ctrl+S                   Save                                               "
-"    Ctrl+Q                   Quit (twice if changes cannot be saved)            "
-"    Ctrl+T                   Typewriter mode                                    "
-"    Ctrl+F                   Focus mode                                         "
-"    Ctrl+P                   Settings                                           "
-"    Ctrl+G                   This list of keys                                  "
+"    ↑↓←→ Home End PgUp PgDn   Move the cursor                                   "
+"    Ctrl+← / Ctrl+→           Previous / next word                              "
+"    Ctrl+Home / Ctrl+End      Start / end of the document                       "
+"    Shift+↑↓←→                Extend the selection (Shift + any move key)       "
+"    Ctrl+Backspace / Ctrl+W   Delete the previous word                          "
+"    Ctrl+A                    Select the whole body                             "
+"    Ctrl+C / Ctrl+X / Ctrl+V  Copy / cut / paste (copies also via OSC 52)       "
+"    Ctrl+Z / Ctrl+Y           Undo / redo                                       "
+"    Esc                       Clear the selection / close the save prompt       "
+"    Ctrl+S                    Save                                              "
+"    Ctrl+Q                    Quit (twice if changes cannot be saved)           "
+"    Ctrl+T                    Typewriter mode                                   "
+"    Ctrl+F                    Focus mode                                        "
+"    Ctrl+P                    Settings                                          "
+"    Ctrl+G                    This list of keys                                 "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
 "                                                                                "
 "                                                                                "
 "                                                                                "

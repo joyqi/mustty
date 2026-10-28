@@ -1,8 +1,12 @@
 //! 键位帮助（Ctrl+G，vim Normal 态 `?`）：内容表与面板状态机。渲染见 `view::help`。
 //!
+//! 只列特殊的、不容易猜到的键：Enter、Backspace、Tab、打字这类任何编辑器都一样的不列，
+//! 方向键 / Home / End / PgUp / PgDn 合并成一条「移动」。
+//!
 //! 每一条 `Entry` 都写明它在 `Keymap::map_event` 里应当得到什么（`Expect`），由测试逐条喂给
-//! keymap 核对；反过来，keymap 能产生的每种 Action、Motion 与模式切换也必须出现在这张表里。
-//! 所以帮助里写的「Ctrl+S 保存」由测试保证是真的，改了键位而忘了改帮助会让测试失败。
+//! keymap 核对；反过来，keymap 能产生的每种 Action（常规输入除外）、Motion 与模式切换也必须
+//! 被这张表覆盖。所以帮助里写的「Ctrl+S 保存」由测试保证是真的，新增了快捷键而忘了写进帮助
+//! 会让测试失败。
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -11,55 +15,52 @@ use crate::keymap::{Mode, NormalState};
 
 /// 一条键位在 keymap 里应当产生的结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Expect {
-    /// 最后一个键返回的 Action（之前的键必须返回 None）
-    pub action: Option<Action>,
-    /// 按完之后的模式；None 表示模式不变
-    pub mode: Option<Mode>,
-    /// 「输入任意可打印字符」这一条：没有固定的按键，测试改用一组样例字符核对它们都插入自身
-    pub typing: bool,
+pub enum Expect {
+    /// 按下这串键：最后一个键返回 `action`（之前的键必须返回 None），按完之后处于 `mode`
+    /// （None 表示模式不变）
+    Key {
+        action: Option<Action>,
+        mode: Option<Mode>,
+    },
+    /// 常规移动的合并项：其中每个键单独按下都得到 `Move(_, extend)`，模式不变
+    Moves { extend: bool },
 }
 
 impl Expect {
     pub fn action(a: Action) -> Self {
-        Self {
+        Self::Key {
             action: Some(a),
             mode: None,
-            typing: false,
-        }
-    }
-
-    fn typing() -> Self {
-        Self {
-            action: None,
-            mode: None,
-            typing: true,
         }
     }
 
     fn then(self, mode: Mode) -> Self {
-        Self {
+        let Self::Key { action, .. } = self else {
+            unreachable!("合并的移动项不切换模式");
+        };
+        Self::Key {
+            action,
             mode: Some(mode),
-            ..self
         }
     }
 
     fn mode(mode: Mode) -> Self {
-        Self {
+        Self::Key {
             action: None,
             mode: Some(mode),
-            typing: false,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    /// 显示的键位（不翻译）；` / ` 分隔的几种写法结果相同，测试逐个核对
+    /// 显示的键位（不翻译），` / ` 分隔几种写法，测试逐个核对。`Expect::Moves` 里空格也分隔，
+    /// 且 `↑↓←→` 这样连写的方向键各算一个键
     pub keys: &'static str,
     /// 说明文字的 i18n id
     pub desc_id: &'static str,
-    pub expect: Expect,
+    /// 一个：所有写法结果相同；多个：与 ` / ` 分隔的写法一一对应（`Ctrl+Z / Ctrl+Y` 撤销 / 重做）
+    pub expect: Vec<Expect>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +82,11 @@ const VISUAL: Mode = Mode::Normal(NormalState {
 });
 
 fn entry(keys: &'static str, desc_id: &'static str, expect: Expect) -> Entry {
+    each(keys, desc_id, vec![expect])
+}
+
+/// 几种写法各有各的结果，合成一条显示。
+fn each(keys: &'static str, desc_id: &'static str, expect: Vec<Expect>) -> Entry {
     Entry {
         keys,
         desc_id,
@@ -93,7 +99,7 @@ fn mv(m: Motion, extend: bool) -> Expect {
 }
 
 /// 默认模式（也是 vim 的 Insert 态）。只有 `Esc` 在两者之间不同。
-fn base_entries(vim: bool, tab_width: u16) -> Vec<Entry> {
+fn base_entries(vim: bool) -> Vec<Entry> {
     use Action::*;
     use Motion::*;
     let a = Expect::action;
@@ -103,35 +109,34 @@ fn base_entries(vim: bool, tab_width: u16) -> Vec<Entry> {
         entry("Esc", "help-esc", a(Cancel))
     };
     vec![
-        entry("a b c… 中文", "help-typing", Expect::typing()),
-        entry("Enter", "help-newline", a(Newline)),
-        entry("Backspace", "help-delete-back", a(DeleteBack)),
-        entry("Delete", "help-delete-forward", a(DeleteForward)),
+        entry(
+            "↑↓←→ Home End PgUp PgDn",
+            "help-move",
+            Expect::Moves { extend: false },
+        ),
+        each(
+            "Ctrl+← / Ctrl+→",
+            "help-word-move",
+            vec![mv(WordLeft, false), mv(WordRight, false)],
+        ),
+        each(
+            "Ctrl+Home / Ctrl+End",
+            "help-doc-ends",
+            vec![mv(DocStart, false), mv(DocEnd, false)],
+        ),
+        entry("Shift+↑↓←→", "help-extend", Expect::Moves { extend: true }),
         entry(
             "Ctrl+Backspace / Ctrl+W",
             "help-delete-word",
             a(DeleteWordBack),
         ),
-        entry("Tab", "help-tab", a(Insert(" ".repeat(tab_width as usize)))),
-        entry("←", "help-left", mv(Left, false)),
-        entry("→", "help-right", mv(Right, false)),
-        entry("↑", "help-up", mv(Up, false)),
-        entry("↓", "help-down", mv(Down, false)),
-        entry("Ctrl+← / Alt+B", "help-word-left", mv(WordLeft, false)),
-        entry("Ctrl+→ / Alt+F", "help-word-right", mv(WordRight, false)),
-        entry("Home", "help-line-start", mv(LineStart, false)),
-        entry("End", "help-line-end", mv(LineEnd, false)),
-        entry("PageUp", "help-page-up", mv(PageUp, false)),
-        entry("PageDown", "help-page-down", mv(PageDown, false)),
-        entry("Ctrl+Home", "help-doc-start", mv(DocStart, false)),
-        entry("Ctrl+End", "help-doc-end", mv(DocEnd, false)),
-        entry("Shift+→", "help-extend", mv(Right, true)),
         entry("Ctrl+A", "help-select-all", a(SelectAll)),
-        entry("Ctrl+C", "help-copy", a(Copy)),
-        entry("Ctrl+X", "help-cut", a(Cut)),
-        entry("Ctrl+V", "help-paste", a(PasteRegister)),
-        entry("Ctrl+Z", "help-undo", a(Undo)),
-        entry("Ctrl+Y", "help-redo", a(Redo)),
+        each(
+            "Ctrl+C / Ctrl+X / Ctrl+V",
+            "help-clipboard",
+            vec![a(Copy), a(Cut), a(PasteRegister)],
+        ),
+        each("Ctrl+Z / Ctrl+Y", "help-undo-redo", vec![a(Undo), a(Redo)]),
         esc,
         entry("Ctrl+S", "help-save", a(Save)),
         entry("Ctrl+Q", "help-quit", a(Quit)),
@@ -189,19 +194,19 @@ fn visual_entries() -> Vec<Entry> {
 }
 
 /// 帮助的全部内容：默认模式一张表；vim 下分 Insert / Normal / Visual 三组。
-pub fn groups(vim: bool, tab_width: u16) -> Vec<Group> {
+pub fn groups(vim: bool) -> Vec<Group> {
     if !vim {
         return vec![Group {
             title_id: None,
             mode: Mode::Insert,
-            entries: base_entries(false, tab_width),
+            entries: base_entries(false),
         }];
     }
     vec![
         Group {
             title_id: Some("help-group-insert"),
             mode: Mode::Insert,
-            entries: base_entries(true, tab_width),
+            entries: base_entries(true),
         },
         Group {
             title_id: Some("help-group-normal"),
@@ -229,7 +234,7 @@ pub enum Line {
 pub fn ids() -> Vec<&'static str> {
     [false, true]
         .into_iter()
-        .flat_map(|vim| lines(vim, 4))
+        .flat_map(lines)
         .filter_map(|l| match l {
             Line::Title(id) | Line::Entry(_, id) => Some(id),
             Line::Blank => None,
@@ -238,9 +243,9 @@ pub fn ids() -> Vec<&'static str> {
 }
 
 /// 展开成逐行内容：组之间空一行，组标题单独一行。
-pub fn lines(vim: bool, tab_width: u16) -> Vec<Line> {
+pub fn lines(vim: bool) -> Vec<Line> {
     let mut out = Vec::new();
-    for (i, g) in groups(vim, tab_width).into_iter().enumerate() {
+    for (i, g) in groups(vim).into_iter().enumerate() {
         if i > 0 {
             out.push(Line::Blank);
         }
@@ -311,7 +316,18 @@ impl Help {
     }
 }
 
-/// 把 `Ctrl+Shift+→`、`PageUp`、`gg` 这类写法还原成按键序列。
+/// 方向键符号对应的按键，其余字符原样。
+fn char_key(c: char) -> KeyCode {
+    match c {
+        '←' => KeyCode::Left,
+        '→' => KeyCode::Right,
+        '↑' => KeyCode::Up,
+        '↓' => KeyCode::Down,
+        c => KeyCode::Char(c),
+    }
+}
+
+/// 把 `Ctrl+Shift+→`、`PgUp`、`gg`、`Shift+↑↓` 这类写法还原成按键序列。
 pub fn parse_keys(keys: &str) -> Vec<KeyEvent> {
     let mut mods = KeyModifiers::NONE;
     let mut rest = keys;
@@ -333,24 +349,20 @@ pub fn parse_keys(keys: &str) -> Vec<KeyEvent> {
         "Esc" => Some(KeyCode::Esc),
         "Home" => Some(KeyCode::Home),
         "End" => Some(KeyCode::End),
-        "PageUp" => Some(KeyCode::PageUp),
-        "PageDown" => Some(KeyCode::PageDown),
-        "←" => Some(KeyCode::Left),
-        "→" => Some(KeyCode::Right),
-        "↑" => Some(KeyCode::Up),
-        "↓" => Some(KeyCode::Down),
+        "PgUp" | "PageUp" => Some(KeyCode::PageUp),
+        "PgDn" | "PageDown" => Some(KeyCode::PageDown),
         _ => None,
     };
     match named {
         Some(code) => vec![KeyEvent::new(code, mods)],
-        // 修饰键后的字母按小写（Ctrl+S 即 Ctrl+s）；没有修饰键时是逐个字符的序列（gg、dd、$）
+        // 修饰键后的字母按小写（Ctrl+S 即 Ctrl+s）；没有修饰键时是逐个字符的序列（gg、dd、$、↑↓）
         None if mods != KeyModifiers::NONE => rest
             .chars()
-            .map(|c| KeyEvent::new(KeyCode::Char(c.to_ascii_lowercase()), mods))
+            .map(|c| KeyEvent::new(char_key(c.to_ascii_lowercase()), mods))
             .collect(),
         None => rest
             .chars()
-            .map(|c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
+            .map(|c| KeyEvent::new(char_key(c), KeyModifiers::NONE))
             .collect(),
     }
 }
@@ -382,34 +394,59 @@ mod tests {
         (last, mode)
     }
 
+    /// `Expect::Moves` 项里的每个键（写法之间用空格或 ` / ` 分隔，`↑↓←→` 各算一个）。
+    fn move_keys(keys: &str) -> Vec<KeyEvent> {
+        keys.split([' ', '/'])
+            .filter(|w| !w.is_empty())
+            .flat_map(parse_keys)
+            .collect()
+    }
+
     #[test]
     fn every_entry_matches_the_keymap() {
         let mut checked = 0;
         for vim in [false, true] {
-            for g in groups(vim, TAB) {
+            for g in groups(vim) {
                 for e in &g.entries {
-                    if e.expect.typing {
-                        // 没有固定按键：样例字符（含空格、标点、汉字、假名）都插入自身，模式不变
-                        for c in ['a', 'Z', '7', ' ', '#', '中', 'あ'] {
-                            let k = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
-                            assert_eq!(
-                                press(vim, g.mode, &[k]),
-                                (Some(Action::Insert(c.to_string())), g.mode),
-                                "vim={vim} {:?} 组：输入 {c:?}",
-                                g.title_id
+                    if let [Expect::Moves { extend }] = e.expect[..] {
+                        let keys = move_keys(e.keys);
+                        assert!(keys.len() >= 4, "{:?}", e.keys);
+                        for k in keys {
+                            let (action, mode) = press(vim, g.mode, &[k]);
+                            assert!(
+                                matches!(action, Some(Action::Move(_, x)) if x == extend)
+                                    && mode == g.mode,
+                                "vim={vim} {:?} 组的 {:?}（{}）里 {k:?} 得到 {action:?} / {mode:?}",
+                                g.title_id,
+                                e.keys,
+                                e.desc_id
                             );
                             checked += 1;
                         }
                         continue;
                     }
-                    for alt in e.keys.split(" / ") {
+                    let alts: Vec<&str> = e.keys.split(" / ").collect();
+                    assert!(
+                        e.expect.len() == 1 || e.expect.len() == alts.len(),
+                        "{:?}：{} 种写法却有 {} 个期望",
+                        e.keys,
+                        alts.len(),
+                        e.expect.len()
+                    );
+                    for (i, alt) in alts.iter().enumerate() {
+                        let Expect::Key {
+                            action: want,
+                            mode: want_mode,
+                        } = &e.expect[i.min(e.expect.len() - 1)]
+                        else {
+                            panic!("{:?}：Moves 只能单独使用", e.keys);
+                        };
                         let keys = parse_keys(alt);
                         assert!(!keys.is_empty(), "{alt:?}");
                         let (action, mode) = press(vim, g.mode, &keys);
-                        let want_mode = e.expect.mode.unwrap_or(g.mode);
                         assert_eq!(
                             (&action, mode),
-                            (&e.expect.action, want_mode),
+                            (want, want_mode.unwrap_or(g.mode)),
                             "vim={vim} {:?} 组的 {alt:?}（{}）与 keymap 不符",
                             g.title_id,
                             e.desc_id
@@ -468,26 +505,85 @@ mod tests {
         out
     }
 
+    /// 任何文本编辑器都一样的常规输入：帮助里不列，反向测试也不要求。没有通配分支，
+    /// 新增 Action 变体时必须在这里表态——默认（false）就是要求它出现在帮助里。
+    fn conventional(a: &Action) -> bool {
+        match a {
+            Action::Insert(_) | Action::Newline | Action::DeleteBack | Action::DeleteForward => {
+                true
+            }
+            // 不由按键产生（粘贴事件、保存提示行、鼠标），出现在这里说明 keymap 变了，要写进帮助
+            Action::Paste(_)
+            | Action::PromptInput(_)
+            | Action::MoveTo(..)
+            | Action::ScrollView(_) => false,
+            Action::DeleteWordBack
+            | Action::Move(..)
+            | Action::Undo
+            | Action::Redo
+            | Action::Save
+            | Action::Quit
+            | Action::Cancel
+            | Action::SelectAll
+            | Action::Copy
+            | Action::Cut
+            | Action::PasteRegister
+            | Action::DeleteLine
+            | Action::OpenLineBelow
+            | Action::ToggleTypewriter
+            | Action::ToggleFocusMode
+            | Action::OpenSettings
+            | Action::OpenHelp => false,
+        }
+    }
+
     #[test]
     fn every_binding_appears_in_help() {
-        // 帮助里写到的 Action 变体、Motion 与模式切换
+        // 帮助覆盖到的 Action 变体、Motion 与模式切换。合并的移动项不逐个写 Motion，
+        // 它覆盖的就是其中各键实际得到的 Motion（前一个测试已核对它们都是移动）。
         let mut variants = BTreeSet::new();
         let mut motions = BTreeSet::new();
         let mut switches = BTreeSet::new();
         for vim in [false, true] {
-            for g in groups(vim, TAB) {
+            for g in groups(vim) {
                 for e in &g.entries {
-                    if let Some(a) = &e.expect.action {
-                        variants.insert(format!("{:?}", discriminant(a)));
-                        if let Action::Move(m, _) = a {
-                            motions.insert(format!("{m:?}"));
+                    for x in &e.expect {
+                        match x {
+                            Expect::Key { action, mode } => {
+                                if let Some(a) = action {
+                                    variants.insert(format!("{:?}", discriminant(a)));
+                                    if let Action::Move(m, _) = a {
+                                        motions.insert(format!("{m:?}"));
+                                    }
+                                }
+                                if let Some(m) = mode {
+                                    switches.insert(format!("{:?} → {m:?}", g.mode));
+                                }
+                            }
+                            Expect::Moves { .. } => {
+                                for k in move_keys(e.keys) {
+                                    if let (Some(a @ Action::Move(m, _)), _) =
+                                        press(vim, g.mode, &[k])
+                                    {
+                                        variants.insert(format!("{:?}", discriminant(&a)));
+                                        motions.insert(format!("{m:?}"));
+                                    }
+                                }
+                            }
                         }
-                    }
-                    if let Some(m) = e.expect.mode {
-                        switches.insert(format!("{:?} → {m:?}", g.mode));
                     }
                 }
             }
+        }
+        // 常规移动只靠合并项覆盖：默认表（也是 vim 的 Insert 组）里必须有它
+        for vim in [false, true] {
+            assert!(
+                groups(vim)[0]
+                    .entries
+                    .iter()
+                    .any(|e| e.expect == [Expect::Moves { extend: false }]),
+                "vim={vim}：缺少覆盖常规移动的合并项"
+            );
         }
         let starts = [
             (false, Mode::Insert),
@@ -498,8 +594,7 @@ mod tests {
         for (vim, start) in starts {
             for (action, from, to) in reachable(vim, start) {
                 if let Some(a) = &action {
-                    // 打字插入的普通字符由「输入」本身说明，不单列
-                    if !matches!(a, Action::Insert(s) if s.trim() != "") {
+                    if !conventional(a) {
                         assert!(
                             variants.contains(&format!("{:?}", discriminant(a))),
                             "vim={vim} {from:?} 下的 {a:?} 没有出现在帮助里"
@@ -508,7 +603,7 @@ mod tests {
                     if let Action::Move(m, _) = a {
                         assert!(
                             motions.contains(&format!("{m:?}")),
-                            "{m:?} 没有出现在帮助里"
+                            "{m:?} 没有被帮助覆盖（单列或合并的移动项）"
                         );
                     }
                 }
@@ -554,16 +649,46 @@ mod tests {
             parse_keys("$"),
             vec![k(KeyCode::Char('$'), KeyModifiers::NONE)]
         );
+        assert_eq!(
+            parse_keys("PgDn"),
+            vec![k(KeyCode::PageDown, KeyModifiers::NONE)]
+        );
+        assert_eq!(
+            parse_keys("Shift+↑↓"),
+            vec![
+                k(KeyCode::Up, KeyModifiers::SHIFT),
+                k(KeyCode::Down, KeyModifiers::SHIFT)
+            ]
+        );
+    }
+
+    #[test]
+    fn default_list_is_short() {
+        // 只列特殊快捷键：默认表不超过 15 条，正文 16 行高时一屏放得下
+        let plain = lines(false);
+        assert!(plain.len() <= 15, "默认表有 {} 条", plain.len());
+        // vim 的 Insert 组与默认表同样精简，Normal / Visual 两组照旧全列
+        let g = groups(true);
+        assert_eq!(g[0].entries.len(), plain.len());
+        assert!(g[1].entries.len() > g[0].entries.len());
+        // 常规输入不单列
+        for vim in [false, true] {
+            for e in groups(vim).iter().take(1).flat_map(|g| &g.entries) {
+                for gone in ["Enter", "Backspace", "Delete", "Tab", "Home", "PgUp"] {
+                    assert!(e.keys != gone, "vim={vim}：{gone} 不该单列（{})", e.desc_id);
+                }
+            }
+        }
     }
 
     #[test]
     fn lines_group_vim_help() {
-        let plain = lines(false, TAB);
+        let plain = lines(false);
         assert!(
             plain.iter().all(|l| matches!(l, Line::Entry(..))),
             "默认模式不分组"
         );
-        let vim = lines(true, TAB);
+        let vim = lines(true);
         let titles: Vec<_> = vim
             .iter()
             .filter_map(|l| match l {

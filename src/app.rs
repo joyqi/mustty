@@ -430,9 +430,9 @@ impl App {
         }
     }
 
-    /// 帮助面板的内容行（随 vim 开关与 tab_width 变化）。
+    /// 帮助面板的内容行（随 vim 开关变化）。
     pub(crate) fn help_lines(&self) -> Vec<help::Line> {
-        help::lines(self.config.vim, self.config.tab_width)
+        help::lines(self.config.vim)
     }
 
     fn help_key(&mut self, key: KeyEvent, now: Instant) {

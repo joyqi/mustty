@@ -670,7 +670,7 @@ fn help_panel_survives_too_small() {
         .map(|c| c.symbol())
         .collect();
     assert!(
-        back.contains("Keys") && back.contains("Enter"),
+        back.contains("Keys") && back.contains("Ctrl+S"),
         "恢复后仍是帮助面板"
     );
 }
