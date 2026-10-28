@@ -382,3 +382,156 @@ fn settings_panel_width_72() {
 fn settings_panel_scrolls_when_short() {
     insta::assert_snapshot!(settings_panel(72, 80, 12, 7));
 }
+
+/// vim 开启：Esc 进 Normal，再 v 进 visual。
+fn vim_frame(events: &[Event]) -> TestBackend {
+    let config = mustty::config::Config {
+        vim: true,
+        autosave: false,
+        ..mustty::config::Config::default()
+    };
+    draw_with(&config, "hello world\n", 40, 10, events, false)
+}
+
+/// 缓冲区里某段文字第一次出现的位置。
+fn find_text(b: &TestBackend, text: &str) -> (u16, u16) {
+    let buf = b.buffer();
+    (0..buf.area.height)
+        .find_map(|y| {
+            let row: String = (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+            row.find(text).map(|x| (x as u16, y))
+        })
+        .unwrap_or_else(|| panic!("{text:?} not on screen"))
+}
+
+#[test]
+fn vim_mode_indicator_styles() {
+    use ratatui::style::{Color, Modifier};
+    let cases = [
+        ("INS", vec![], Color::Reset, Modifier::empty()),
+        ("NOR", vec![key(KeyCode::Esc)], Color::Reset, Modifier::DIM),
+        (
+            "VIS",
+            vec![key(KeyCode::Esc), key(KeyCode::Char('v'))],
+            Color::Yellow,
+            Modifier::empty(),
+        ),
+    ];
+    let mut lines = Vec::new();
+    for (label, events, fg, modifier) in cases {
+        let b = vim_frame(&events);
+        let (x, y) = find_text(&b, &format!("{label} notes.md"));
+        for i in 0..3 {
+            let cell = &b.buffer()[(x + i, y)];
+            assert_eq!((cell.fg, cell.modifier), (fg, modifier), "{label}");
+        }
+        // 空格与文件名仍是 DIM，和标识区分开
+        for i in 3..12 {
+            assert_eq!(b.buffer()[(x + i, y)].modifier, Modifier::DIM, "{label}");
+        }
+        lines.push(status_line(&b, y));
+    }
+    insta::assert_snapshot!(lines.join("\n"));
+}
+
+/// 收集 CrosstermBackend 写出的字节。
+#[derive(Clone, Default)]
+struct Sink(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+
+impl std::io::Write for Sink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.borrow_mut().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// 真实终端后端写出的字节：INS 前没有 DIM，NOR 带 DIM（SGR 2），VIS 是黄色前景（SGR 33 或 38;5;3）。
+#[test]
+fn vim_mode_indicator_sgr() {
+    use ratatui::backend::CrosstermBackend;
+    use ratatui::{TerminalOptions, Viewport};
+    let sgr_before = |events: &[Event], label: &str| -> (bool, Option<u8>) {
+        mustty::i18n::init_for_test("zh-CN");
+        let config = mustty::config::Config {
+            vim: true,
+            autosave: false,
+            ..mustty::config::Config::default()
+        };
+        let (w, h) = (40, 10);
+        let mut app = App::with_config(
+            Document::parse("hello world\n", FileMeta::new(Some("notes.md".into()))),
+            Size::new(w, h),
+            &config,
+        );
+        for ev in events {
+            app.handle(ev.clone());
+        }
+        let options = TerminalOptions {
+            viewport: Viewport::Fixed(ratatui::layout::Rect::new(0, 0, w, h)),
+        };
+        let sink = Sink::default();
+        let mut terminal =
+            Terminal::with_options(CrosstermBackend::new(sink.clone()), options).unwrap();
+        terminal.draw(|f| view::render(f, &mut app)).unwrap();
+        let out = String::from_utf8_lossy(&sink.0.borrow()).into_owned();
+        let at = out
+            .find(label)
+            .unwrap_or_else(|| panic!("{label} in {out:?}"));
+        sgr_state(&out[..at])
+    };
+    assert_eq!(
+        sgr_before(&[], "INS"),
+        (false, None),
+        "INS：无 DIM、默认前景"
+    );
+    assert_eq!(
+        sgr_before(&[key(KeyCode::Esc)], "NOR"),
+        (true, None),
+        "NOR：DIM（SGR 2）"
+    );
+    assert_eq!(
+        sgr_before(&[key(KeyCode::Esc), key(KeyCode::Char('v'))], "VIS"),
+        (false, Some(3)),
+        "VIS：黄色前景（SGR 33 / 38;5;3），无 DIM"
+    );
+}
+
+/// 依次执行字节流里的 SGR，返回末尾的（是否 DIM, 前景色的 ANSI 编号）。
+fn sgr_state(bytes: &str) -> (bool, Option<u8>) {
+    let (mut dim, mut fg) = (false, None);
+    for seq in bytes.split("\x1b[").skip(1) {
+        let Some(params) = seq.split_once('m').map(|(p, _)| p) else {
+            continue;
+        };
+        if !params.chars().all(|c| c.is_ascii_digit() || c == ';') {
+            continue;
+        }
+        let mut it = params.split(';').map(|p| p.parse::<u16>().unwrap_or(0));
+        while let Some(p) = it.next() {
+            match p {
+                0 => (dim, fg) = (false, None),
+                2 => dim = true,
+                22 => dim = false,
+                30..=37 => fg = Some((p - 30) as u8),
+                38 if it.next() == Some(5) => fg = it.next().map(|n| n as u8),
+                39 => fg = None,
+                _ => {}
+            }
+        }
+    }
+    (dim, fg)
+}
+
+#[test]
+fn without_vim_status_starts_with_file_name() {
+    let b = draw(Some("notes.md"), "hello\n", 40, 10, &[]);
+    let (x, y) = find_text(&b, "notes.md");
+    let row: String = (0..40).map(|x| b.buffer()[(x, y)].symbol()).collect();
+    // 左段从正文左边缘开始：前面只有居中留白，没有标识留下的空格
+    assert!(row.trim_start().starts_with("notes.md"), "{row:?}");
+    let body_x = find_text(&b, "hello").0;
+    assert_eq!(x, body_x, "与正文左对齐");
+}

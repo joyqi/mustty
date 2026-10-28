@@ -185,7 +185,9 @@ fn line_styles(ranges: &[StyledRange], len: usize, code: Color) -> Vec<Style> {
 }
 
 pub struct StatusWidget<'a> {
-    /// 文件名（可带模式标识），或临时消息
+    /// vim 模式标识及其样式，最左侧，与后面隔一个空格（空格用 `left_style`）；截断时保留
+    pub mode: Option<(&'a str, Style)>,
+    /// 文件名，或临时消息
     pub left: &'a str,
     pub left_style: Style,
     /// 文件名后的保存状态标记：文字与样式。与文件名之间隔一个空格，计入左段宽度
@@ -204,7 +206,8 @@ impl Widget for StatusWidget<'_> {
         let dim = Style::from(Modifier::DIM);
         let tab = self.tab_width;
         let mark_w = self.mark.map_or(0, |(m, _)| 1 + text_width(m, tab));
-        let left_w = text_width(self.left, tab) + mark_w;
+        let mode_w = self.mode.map_or(0, |(m, _)| text_width(m, tab) + 1);
+        let left_w = mode_w + text_width(self.left, tab) + mark_w;
         // 宽度不足时先省略位置，再省略字数，最后从左截断文件名（标记保留在截断后的文件名右侧）
         let full = format!("{} · {}", self.words, self.position);
         let candidates = match self.hint {
@@ -229,12 +232,20 @@ impl Widget for StatusWidget<'_> {
                 );
                 self.left.to_owned()
             }
-            None => truncate_left(self.left, area.width.saturating_sub(mark_w), tab),
+            None => truncate_left(self.left, area.width.saturating_sub(mark_w + mode_w), tab),
         };
-        let name_w = text_width(&left, tab);
-        draw_text(buf, area.x, area.y, name_w, &left, self.left_style, 0, tab);
+        if let Some((mode, style)) = self.mode {
+            let w = text_width(mode, tab).min(area.width);
+            draw_text(buf, area.x, area.y, w, mode, style, 0, tab);
+            if w < area.width {
+                draw_text(buf, area.x + w, area.y, 1, " ", self.left_style, 0, tab);
+            }
+        }
+        let name_x = area.x + mode_w.min(area.width);
+        let name_w = text_width(&left, tab).min(area.right() - name_x);
+        draw_text(buf, name_x, area.y, name_w, &left, self.left_style, 0, tab);
         if let Some((mark, style)) = self.mark {
-            let x = area.x + name_w + 1;
+            let x = name_x + name_w + 1;
             draw_text(
                 buf,
                 x,

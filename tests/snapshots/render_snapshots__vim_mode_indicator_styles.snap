@@ -1,0 +1,7 @@
+---
+source: tests/render_snapshots.rs
+expression: "lines.join(\"\\n\")"
+---
+ 9: "  INS" NONE | " notes.md" DIM | "2 字" DIM | " · 1:1" DIM
+ 9: "NOR notes.md" DIM | "2 字" DIM | " · 1:1" DIM
+ 9: "VIS" NONE fg=Yellow | " notes.md" DIM | "2 字" DIM | " · 1:1" DIM

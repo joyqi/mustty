@@ -96,7 +96,7 @@ Your terminal's own paste (`Cmd+V`, `Ctrl+Shift+V`, right click) arrives as a si
 
 ### `--vim`
 
-mustty starts in Insert mode, where every key behaves as in the table above. `Esc` switches to Normal mode. The status bar shows `NOR`, `INS` or `VIS` before the file name, and the cursor is a block in Normal mode.
+mustty starts in Insert mode, where every key behaves as in the table above. `Esc` switches to Normal mode. The status bar shows `NOR`, `INS` or `VIS` before the file name, each in its own shade so the mode reads at a glance: `INS` in the normal text color, `NOR` dimmed like the rest of the status bar, `VIS` in yellow. The cursor is a block in Normal mode.
 
 | Normal mode                     | Action                                                            |
 |---------------------------------|-------------------------------------------------------------------|

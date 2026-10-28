@@ -2,6 +2,7 @@
 
 use ratatui::style::{Color, Modifier, Style};
 
+use crate::keymap::Mode;
 use crate::markdown::Token;
 
 /// `code` 为行内代码与代码块的前景色（配置项 code_color，限 8 个 ANSI 基本色）。
@@ -22,6 +23,16 @@ pub fn style(token: Token, code: Color) -> Style {
         Token::Emph | Token::Quote => m(Modifier::ITALIC),
         Token::Code | Token::FencedCode => Style::default().fg(code),
         Token::LinkText => m(Modifier::UNDERLINED),
+    }
+}
+
+/// vim 模式标识：INS 默认前景色（最醒目，表示能打字），NOR 与周围 status bar 一样 DIM（待命），
+/// VIS 黄色（选区是特殊状态，vim 的通行约定）。文字本身已不同，颜色只是冗余强化。
+pub fn mode(mode: Mode) -> Style {
+    match mode {
+        Mode::Insert => Style::default(),
+        Mode::Normal(s) if s.visual => Style::default().fg(Color::Yellow),
+        Mode::Normal(_) => Style::from(Modifier::DIM),
     }
 }
 

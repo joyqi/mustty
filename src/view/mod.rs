@@ -133,16 +133,13 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     (name, Modifier::DIM.into(), mark)
                 }
             };
-            let left = match app.mode_label() {
-                Some(mode) => format!("{mode} {left}"),
-                None => left,
-            };
             let position = match ed.focus {
                 Focus::Title => t("status-title").to_owned(),
                 Focus::Body => StatusModel::position(ed.doc().body(), ed.cursor.head),
             };
             frame.render_widget(
                 StatusWidget {
+                    mode: app.mode_indicator(),
                     left: &left,
                     left_style,
                     mark: mark.map(|m| (m.symbol(), m.style())),

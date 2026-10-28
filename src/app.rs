@@ -249,6 +249,12 @@ impl App {
         self.status.error(text);
     }
 
+    /// 模式标识及其样式（`theme::mode`）。
+    pub(crate) fn mode_indicator(&self) -> Option<(&'static str, ratatui::style::Style)> {
+        self.mode_label()
+            .map(|label| (label, view::theme::mode(self.mode)))
+    }
+
     /// status bar 最前的模式标识，仅 vim 开启时显示。
     pub(crate) fn mode_label(&self) -> Option<&'static str> {
         self.keymap.vim.then_some(match self.mode {
