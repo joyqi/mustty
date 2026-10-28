@@ -1,0 +1,30 @@
+---
+source: tests/render_snapshots.rs
+expression: "render(&raw, 80, 24, &keys)"
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                     notes                                      "
+"                                                                                "
+"    Line 58 of a long document.                                                 "
+"    Line 59 of a long document.                                                 "
+"    Line 60 of a long document.                                                 "
+"    Line 61 of a long document.                                                 "
+"    Line 62 of a long document.                                                 "
+"    Line 63 of a long document.                                                 "
+"    Line 64 of a long document.                                                 "
+"    Line 65 of a long document.                                                 "
+"    Line 66 of a long document.                                                 "
+"    Line 67 of a long document.                                                 "
+"    Line 68 of a long document.                                                 "
+"    Line 69 of a long document.                                                 "
+"    Line 70 of a long document.                                                 "
+"    Line 71 of a long document.                                                 "
+"                                                                                "
+"    notes.md                                                            61:1    "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+
+cursor: Position { x: 4, y: 8 } visible: true

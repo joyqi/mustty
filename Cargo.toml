@@ -1,0 +1,22 @@
+[package]
+name = "mustty"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A distraction-free Markdown writer for the terminal"
+
+[dependencies]
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+crossterm = "0.29.0"
+# 只把 \n 当作换行：孤立的 \r 作为普通字符保留（方案 §8.3）
+ropey = { version = "1.6.1", default-features = false, features = ["simd"] }
+unicode-segmentation = "1.13.3"
+# 必须与 ratatui-core 解析到同一版本（方案 §3.1）
+unicode-width = "=0.2.2"
+unicode-linebreak = "0.1.5"
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+insta = "1.49.0"
+proptest = "1.12.0"

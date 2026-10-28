@@ -1,0 +1,30 @@
+---
+source: tests/render_snapshots.rs
+expression: "render(\"\", 80, 24, &[])"
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                     notes                                      "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"    notes.md                                                             1:1    "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+
+cursor: Position { x: 4, y: 5 } visible: true
