@@ -39,3 +39,8 @@ proptest = "1.12.0"
 name = "screenshot"
 # cargo test 也跑它的测试：防止布局改动后截图悄悄变空白
 test = true
+
+# 发布构建（cargo-dist，见 dist-workspace.toml）
+[profile.dist]
+inherits = "release"
+lto = "thin"
