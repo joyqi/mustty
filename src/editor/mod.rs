@@ -515,7 +515,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     fn editor(raw: &str) -> Editor {
-        Editor::new(Document::parse(raw, FileMeta::new(None)), 20, 4)
+        Editor::new(Document::parse(raw, FileMeta::lf()), 20, 4)
     }
 
     fn run(ed: &mut Editor, actions: &[Action]) -> Effect {

@@ -44,6 +44,15 @@ impl FileMeta {
             stamp: None,
         }
     }
+
+    /// 测试用：固定 LF，让断言不随平台的默认换行变化（平台默认由专门的测试覆盖）。
+    #[cfg(test)]
+    pub(crate) fn lf() -> Self {
+        Self {
+            line_ending: LineEnding::Lf,
+            ..Self::new(None)
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,7 +181,7 @@ mod tests {
     use super::*;
 
     fn parse(raw: &str) -> Document {
-        Document::parse(raw, FileMeta::new(None))
+        Document::parse(raw, FileMeta::lf())
     }
 
     fn bound(text: &str, sep: &str) -> TitleField {
@@ -234,6 +243,23 @@ mod tests {
         doc.replace(1..2, "中文");
         assert_eq!(doc.body().to_string(), "a中文c");
         assert_eq!(doc.revision(), 1);
+    }
+
+    #[test]
+    fn new_documents_use_platform_line_ending() {
+        // 方案 §8.3：新文件按平台默认换行（Windows CRLF，其余 LF）
+        assert_eq!(FileMeta::new(None).line_ending, LineEnding::platform());
+        let meta = FileMeta {
+            line_ending: LineEnding::platform(),
+            ..FileMeta::new(None)
+        };
+        let doc = Document::parse("# T\n\na\n", meta);
+        let want = if cfg!(windows) {
+            "# T\r\n\r\na\r\n"
+        } else {
+            "# T\n\na\n"
+        };
+        assert_eq!(doc.serialize(), want);
     }
 
     #[test]
