@@ -11,8 +11,8 @@ use mustty::i18n::{self, t, t_args};
 use mustty::io::file::{IoError, load};
 use mustty::terminal::TerminalGuard;
 
-// 说明文字按界面语言在运行时填入（见 `command`），这里不写 doc comment。
-// 只有一个文件参数：其余设置都在配置文件里，可以用 Ctrl+P 的设置面板修改
+// Help text is filled in at runtime in the UI language (see `command`), so no doc comments here.
+// There is only a file argument: every other setting lives in the config file and can be changed in the Ctrl+P settings panel
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
@@ -20,7 +20,7 @@ struct Cli {
 }
 
 impl Cli {
-    /// 带本地化说明的 clap 命令。clap 自带的 Usage: / Options: 与解析错误无法本地化。
+    /// The clap command with localized help text. clap's built-in Usage: / Options: and parse errors can't be localized.
     fn command() -> clap::Command {
         <Self as CommandFactory>::command()
             .about(t("cli-about"))
@@ -30,14 +30,14 @@ impl Cli {
 }
 
 fn main() -> ExitCode {
-    // 语言要在 clap 解析之前定下来（--help 也要翻译）：先按配置文件的 lang 协商，
-    // 再读一次配置，让警告也用这门语言
+    // The language must be settled before clap parses (--help is translated too): negotiate from the
+    // config file's lang first, then load the config again so warnings use that language as well
     i18n::init();
     i18n::use_config(config::load().0.lang);
     let cli = Cli::from_arg_matches(&Cli::command().get_matches()).unwrap_or_else(|e| e.exit());
     let (config, warnings) = config::load();
-    // 配置写错不阻止启动：警告打到 stderr（进入全屏前，退出后仍可见），
-    // 同时汇总成一条 status bar 消息，保留到第一次按键
+    // A bad config doesn't block startup: warnings go to stderr (before entering full screen, so they
+    // stay visible after exit) and are also summarized into one status bar message that lasts until the first keypress
     let warning = config::summarize(&warnings);
     if let Some(w) = &warning {
         eprintln!("mustty: {w}");
@@ -94,7 +94,7 @@ mod tests {
             {
                 assert!(
                     arg.get_help().is_some(),
-                    "{tag}: --{} 没有说明",
+                    "{tag}: --{} has no help text",
                     arg.get_id()
                 );
             }
@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn only_file_help_and_version() {
         let mut cmd = Cli::command();
-        cmd.build(); // help / version 在 build 时才加入
+        cmd.build(); // help / version are only added at build time
         let ids: Vec<&str> = cmd.get_arguments().map(|a| a.get_id().as_str()).collect();
         assert_eq!(ids, vec!["file", "help", "version"]);
         let parse = |args: &[&str]| {
@@ -112,7 +112,7 @@ mod tests {
         };
         assert_eq!(parse(&["notes.md"]).unwrap().file, Some("notes.md".into()));
         assert_eq!(parse(&[]).unwrap().file, None);
-        // 删掉的开关被拒绝，不是悄悄忽略
+        // Removed flags are rejected, not silently ignored
         for removed in [
             "--width",
             "--autosave",
@@ -124,7 +124,7 @@ mod tests {
         ] {
             let err = parse(&[removed, "notes.md"])
                 .err()
-                .unwrap_or_else(|| panic!("{removed} 仍被接受"));
+                .unwrap_or_else(|| panic!("{removed} is still accepted"));
             assert_eq!(
                 err.kind(),
                 clap::error::ErrorKind::UnknownArgument,

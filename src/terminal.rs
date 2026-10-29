@@ -1,4 +1,4 @@
-//! 进入 / 恢复终端模式。
+//! Entering and restoring terminal modes.
 
 use std::io;
 
@@ -10,16 +10,18 @@ use crossterm::execute;
 use crossterm::style::Print;
 use ratatui::DefaultTerminal;
 
-/// 持有终端；`Drop` 时恢复鼠标、粘贴、焦点事件、光标形状、窗口标题、raw mode 与 alternate screen，
-/// `?` 早退也不例外。panic 时由下面包装的 hook 先恢复终端再打印信息。
+/// Owns the terminal. `Drop` restores mouse, paste, focus events, cursor shape, window title, raw
+/// mode and the alternate screen, even on an early `?` return. On panic, the hook wrapped below
+/// restores the terminal before printing the message.
 ///
-/// 鼠标捕获可能在运行中由设置面板打开，所以退出时**无条件**关闭（对没开过的终端无副作用）。
+/// The settings panel can turn on mouse capture at runtime, so exit disables it **unconditionally**
+/// (a no-op on a terminal where it was never enabled).
 pub struct TerminalGuard {
     pub terminal: DefaultTerminal,
 }
 
 impl TerminalGuard {
-    /// `mouse` 为 false 时不执行 EnableMouseCapture，终端原生的拖选复制照常可用。
+    /// With `mouse` false, skip EnableMouseCapture so the terminal's native drag-to-select copy keeps working.
     pub fn new(mouse: bool) -> io::Result<Self> {
         let guard = Self {
             terminal: ratatui::try_init()?,
@@ -27,7 +29,7 @@ impl TerminalGuard {
         if mouse {
             execute!(io::stdout(), EnableMouseCapture)?;
         }
-        // ratatui 的 hook 只恢复 raw mode 与 alternate screen：先关掉其余模式，再交给它打印 panic 信息
+        // ratatui's hook only restores raw mode and the alternate screen: turn off the other modes first, then let it print the panic message
         let ratatui_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             let mut out = io::stdout();
@@ -42,7 +44,7 @@ impl TerminalGuard {
             );
             ratatui_hook(info);
         }));
-        // Windows 的 Console API 不产生 Event::Paste，改由 app::coalesce_paste 合并
+        // The Windows Console API never produces Event::Paste; app::coalesce_paste merges pasted input instead
         #[cfg(not(windows))]
         execute!(io::stdout(), crossterm::event::EnableBracketedPaste)?;
         execute!(io::stdout(), EnableFocusChange, SetCursorStyle::SteadyBar)?;
@@ -65,8 +67,8 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// 运行中开关鼠标捕获。用 `execute!` 而不是预先拼好的 ANSI 字符串：
-/// Windows 上 crossterm 的鼠标捕获走 WinAPI 的控制台模式，不是转义序列。
+/// Toggle mouse capture at runtime. Uses `execute!` rather than a prebuilt ANSI string because on
+/// Windows crossterm sets mouse capture through the WinAPI console mode, not escape sequences.
 pub fn set_mouse_capture(out: &mut impl io::Write, on: bool) -> io::Result<()> {
     if on {
         execute!(out, EnableMouseCapture)
@@ -75,28 +77,28 @@ pub fn set_mouse_capture(out: &mut impl io::Write, on: bool) -> io::Result<()> {
     }
 }
 
-/// 退出时清空窗口标题（OSC 2 空标题），免得编辑器关掉后窗口还挂着文章标题。
+/// Clear the window title on exit (an empty OSC 2 title) so the window doesn't keep showing the document title after the editor closes.
 pub const CLEAR_TITLE: &str = "\x1b]2;\x07";
 
-/// OSC 2 设置窗口标题：`ESC ] 2 ; <title> BEL`。控制字符一律去掉（`BEL` / `ESC` 会提前结束序列或注入新的序列），
-/// 调用方已过滤时这里不改变任何东西。
+/// Set the window title with OSC 2: `ESC ] 2 ; <title> BEL`. All control characters are stripped (`BEL` / `ESC` would end the sequence early or inject a new one);
+/// if the caller already filtered them, this changes nothing.
 pub fn osc2(title: &str) -> String {
     format!("\x1b]2;{}\x07", strip_controls(title))
 }
 
-/// 去掉 C0、DEL 与 C1 控制字符（C1 里的 0x9B / 0x9C 在 8 位终端上就是 CSI / ST）。
+/// Strip C0, DEL and C1 control characters (C1's 0x9B / 0x9C act as CSI / ST on 8-bit terminals).
 pub fn strip_controls(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).collect()
 }
 
-/// 窗口标题去重：同一个标题只写一次序列。标题编辑时每敲一个字都会变，其余时候不发。
+/// Window title dedup: write the sequence only once per title. While editing the title it changes on every keystroke; otherwise nothing is sent.
 #[derive(Debug, Default)]
 pub struct WindowTitle {
     last: Option<String>,
 }
 
 impl WindowTitle {
-    /// 标题与上次写出的不同时返回要写的 OSC 2 序列，并记下它。
+    /// When the title differs from the last one written, return the OSC 2 sequence to write and remember it.
     pub fn update(&mut self, title: &str) -> Option<String> {
         if self.last.as_deref() == Some(title) {
             return None;
@@ -106,7 +108,7 @@ impl WindowTitle {
     }
 }
 
-/// OSC 52 写系统剪贴板：`ESC ] 52 ; c ; <base64> BEL`。
+/// Write the system clipboard with OSC 52: `ESC ] 52 ; c ; <base64> BEL`.
 pub fn osc52(text: &str) -> String {
     format!("\x1b]52;c;{}\x07", base64(text.as_bytes()))
 }
@@ -165,12 +167,12 @@ mod tests {
     fn window_title_is_sent_only_when_it_changes() {
         let mut w = WindowTitle::default();
         assert_eq!(w.update("Notes").as_deref(), Some("\x1b]2;Notes\x07"));
-        assert_eq!(w.update("Notes"), None, "同一个标题不再发");
+        assert_eq!(w.update("Notes"), None, "the same title is not sent again");
         assert_eq!(w.update("Notes!").as_deref(), Some("\x1b]2;Notes!\x07"));
         assert_eq!(w.update("Notes!"), None);
-        // 改回去也是变化
+        // Changing back counts as a change too
         assert_eq!(w.update("Notes").as_deref(), Some("\x1b]2;Notes\x07"));
-        // 空标题（理论上不会出现）也照常去重
+        // An empty title (shouldn't happen in practice) is deduplicated the same way
         assert_eq!(w.update("").as_deref(), Some(CLEAR_TITLE));
         assert_eq!(w.update(""), None);
     }

@@ -1,5 +1,6 @@
-//! 逐行轻量 Markdown 扫描器：只产出样式区间，不改变文本。
-//! 每行只依赖进入时的块状态（是否在 fenced code 内），因此可以按行缓存、增量重扫。
+//! Lightweight line-by-line Markdown scanner. It only produces style ranges and never changes the
+//! text. Each line depends only on the block state it starts in (inside a fenced code block or
+//! not), so results can be cached per line and rescanned incrementally.
 
 use std::ops::Range;
 
@@ -38,7 +39,8 @@ pub enum Token {
     Rule,
 }
 
-/// 行内 char 偏移 `[start, end)`。区间可以嵌套，渲染时按顺序叠加样式（外层在前）。
+/// Char offsets `[start, end)` within the line. Ranges may nest; the renderer layers styles in
+/// order (outer first).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StyledRange {
     pub start: usize,
@@ -74,7 +76,7 @@ pub fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockSt
     }
     for fence in ['`', '~'] {
         if let Some(run) = fence_run(fence) {
-            // 反引号栅栏的 info string 里不能再有反引号
+            // A backtick fence's info string must not contain backticks
             if fence == '~' || !chars[indent + run..].contains(&'`') {
                 let len = run.min(u8::MAX as usize) as u8;
                 return (whole(Token::FenceLine), BlockState::Fenced { fence, len });
@@ -87,7 +89,7 @@ pub fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockSt
 
     let mut out = Vec::new();
     let mut pos = 0;
-    // 引用可以嵌套：`> > text`
+    // Quotes can nest: `> > text`
     while pos < n && chars[pos] == '>' {
         let end = pos + 1 + usize::from(chars.get(pos + 1) == Some(&' '));
         out.push(StyledRange {
@@ -137,7 +139,7 @@ pub fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockSt
     (out, BlockState::Normal)
 }
 
-/// `---`、`***`、`___`（可夹空格，至少 3 个）
+/// `---`, `***`, `___` (spaces allowed in between, at least 3 marks)
 fn is_rule(chars: &[char]) -> bool {
     let marks: Vec<char> = chars
         .iter()
@@ -156,7 +158,8 @@ fn heading_level(chars: &[char]) -> Option<usize> {
     ((1..=6).contains(&level) && follows).then_some(level)
 }
 
-/// 列表标记（含缩进与任务框）结束的位置：`- `、`* `、`+ `、`1. `、`1) `、`- [ ] `。
+/// Where the list marker ends, including indent and task box:
+/// `- `, `* `, `+ `, `1. `, `1) `, `- [ ] `.
 fn list_marker(chars: &[char], from: usize) -> Option<usize> {
     let mut i = from + chars[from..].iter().take_while(|&&c| c == ' ').count();
     match chars.get(i) {
@@ -182,10 +185,11 @@ fn list_marker(chars: &[char], from: usize) -> Option<usize> {
     Some(i)
 }
 
-/// 行内：代码 → 链接 → `**`/`__` → `*`/`_`。顺序匹配、不回溯、不跨行；未闭合的标记不着色。
+/// Inline passes: code → links → `**`/`__` → `*`/`_`. Matching is sequential, never backtracks and
+/// never spans lines; unclosed markers stay unstyled.
 fn scan_inline(chars: &[char], from: usize, out: &mut Vec<StyledRange>) {
     let n = chars.len();
-    // 已被代码、链接 URL 或分隔符占用的位置，后续规则不再匹配
+    // Positions claimed by code, link URLs or delimiters; later passes skip them
     let mut taken = vec![false; n];
     let push =
         |out: &mut Vec<StyledRange>, taken: &mut [bool], r: Range<usize>, token, take: bool| {
@@ -199,7 +203,7 @@ fn scan_inline(chars: &[char], from: usize, out: &mut Vec<StyledRange>) {
             });
         };
 
-    // 行内代码：n 个反引号，配对的是下一个恰好 n 个反引号的 run
+    // Inline code: a run of n backticks pairs with the next run of exactly n backticks
     let mut i = from;
     while i < n {
         if chars[i] != '`' {
@@ -221,7 +225,7 @@ fn scan_inline(chars: &[char], from: usize, out: &mut Vec<StyledRange>) {
         }
     }
 
-    // 链接 [text](url)
+    // Links: [text](url)
     let mut i = from;
     while i < n {
         if chars[i] != '[' || taken[i] {
@@ -245,7 +249,7 @@ fn scan_inline(chars: &[char], from: usize, out: &mut Vec<StyledRange>) {
         i = k + 1;
     }
 
-    // 加粗在前，强调在后：强调可以嵌在加粗内容里
+    // Strong before emphasis, so emphasis can nest inside strong text
     for (width, mark, content) in [
         (2, Token::StrongMark, Token::Strong),
         (1, Token::EmphMark, Token::Emph),
@@ -277,7 +281,8 @@ fn run_len(chars: &[char], at: usize, c: char) -> usize {
     chars[at..].iter().take_while(|&&x| x == c).count()
 }
 
-/// `at` 处是否恰好是 `width` 个相同的 `*` 或 `_`（不属于更长的 run，且未被占用）。
+/// Whether `at` holds exactly `width` identical `*` or `_` (not part of a longer run, and not yet
+/// claimed).
 fn delimiter(chars: &[char], taken: &[bool], at: usize, width: usize) -> Option<char> {
     let d = *chars.get(at)?;
     let exact = matches!(d, '*' | '_')
@@ -289,14 +294,16 @@ fn delimiter(chars: &[char], taken: &[bool], at: usize, width: usize) -> Option<
     exact.then_some(d)
 }
 
-/// 开标记：右侧非空白；左侧是行首或非字母数字（避免 `snake_case` 误判）。
+/// Opening delimiter: non-whitespace on the right; line start or a non-alphanumeric on the left
+/// (so `snake_case` is not mistaken for emphasis).
 fn opens(chars: &[char], at: usize, width: usize) -> bool {
     let right_ok = chars.get(at + width).is_some_and(|c| !c.is_whitespace());
     let left_ok = at == 0 || !chars[at - 1].is_alphanumeric();
     right_ok && left_ok
 }
 
-/// 闭标记：左侧非空白；`_` 的右侧还必须是行尾或非字母数字。
+/// Closing delimiter: non-whitespace on the left; for `_`, the right side must also be line end or
+/// a non-alphanumeric.
 fn closes(chars: &[char], at: usize, width: usize, d: char) -> bool {
     let left_ok = at > 0 && !chars[at - 1].is_whitespace();
     let right_ok = d == '*' || chars.get(at + width).is_none_or(|c| !c.is_alphanumeric());
@@ -310,7 +317,8 @@ struct Entry {
     state_out: BlockState,
 }
 
-/// 按行缓存扫描结果。只保存从第 0 行开始连续有效的前缀；需要更后面的行时顺序向后扩展。
+/// Per-line cache of scan results. It only keeps a contiguous valid prefix starting at line 0 and
+/// extends it forward when a later line is requested.
 #[derive(Debug, Default)]
 pub struct HighlightCache {
     entries: Vec<Entry>,
@@ -329,8 +337,10 @@ impl HighlightCache {
         &self.entries[line].ranges
     }
 
-    /// 编辑后重扫：`lines` 为编辑前受影响的逻辑行，`inserted` 为行数净增量，`rope` 为编辑后的正文。
-    /// 从编辑行起重扫，直到某行的进入状态与缓存一致即停（之后的行结果不变）；返回重扫的行数。
+    /// Rescans after an edit. `lines` are the affected logical lines before the edit, `inserted` is
+    /// the net change in line count, and `rope` is the body after the edit. Rescanning starts at
+    /// the edited line and stops at the first line whose entry state matches the cache, since every
+    /// line after it is unchanged. Returns the number of lines rescanned.
     pub fn invalidate(&mut self, rope: &Rope, lines: Range<usize>, inserted: isize) -> usize {
         let first = lines.start;
         if first >= self.entries.len() {
@@ -362,7 +372,8 @@ impl HighlightCache {
         rescanned
     }
 
-    /// `lines` 内已缓存的行：进入状态与上一行输出相接，且结果与重新扫描一致（测试与 debug 断言用）。
+    /// Every cached line in `lines` starts in the previous line's output state and matches a fresh
+    /// scan (for tests and debug assertions).
     pub fn is_consistent_in(&self, rope: &Rope, lines: Range<usize>) -> bool {
         self.entries.len() <= rope.len_lines()
             && lines.filter(|&l| l < self.entries.len()).all(|l| {
@@ -396,7 +407,7 @@ mod tests {
 
     const FENCED: BlockState = BlockState::Fenced { fence: '`', len: 3 };
 
-    /// 渲染成便于快照比对的形式：每个区间一行 `Token  "文本"`。
+    /// Renders ranges in a snapshot-friendly form: one `Token  "text"` line per range.
     fn show(line: &str) -> String {
         let chars: Vec<char> = line.chars().collect();
         let (ranges, _) = scan_line(line, BlockState::Normal);
@@ -460,22 +471,22 @@ mod tests {
                 BlockState::Normal,
                 Token::Code,
                 BlockState::Normal,
-            ), // 缩进 4：不是栅栏
+            ), // indented 4: not a fence
             (
                 "``` a`b",
                 BlockState::Normal,
                 Token::Code,
                 BlockState::Normal,
-            ), // info 含反引号：不是栅栏
+            ), // info contains a backtick: not a fence
             ("~~~~", BlockState::Normal, Token::FenceLine, tilde),
             ("code **not bold**", FENCED, Token::FencedCode, FENCED),
             ("```", FENCED, Token::FenceLine, BlockState::Normal),
             ("````  ", FENCED, Token::FenceLine, BlockState::Normal),
             ("``", FENCED, Token::FencedCode, FENCED),
             ("```", tilde, Token::FencedCode, tilde),
-            ("~~~", tilde, Token::FencedCode, tilde), // 比开栅栏短
+            ("~~~", tilde, Token::FencedCode, tilde), // shorter than the opening fence
             ("~~~~~", tilde, Token::FenceLine, BlockState::Normal),
-            ("``` info", FENCED, Token::FencedCode, FENCED), // 闭栅栏后不能有 info
+            ("``` info", FENCED, Token::FencedCode, FENCED), // no info after a closing fence
         ];
         for (line, state_in, first_token, state_out) in cases {
             let (ranges, out) = scan_line(line, state_in);
@@ -508,21 +519,21 @@ mod tests {
             .concat();
         let mut rope = Rope::from_str(&text);
         let mut hl = cached(&rope);
-        // 普通行内编辑：只重扫这一行
+        // A plain inline edit rescans only that line
         rope.insert(rope.line_to_char(4), "*x* ");
         assert_eq!(hl.invalidate(&rope, 4..5, 0), 1);
         assert!(hl.is_consistent(&rope));
-        // 在第 0 行前插入一个栅栏：其后的块状态全部翻转，一直重扫到末尾
+        // A fence inserted before line 0 flips every later block state; the rescan runs to the end
         rope.insert(0, "```\n");
         let n = hl.invalidate(&rope, 0..1, 1);
         assert_eq!(n, rope.len_lines());
         assert!(hl.is_consistent(&rope));
         assert_eq!(hl.ranges(&rope, 5)[0].token, Token::FencedCode);
-        // 在栅栏行的 info string 上打字：块状态不变，重扫 1 行即停
+        // Typing in a fence line's info string keeps the block state; the rescan stops after 1 line
         rope.insert(3, "rust");
         assert_eq!(hl.invalidate(&rope, 0..1, 0), 1);
         assert!(hl.is_consistent(&rope));
-        // 删掉一个闭栅栏行（两行合并为一行）
+        // Delete a closing fence line (two lines merge into one)
         let at = rope.line_to_char(4);
         rope.remove(at - 1..at + 3);
         hl.invalidate(&rope, 3..5, -1);

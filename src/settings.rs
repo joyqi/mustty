@@ -1,6 +1,7 @@
-//! 设置面板：表驱动的 13 个配置项与面板状态机。渲染见 `view::settings`。
+//! Settings panel: 13 table-driven options and the panel state machine. Rendering lives in `view::settings`.
 //!
-//! 面板只读写 `Config` 的副本；每次调整由 App 立刻 `apply_config`，关闭时决定保留还是回滚。
+//! The panel only reads and writes a copy of `Config`. App calls `apply_config` after every change,
+//! and decides on close whether to keep it or roll back.
 
 use std::time::Duration;
 
@@ -12,7 +13,7 @@ use crate::config::{
 };
 use crate::i18n::{self, t};
 
-/// PageUp / PageDown 一次调整的步数。
+/// Steps per PageUp / PageDown.
 pub const PAGE_STEPS: i64 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +36,7 @@ pub enum Field {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Toggle,
-    /// `unit` 是已翻译的单位
+    /// `unit` is the translated unit
     Int {
         min: i64,
         max: i64,
@@ -51,11 +52,11 @@ pub enum Value {
     Int(i64),
     Color(CodeColor),
     Cursor(CursorShape),
-    /// `i18n::AUTO` 或语言标签
+    /// `i18n::AUTO` or a locale tag
     Lang(&'static str),
 }
 
-/// 语言项的选项：Auto，然后是 `i18n::LOCALES` 里的每一门语言。新增译文后自动多一项。
+/// Choices for the Language item: Auto, then every language in `i18n::LOCALES`. A new catalog adds a choice automatically.
 pub fn lang_options() -> Vec<&'static str> {
     std::iter::once(i18n::AUTO).chain(i18n::tags()).collect()
 }
@@ -65,7 +66,7 @@ fn range<T: Into<i64>>((lo, hi): (T, T)) -> (i64, i64) {
 }
 
 impl Field {
-    /// 显示顺序。
+    /// Display order.
     pub const ALL: [Field; 13] = [
         Self::Width,
         Self::Vim,
@@ -82,7 +83,7 @@ impl Field {
         Self::Lang,
     ];
 
-    /// 配置文件里的键名（与 `config::KEYS` 一致）。
+    /// Key name in the config file (matches `config::KEYS`).
     pub fn key(self) -> &'static str {
         match self {
             Self::Width => "width",
@@ -101,8 +102,8 @@ impl Field {
         }
     }
 
-    /// 面板里的标签。vim 开启时光标两项只影响 Insert 态，标签直接写明；
-    /// 渲染时按当前 `config.vim` 取，面板里切换 vim 当场生效。
+    /// Label in the panel. With vim on, the two cursor items only affect Insert mode, and the label says so.
+    /// It is read from the current `config.vim` at render time, so toggling vim in the panel takes effect immediately.
     pub fn label(self, vim: bool) -> &'static str {
         match self {
             Self::Width => t("settings-width"),
@@ -123,7 +124,7 @@ impl Field {
         }
     }
 
-    /// 选中时说明行显示的一句话；`vim` 同 [`Field::label`]。
+    /// The sentence shown in the help line when selected; `vim` works as in [`Field::label`].
     pub fn help(self, vim: bool) -> &'static str {
         match self {
             Self::Width => t("settings-width-help"),
@@ -144,7 +145,7 @@ impl Field {
         }
     }
 
-    /// 范围复用 config.rs 的 `*_RANGE`，与配置文件的钳制一致。
+    /// Ranges reuse the `*_RANGE` constants from config.rs, so they match the config file's clamping.
     pub fn kind(self) -> Kind {
         let int = |(min, max), step, unit| Kind::Int {
             min,
@@ -185,7 +186,7 @@ impl Field {
         }
     }
 
-    /// 写入一项；数字钳制到范围内，类型不符的值忽略。
+    /// Writes one option. Numbers are clamped to range; values of the wrong type are ignored.
     pub fn set(self, c: &mut Config, v: Value) {
         let clamp = |i: i64| match self.kind() {
             Kind::Int { min, max, .. } => i.clamp(min, max),
@@ -207,16 +208,16 @@ impl Field {
             (Self::Cursor, Value::Cursor(shape)) => c.cursor = shape,
             (Self::CursorBlink, Value::Bool(b)) => c.cursor_blink = b,
             (Self::Lang, Value::Lang(lang)) => {
-                // 没有译文的标签不接受（类型对，只是不在选项里）
+                // Reject tags without a catalog (right type, just not among the choices)
                 if lang_options().contains(&lang) {
                     c.lang = lang;
                 }
             }
-            _ => debug_assert!(false, "{self:?} 不接受 {v:?}"),
+            _ => debug_assert!(false, "{self:?} doesn't accept {v:?}"),
         }
     }
 
-    /// 调整 `steps` 步后的值：开关翻转；数字按步进走、到边界停住；颜色循环。
+    /// The value after `steps` adjustments: toggles flip, numbers move by step and stop at the bounds, colors cycle.
     pub fn adjust(self, c: &Config, steps: i64) -> Value {
         match (self.get(c), self.kind()) {
             (Value::Bool(b), _) => Value::Bool(!b),
@@ -231,7 +232,7 @@ impl Field {
     }
 }
 
-/// 单选项循环一步（方向取 `steps` 的符号）。
+/// Cycles a choice by one step (direction is the sign of `steps`).
 fn cycle<T: Copy + PartialEq>(options: &[T], current: T, steps: i64) -> T {
     let at = options.iter().position(|&x| x == current).unwrap_or(0) as i64;
     let n = options.len() as i64;
@@ -241,7 +242,7 @@ fn cycle<T: Copy + PartialEq>(options: &[T], current: T, steps: i64) -> T {
 const AUTOSAVE_IDLE_RANGE_I64: (i64, i64) =
     (AUTOSAVE_IDLE_RANGE.0 as i64, AUTOSAVE_IDLE_RANGE.1 as i64);
 
-/// 颜色名（已翻译）。
+/// Color name (translated).
 pub fn color_name(c: CodeColor) -> &'static str {
     match c {
         CodeColor::Black => t("color-black"),
@@ -255,7 +256,7 @@ pub fn color_name(c: CodeColor) -> &'static str {
     }
 }
 
-/// 光标形状名（已翻译）。
+/// Cursor shape name (translated).
 pub fn cursor_name(c: CursorShape) -> &'static str {
     match c {
         CursorShape::Bar => t("cursor-bar"),
@@ -264,30 +265,30 @@ pub fn cursor_name(c: CursorShape) -> &'static str {
     }
 }
 
-/// 面板对一个按键的处理结果，由 App 执行。
+/// What the panel made of a key press; App carries it out.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
-    /// 吞掉，什么都不做（未绑定的键、按键释放）
+    /// Swallowed, nothing happens (unbound keys, key releases)
     Ignored,
-    /// 选中项移动了
+    /// The selection moved
     Moved,
-    /// 某一项变了：立即应用这份配置
+    /// An option changed: apply this config right away
     Changed(Config),
-    /// Enter：保留当前值、写回文件、关闭
+    /// Enter: keep the current values, write them back to the file, close
     Save,
-    /// Esc / Ctrl+P：恢复快照、关闭
+    /// Esc / Ctrl+P: restore the snapshot, close
     Cancel,
-    /// Ctrl+Q：先按 Cancel 回滚，再走正常的退出流程
+    /// Ctrl+Q: roll back as Cancel does, then go through the normal quit flow
     Quit,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
-    /// `Field::ALL` 里的下标
+    /// Index into `Field::ALL`
     pub selected: usize,
-    /// 列表滚动到的第一行（正文区放不下 10 行时）
+    /// First row the list is scrolled to (when the body area can't fit 10 rows)
     pub scroll: usize,
-    /// 打开面板时的配置：Esc 回滚到它，Enter 只写与它不同的键
+    /// Config at the time the panel opened: Esc rolls back to it, Enter writes only keys that differ from it
     pub snapshot: Config,
 }
 
@@ -335,7 +336,7 @@ impl Settings {
         }
     }
 
-    /// 首尾不循环。
+    /// Doesn't wrap at either end.
     fn select(&mut self, delta: isize) -> Outcome {
         let last = Field::ALL.len() - 1;
         let next = self.selected.saturating_add_signed(delta).min(last);
@@ -346,7 +347,7 @@ impl Settings {
         Outcome::Moved
     }
 
-    /// 列表只有 `visible` 行可用时，让选中项保持可见；返回第一行的下标。
+    /// Keeps the selection visible when the list has only `visible` rows; returns the index of the first row.
     pub fn follow(&mut self, visible: usize) -> usize {
         let visible = visible.max(1);
         if self.selected < self.scroll {
@@ -372,7 +373,7 @@ mod tests {
         assert_eq!(
             Field::ALL.map(Field::key),
             crate::config::KEYS,
-            "顺序与键名都与 config::KEYS 一致"
+            "order and key names match config::KEYS"
         );
         let mut c = Config::default();
         let values = [
@@ -392,7 +393,11 @@ mod tests {
         ];
         assert_eq!(values.len(), Field::ALL.len());
         for (f, v) in Field::ALL.into_iter().zip(values) {
-            assert_ne!(f.get(&c), v, "{f:?}：测试值要与默认值不同");
+            assert_ne!(
+                f.get(&c),
+                v,
+                "{f:?}: the test value must differ from the default"
+            );
             f.set(&mut c, v);
             assert_eq!(f.get(&c), v, "{f:?}");
         }
@@ -429,16 +434,24 @@ mod tests {
                 f.set(&mut c, v);
             }
             assert_eq!(f.get(&c), Value::Int(max), "{f:?}");
-            assert_eq!(f.adjust(&c, 1), Value::Int(max), "{f:?} 到上界不再变");
+            assert_eq!(
+                f.adjust(&c, 1),
+                Value::Int(max),
+                "{f:?} stops changing at the upper bound"
+            );
             for _ in 0..200 {
                 let v = f.adjust(&c, -1);
                 f.set(&mut c, v);
             }
-            assert_eq!(f.adjust(&c, -1), Value::Int(min), "{f:?} 到下界不再变");
+            assert_eq!(
+                f.adjust(&c, -1),
+                Value::Int(min),
+                "{f:?} stops changing at the lower bound"
+            );
         }
         let mut c = Config::default();
         Field::Width.set(&mut c, Value::Int(999));
-        assert_eq!(c.width, 120, "set 也钳制");
+        assert_eq!(c.width, 120, "set clamps too");
     }
 
     #[test]
@@ -450,7 +463,7 @@ mod tests {
             Field::CodeColor.set(&mut c, v);
             seen.push(c.code_color);
         }
-        assert_eq!(seen.first(), seen.last(), "8 次回到起点");
+        assert_eq!(seen.first(), seen.last(), "back to the start after 8 steps");
         let mut distinct = seen[..8].to_vec();
         distinct.sort_by_key(|x| CodeColor::ALL.iter().position(|y| y == x));
         distinct.dedup();
@@ -459,7 +472,7 @@ mod tests {
         assert_eq!(
             Field::CodeColor.adjust(&c, -1),
             Value::Color(CodeColor::White),
-            "向左从第一个绕到最后一个"
+            "going left wraps from the first to the last"
         );
     }
 
@@ -486,9 +499,12 @@ mod tests {
         for f in [Field::Cursor, Field::CursorBlink] {
             assert_ne!(f.label(false), f.label(true));
             assert_ne!(f.help(false), f.help(true));
-            assert!(!f.help(false).contains("vim"), "未启用 vim 时说明不提 vim");
+            assert!(
+                !f.help(false).contains("vim"),
+                "help doesn't mention vim when vim is off"
+            );
         }
-        // 其他项与 vim 无关
+        // Other items don't depend on vim
         for f in Field::ALL {
             if !matches!(f, Field::Cursor | Field::CursorBlink) {
                 assert_eq!(f.label(false), f.label(true));
@@ -521,9 +537,9 @@ mod tests {
         assert_eq!(
             Field::Cursor.adjust(&c, -1),
             Value::Cursor(CursorShape::Underline),
-            "向左从第一个绕到最后一个"
+            "going left wraps from the first to the last"
         );
-        // 面板里：选到 cursor，→ 循环；选到 cursor_blink，Space 开关
+        // In the panel: on cursor, → cycles; on cursor_blink, Space toggles
         let mut s = Settings::open(&c);
         while s.field() != Field::Cursor {
             s.handle_key(&press(KeyCode::Down), &c);
@@ -535,7 +551,7 @@ mod tests {
         assert_eq!(
             s.handle_key(&press(KeyCode::Char(' ')), &c),
             Outcome::Ignored,
-            "Space 只切换开关"
+            "Space only flips toggles"
         );
         s.handle_key(&press(KeyCode::Down), &c);
         assert_eq!(s.field(), Field::CursorBlink);
@@ -551,7 +567,7 @@ mod tests {
 
     #[test]
     fn lang_options_follow_locales() {
-        // 选项从 LOCALES 动态生成：Auto 在前，其余按表的顺序
+        // Choices are built from LOCALES: Auto first, the rest in table order
         let want: Vec<&str> = std::iter::once("auto")
             .chain(i18n::LOCALES.iter().map(|(t, _)| *t))
             .collect();
@@ -567,11 +583,11 @@ mod tests {
         assert_eq!(
             seen,
             vec!["auto", "en", "zh-CN", "auto"],
-            "Auto → English → 简体中文 → Auto"
+            "Auto → English → Simplified Chinese → Auto"
         );
         assert_eq!(Field::Lang.adjust(&c, -1), Value::Lang("zh-CN"));
         Field::Lang.set(&mut c, Value::Lang("ja"));
-        assert_eq!(c.lang, "auto", "没有译文的标签不接受");
+        assert_eq!(c.lang, "auto", "tags without a catalog are rejected");
         assert_eq!(Field::Lang.kind(), Kind::Choice);
     }
 
@@ -589,7 +605,7 @@ mod tests {
         assert_eq!(s.handle_key(&press(KeyCode::Down), &c), Outcome::Ignored);
         assert_eq!(s.handle_key(&press(KeyCode::Up), &c), Outcome::Moved);
         assert_eq!(s.selected, Field::ALL.len() - 2);
-        // j / k 不绑定
+        // j / k are not bound
         assert_eq!(
             s.handle_key(&press(KeyCode::Char('j')), &c),
             Outcome::Ignored
@@ -606,8 +622,8 @@ mod tests {
         assert_eq!(s.handle_key(&press(KeyCode::Esc), &c), Outcome::Cancel);
         assert_eq!(s.handle_key(&ctrl('p'), &c), Outcome::Cancel);
         assert_eq!(s.handle_key(&ctrl('q'), &c), Outcome::Quit);
-        assert_eq!(s.handle_key(&ctrl('s'), &c), Outcome::Ignored, "吞掉");
-        // width：← 减 2，PageDown 加 20
+        assert_eq!(s.handle_key(&ctrl('s'), &c), Outcome::Ignored, "swallowed");
+        // width: ← subtracts 2, PageDown adds 20
         let Outcome::Changed(narrow) = s.handle_key(&press(KeyCode::Left), &c) else {
             panic!()
         };
@@ -619,15 +635,15 @@ mod tests {
         assert_eq!(
             s.handle_key(&press(KeyCode::Char(' ')), &c),
             Outcome::Ignored,
-            "Space 只切换开关"
+            "Space only flips toggles"
         );
-        // vim：Space / → 翻转
+        // vim: Space / → flips it
         s.handle_key(&press(KeyCode::Down), &c);
         let Outcome::Changed(vim) = s.handle_key(&press(KeyCode::Char(' ')), &c) else {
             panic!()
         };
         assert!(vim.vim);
-        // 到边界后不再产生 Changed
+        // No more Changed once at the bound
         let max = Config {
             width: 120,
             ..Config::default()
@@ -646,6 +662,6 @@ mod tests {
         assert_eq!(s.follow(4), 6);
         s.selected = 4;
         assert_eq!(s.follow(4), 4);
-        assert_eq!(s.follow(20), 0, "放得下时从头显示");
+        assert_eq!(s.follow(20), 0, "shows from the top when everything fits");
     }
 }

@@ -1,10 +1,11 @@
-//! KeyEvent → Action。`vim` 为 false 时 `mode` 恒为 Insert；vim 状态机只存在于本文件。
+//! KeyEvent → Action. With `vim` off, `mode` is always Insert; the vim state machine lives only in
+//! this file.
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::action::{Action, Motion};
 
-/// 编辑模式；`vim` 为 false 时恒为 Insert。
+/// Editing mode; always Insert when `vim` is off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Normal(NormalState),
@@ -13,7 +14,7 @@ pub enum Mode {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NormalState {
-    /// `'g'` 或 `'d'`
+    /// `'g'` or `'d'`
     pub pending: Option<char>,
     pub visual: bool,
 }
@@ -23,7 +24,8 @@ pub struct Keymap {
 }
 
 impl Keymap {
-    /// `mode` 用 `&mut`，是为了让 M4 的模式切换在 keymap 内部完成，不经过 Action。
+    /// `mode` is `&mut` so that M4's mode switches happen inside the keymap instead of going
+    /// through an Action.
     pub fn map_event(&self, ev: &Event, mode: &mut Mode, prompt_active: bool) -> Option<Action> {
         let key = match ev {
             Event::Key(key) => key,
@@ -34,7 +36,7 @@ impl Keymap {
             return None;
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        // Windows 上 AltGr 组合出的字符带 Ctrl+Alt，按普通字符处理
+        // On Windows, AltGr characters arrive with Ctrl+Alt; treat them as plain characters
         let altgr = ctrl && key.modifiers.contains(KeyModifiers::ALT);
         if prompt_active {
             return Some(match key.code {
@@ -61,16 +63,17 @@ impl Keymap {
     }
 }
 
-/// 默认（非 modal）键位，也是 vim Insert 态的键位。`extend` 为真时所有移动都扩展选区（visual）。
+/// Default (non-modal) bindings, also used in vim Insert mode. When `extend` is true, every motion
+/// extends the selection (Visual mode).
 fn default_map(key: &KeyEvent, extend: bool) -> Option<Action> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let altgr = ctrl && key.modifiers.contains(KeyModifiers::ALT);
     let alt = key.modifiers.contains(KeyModifiers::ALT) && !altgr;
-    // Shift + 移动键扩展选区
+    // Shift + a motion key extends the selection
     let shift = extend || key.modifiers.contains(KeyModifiers::SHIFT);
     let mv = |m| Some(Action::Move(m, shift));
     match key.code {
-        // Alt+B / Alt+F：macOS 终端的 Option 键按词移动
+        // Alt+B / Alt+F: word motion via the Option key in macOS terminals
         KeyCode::Char('b' | 'B') if alt => Some(Action::Move(Motion::WordLeft, false)),
         KeyCode::Char('f' | 'F') if alt => Some(Action::Move(Motion::WordRight, false)),
         KeyCode::Char(_) if alt => None,
@@ -83,7 +86,7 @@ fn default_map(key: &KeyEvent, extend: bool) -> Option<Action> {
         KeyCode::Char('c' | 'C') => Some(Action::Copy),
         KeyCode::Char('x' | 'X') => Some(Action::Cut),
         KeyCode::Char('v' | 'V') => Some(Action::PasteRegister),
-        // Unix 终端把 Ctrl+Backspace 发成 0x08，crossterm 报为 Ctrl+H
+        // Unix terminals send Ctrl+Backspace as 0x08, which crossterm reports as Ctrl+H
         KeyCode::Char('w' | 'W' | 'h' | 'H') => Some(Action::DeleteWordBack),
         KeyCode::Char('t' | 'T') => Some(Action::ToggleTypewriter),
         KeyCode::Char('f' | 'F') => Some(Action::ToggleFocusMode),
@@ -111,7 +114,8 @@ fn default_map(key: &KeyEvent, extend: bool) -> Option<Action> {
     }
 }
 
-/// vim Normal 态。返回动作与新的 Mode；visual 与 g/d 前缀都是 NormalState 的子状态。
+/// vim Normal mode. Returns the action and the new Mode; Visual mode and the g/d prefixes are
+/// substates of NormalState.
 fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
     use Motion::*;
     let pending = st.pending.take();
@@ -121,12 +125,13 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
     let normal = Mode::Normal(st);
     let leave_visual = Mode::Normal(NormalState::default());
     let mv = |m| (Some(Action::Move(m, visual)), normal);
-    // Ctrl / Alt 组合键与默认模式相同；Ctrl+R 只在 Normal 态重做
+    // Ctrl / Alt combos match the default bindings; Ctrl+R redoes only in Normal mode
     if (ctrl || alt) && !(ctrl && alt) {
         if ctrl && matches!(key.code, KeyCode::Char('r' | 'R')) {
             return (Some(Action::Redo), normal);
         }
-        // 但 Normal 态不插入文字：Ctrl+Tab、Ctrl+Enter 这类回落到普通编辑键的组合一律忽略
+        // Normal mode never inserts text, though: combos like Ctrl+Tab or Ctrl+Enter that fall back
+        // to plain editing keys are ignored
         let action = default_map(key, visual).filter(|a| {
             !matches!(
                 a,
@@ -157,7 +162,7 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
     match (pending, c) {
         (Some('g'), 'g') => mv(DocStart),
         (Some('d'), 'd') => (Some(Action::DeleteLine), normal),
-        // 非法序列：丢弃 pending，第二个键也不执行
+        // Invalid sequence: drop the pending operator and ignore the second key too
         (Some(_), _) => (None, normal),
         (None, 'i') => (visual.then_some(Action::Cancel), Mode::Insert),
         (None, 'a') => (Some(Action::Move(Right, false)), Mode::Insert),
@@ -201,7 +206,7 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
         (None, 'p') => (Some(Action::PasteRegister), leave_visual),
         (None, 'u') => (Some(Action::Undo), normal),
         (None, '?') => (Some(Action::OpenHelp), normal),
-        // 其他可打印字符（含 IME 提交的汉字）一律忽略，不插入
+        // Any other printable character (including CJK committed by an IME) is ignored
         _ => (None, normal),
     }
 }
@@ -254,7 +259,7 @@ mod tests {
             (key(Backspace, none), Some(Action::DeleteBack)),
             (key(Delete, none), Some(Action::DeleteForward)),
             (key(Tab, none), Some(Action::Tab)),
-            (key(BackTab, shift), None), // Shift+Tab 什么也不做，更不往标题里插空格
+            (key(BackTab, shift), None), // Shift+Tab is a no-op; never adds spaces to the title
             (key(Esc, none), Some(Action::Cancel)),
             (key(Left, none), mv(Motion::Left)),
             (key(Right, none), mv(Motion::Right)),
@@ -277,7 +282,7 @@ mod tests {
             (key(Char('t'), ctrl), Some(Action::ToggleTypewriter)),
             (key(Char('f'), ctrl), Some(Action::ToggleFocusMode)),
             (key(Char('p'), ctrl), Some(Action::OpenSettings)),
-            (key(Char('r'), ctrl), None), // 只在 vim Normal 态重做
+            (key(Char('r'), ctrl), None), // redo is vim Normal mode only
             (key(F(1), none), None),
             (Event::FocusLost, None),
         ];
@@ -291,7 +296,8 @@ mod tests {
 
     #[test]
     fn tab_maps_to_its_own_action() {
-        // 空格数由 Editor 按 tab_width 决定（见 editor 的 tab 测试），keymap 只报告"按了 Tab"
+        // Editor picks the number of spaces from tab_width (see the editor's tab tests); keymap
+        // only reports "Tab pressed"
         let tab = key(KeyCode::Tab, KeyModifiers::NONE);
         let keymap = Keymap { vim: false };
         assert_eq!(
@@ -313,7 +319,7 @@ mod tests {
                 let got = keymap.map_event(&ev, &mut Mode::Insert, false);
                 assert!(!matches!(got, Some(Action::Insert(_))), "{ev:?} → {got:?}");
                 let got = vim.map_event(&ev, &mut NOR.clone(), false);
-                assert_eq!(got, None, "Normal 态 {ev:?}");
+                assert_eq!(got, None, "Normal mode {ev:?}");
             }
         }
     }
@@ -382,7 +388,7 @@ mod tests {
         key(KeyCode::Char(c), mods)
     }
 
-    /// 从 `mode` 出发依次喂入事件，返回每一步的 (动作, 新 Mode)。
+    /// Feeds events in order starting from `mode` and returns (action, new Mode) for each step.
     fn vim(mode: Mode, events: &[Event], prompt: bool) -> Vec<(Option<Action>, Mode)> {
         let keymap = Keymap { vim: true };
         let mut mode = mode;
@@ -418,7 +424,7 @@ mod tests {
         assert_eq!(
             one(normal(Some('g'), false), esc.clone()),
             (None, NOR),
-            "Esc 清掉 pending"
+            "Esc clears the pending operator"
         );
         assert_eq!(one(NOR, esc), (None, NOR));
     }
@@ -441,8 +447,8 @@ mod tests {
             ('x', Some(Action::DeleteForward)),
             ('p', Some(Action::PasteRegister)),
             ('u', Some(Action::Undo)),
-            ('y', None), // 非 visual 下没有 yy
-            // 其他可打印字符（含 IME 提交的汉字）忽略
+            ('y', None), // no yy outside Visual mode
+            // Other printable characters (including CJK committed by an IME) are ignored
             ('q', None),
             ('中', None),
             ('，', None),
@@ -450,12 +456,12 @@ mod tests {
         for (c, want) in cases {
             assert_eq!(one(NOR, ch(c)), (want, NOR), "{c:?}");
         }
-        // 方向键等与默认模式相同
+        // Arrow keys and friends match the default bindings
         let arrow = key(KeyCode::Down, KeyModifiers::NONE);
         assert_eq!(one(NOR, arrow), (m(Down), NOR));
         let home = key(KeyCode::Home, KeyModifiers::NONE);
         assert_eq!(one(NOR, home), (m(LineStart), NOR));
-        // 编辑类按键在 Normal 态不生效
+        // Editing keys have no effect in Normal mode
         for code in [KeyCode::Enter, KeyCode::Backspace, KeyCode::Tab] {
             assert_eq!(
                 one(NOR, key(code, KeyModifiers::NONE)),
@@ -482,7 +488,7 @@ mod tests {
         assert_eq!(one(VIS, ch('x')), (Some(Action::Cut), NOR));
         assert_eq!(one(VIS, ch('y')), (Some(Action::Copy), NOR));
         assert_eq!(one(VIS, ch('p')), (Some(Action::PasteRegister), NOR));
-        // gg 在 visual 下也扩展
+        // gg extends in Visual mode too
         let seq = vim(VIS, &[ch('g'), ch('g')], false);
         assert_eq!(seq[1], (Some(Action::Move(DocStart, true)), VIS));
     }
@@ -505,7 +511,7 @@ mod tests {
                 (Some(Action::DeleteLine), NOR)
             ]
         );
-        // 非法序列：丢弃 pending，第二个键也不执行
+        // Invalid sequence: drop the pending operator and ignore the second key too
         for (first, second) in [('g', 'x'), ('d', 'j'), ('g', 'd'), ('d', 'g')] {
             let seq = vim(NOR, &[ch(first), ch(second)], false);
             assert_eq!(seq[1], (None, NOR), "{first}{second}");
@@ -518,23 +524,23 @@ mod tests {
         assert_eq!(
             seq[1],
             (Some(Action::Move(Motion::Down, false)), NOR),
-            "非字符键：只丢 pending"
+            "non-char key: only drops the pending operator"
         );
     }
 
     #[test]
     fn vim_prompt_paste_and_ctrl_keys() {
-        // 提示行打开时：Esc 只关提示行，不切换模式
+        // While the prompt is open, Esc only closes the prompt and doesn't switch modes
         let esc = key(KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(
             vim(Mode::Insert, std::slice::from_ref(&esc), true)[0],
             (Some(Action::Cancel), Mode::Insert)
         );
         assert_eq!(vim(VIS, &[esc], true)[0], (Some(Action::Cancel), VIS));
-        // Normal 态收到终端粘贴仍然插入
+        // A terminal paste still inserts in Normal mode
         let paste = Event::Paste("文本".into());
         assert_eq!(one(NOR, paste), (Some(Action::Paste("文本".into())), NOR));
-        // Ctrl 组合键在两种模式下返回值相同（visual 下移动类扩展选区）
+        // Ctrl combos return the same action in both modes (motions extend the selection in Visual)
         let ctrl = KeyModifiers::CONTROL;
         for c in ['s', 'q', 'z', 'y', 'c', 'x', 'v', 't', 'f', 'p', 'a', 'w'] {
             let ev = key(KeyCode::Char(c), ctrl);
@@ -543,14 +549,14 @@ mod tests {
                 .clone();
             assert_eq!(one(NOR, ev), (insert, NOR), "Ctrl+{c}");
         }
-        // Ctrl+R 只在 Normal 态重做
+        // Ctrl+R redoes only in Normal mode
         let ctrl_r = key(KeyCode::Char('r'), ctrl);
         assert_eq!(one(NOR, ctrl_r.clone()), (Some(Action::Redo), NOR));
         assert_eq!(one(Mode::Insert, ctrl_r), (None, Mode::Insert));
-        // 设置面板在 Normal 态也能打开
+        // The settings panel opens from Normal mode too
         let ctrl_p = key(KeyCode::Char('p'), ctrl);
         assert_eq!(one(NOR, ctrl_p), (Some(Action::OpenSettings), NOR));
-        // Insert 态与默认模式完全相同
+        // Insert mode is identical to the default bindings
         let typed = one(Mode::Insert, ch('j'));
         assert_eq!(typed, (Some(Action::Insert("j".into())), Mode::Insert));
     }
@@ -568,10 +574,11 @@ mod tests {
         Some(Action::Move(m, extend))
     }
 
-    /// vim 键位表逐行写成 (按键序列, 起始状态, 最后一个键的动作, 结束状态)。
-    /// `<Esc>` 表示 Esc 键，其余为字符键。新增或修改键位时，必须同时改这张表和帮助表。
+    /// The vim bindings, one row each: (key sequence, start state, action of the last key, end
+    /// state). `<Esc>` is the Esc key; everything else is char keys. When adding or changing a
+    /// binding, update both this table and the help table.
     const VIM_TABLE: &[(&str, Mode, Option<Action>, Mode)] = &[
-        // 模式切换
+        // Mode switches
         ("<Esc>", INS, Some(Action::Cancel), NOR),
         ("i", NOR, None, INS),
         ("a", NOR, mv(Motion::Right, false), INS),
@@ -581,7 +588,7 @@ mod tests {
         ("<Esc>", VIS, Some(Action::Cancel), NOR),
         ("<Esc>", NOR, None, NOR),
         ("<Esc>", PEND_G, None, NOR),
-        // Normal 态动作
+        // Normal mode actions
         ("h", NOR, mv(Motion::Left, false), NOR),
         ("j", NOR, mv(Motion::Down, false), NOR),
         ("k", NOR, mv(Motion::Up, false), NOR),
@@ -597,7 +604,7 @@ mod tests {
         ("dd", NOR, Some(Action::DeleteLine), NOR),
         ("p", NOR, Some(Action::PasteRegister), NOR),
         ("u", NOR, Some(Action::Undo), NOR),
-        // visual：Motion 扩展选区，d / y / x 之后退出
+        // Visual: motions extend the selection; d / y / x exit afterwards
         ("h", VIS, mv(Motion::Left, true), VIS),
         ("w", VIS, mv(Motion::WordRight, true), VIS),
         ("$", VIS, mv(Motion::LineEnd, true), VIS),
@@ -606,12 +613,12 @@ mod tests {
         ("x", VIS, Some(Action::Cut), NOR),
         ("d", VIS, Some(Action::Cut), NOR),
         ("y", VIS, Some(Action::Copy), NOR),
-        // 前缀序列与非法序列
+        // Prefix sequences and invalid sequences
         ("g", NOR, None, PEND_G),
         ("d", NOR, None, PEND_D),
         ("gx", NOR, None, NOR),
         ("dj", NOR, None, NOR),
-        // 其他可打印字符忽略
+        // Other printable characters are ignored
         ("z", NOR, None, NOR),
         ("中", NOR, None, NOR),
     ];
@@ -664,7 +671,7 @@ mod tests {
     }
 
     proptest! {
-        /// vim 关闭时，任何事件序列都不改变 Mode（恒为 Insert）。
+        /// With vim off, no event sequence changes the Mode (always Insert).
         #[test]
         fn vim_off_never_changes_mode(events in prop::collection::vec(any_event(), 0..80), prompt: bool) {
             let keymap = Keymap { vim: false };
@@ -675,7 +682,8 @@ mod tests {
             }
         }
 
-        /// vim 开启时，任意序列不 panic；Normal 态从不产生插入；pending 只可能是 g / d。
+        /// With vim on, no sequence panics, Normal mode never inserts, and the pending operator is
+        /// only ever g / d.
         #[test]
         fn vim_on_is_total(events in prop::collection::vec(any_event(), 0..80)) {
             let keymap = Keymap { vim: true };

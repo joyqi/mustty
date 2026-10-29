@@ -1,4 +1,4 @@
-//! 字数统计：每个汉字计 1，英文按词计，标点不计。
+//! Word count: each CJK character counts as 1, English counts by word, punctuation is not counted.
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -6,7 +6,7 @@ pub fn count_words(s: &str) -> usize {
     s.unicode_words().count()
 }
 
-/// 千分位：`1284` → `1,284`。
+/// Thousands separators: `1284` → `1,284`.
 pub fn thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::new();

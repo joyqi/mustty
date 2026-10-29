@@ -14,10 +14,10 @@ categories = ["command-line-utilities", "text-editors"]
 [dependencies]
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
 crossterm = "0.29.0"
-# 只把 \n 当作换行：孤立的 \r 作为普通字符保留
+# Only \n is a line break: a lone \r stays an ordinary character
 ropey = { version = "1.6.1", default-features = false, features = ["simd"] }
 unicode-segmentation = "1.13.3"
-# 必须与 ratatui-core 解析到同一版本
+# Must resolve to the same version as ratatui-core
 unicode-width = "=0.2.2"
 unicode-linebreak = "0.1.5"
 anyhow = "1.0.104"
@@ -26,25 +26,25 @@ clap = { version = "4.6.7", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"
 dirs = "7.0.0"
-# 系统语言（Windows 上不设 LANG 也能取到）；环境变量优先，见 src/i18n.rs
+# System locale (works on Windows even without LANG); env vars take precedence, see src/i18n.rs
 sys-locale = "0.3.2"
-# 设置面板写回 ~/.mustty.toml：保留注释与键顺序，只改变化的键
+# The settings panel writes back to ~/.mustty.toml: keeps comments and key order, touches only changed keys
 toml_edit = "0.25.17"
 
 [dev-dependencies]
 insta = "1.49.0"
 proptest = "1.12.0"
 
-# tests/window_title.rs：在 pty 里跑真实二进制
+# tests/window_title.rs: runs the real binary in a pty
 [target.'cfg(unix)'.dev-dependencies]
 libc = "0.2.191"
 
 [[example]]
 name = "screenshot"
-# cargo test 也跑它的测试：防止布局改动后截图悄悄变空白
+# cargo test runs its tests too, so a layout change can't silently turn the screenshot blank
 test = true
 
-# 发布构建（cargo-dist，见 dist-workspace.toml）
+# Release builds (cargo-dist, see dist-workspace.toml)
 [profile.dist]
 inherits = "release"
 lto = "thin"

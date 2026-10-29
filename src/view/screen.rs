@@ -1,5 +1,6 @@
-//! 渲染层输出的「屏幕坐标 ↔ 文档坐标」换算。渲染用它摆放标题文字与光标，鼠标只用它查表，
-//! 两边不再各算一遍居中、留白与水平滚动。
+//! Screen ↔ document coordinate mapping, produced by rendering. Rendering uses it to place the title
+//! text and the cursor; the mouse only looks things up in it. Centering, padding and horizontal
+//! scroll are computed once instead of separately on each side.
 
 use ratatui::layout::{Position, Rect};
 use ropey::Rope;
@@ -8,7 +9,7 @@ use crate::text::grapheme::{grapheme_width, graphemes};
 use crate::text::wrap::{VisualPos, WrapCache};
 use crate::view::viewport::{ViewTop, Viewport};
 
-/// 标题行的摆放：文字从 `rect.x + pad` 开始画，跳过前 `scroll` 列。
+/// Title placement: text is drawn from `rect.x + pad`, skipping the first `scroll` columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TitleMap {
     pub rect: Rect,
@@ -21,7 +22,7 @@ pub struct ScreenMap {
     pub body: Rect,
     pub top: ViewTop,
     pub top_padding: u16,
-    /// 实际生效的 scrolloff：拖出正文上下边缘时，取这条边界上的行
+    /// Effective scrolloff: a drag past the body's top or bottom edge targets the row on this boundary
     pub margin: u16,
     pub title: Option<TitleMap>,
 }
@@ -37,14 +38,15 @@ impl ScreenMap {
         }
     }
 
-    /// 视口在两次渲染之间滚动（拖拽自动滚动）后同步，供同一批事件继续查表。
+    /// Resync after the viewport scrolls between renders (drag autoscroll), so later events in the same batch still map correctly.
     pub fn follow(&mut self, vp: &Viewport) {
         self.top = vp.top;
         self.top_padding = vp.top_padding;
     }
 
-    /// 正文视觉位置 → 屏幕坐标；不在视口内为 None。写满一行的行尾、悬挂空白之后，
-    /// 光标放在正文右侧第一格（不超过 `right_limit`），不与最后一个字重叠。
+    /// Body visual position → screen coordinates; None outside the viewport. At the end of a full row,
+    /// or past hanging whitespace, the cursor goes in the first cell right of the body (capped by
+    /// `right_limit`) so it doesn't overlap the last character.
     pub fn body_screen(
         &self,
         pos: VisualPos,
@@ -60,15 +62,16 @@ impl ScreenMap {
         })
     }
 
-    /// 屏幕坐标 → 正文 char 索引；正文区域之外为 None。
+    /// Screen coordinates → body char index; None outside the body area.
     pub fn body_char(&self, p: Position, wrap: &mut WrapCache, rope: &Rope) -> Option<usize> {
         self.body
             .contains(p)
             .then(|| self.body_char_at(p, wrap, rope))
     }
 
-    /// 正文区域内（调用方保证）的坐标 → char 索引。宽字符右半格吸附左侧；
-    /// 上方留白映射到文档首行，文档末尾以下映射到最后一个视觉行；超出行尾取行尾。
+    /// Coordinates inside the body area (the caller guarantees this) → char index. The right half of a
+    /// wide char snaps left. Top padding maps to the first document line, anything below the end of
+    /// the document to the last visual row, and anything past a line end to the line end.
     pub fn body_char_at(&self, p: Position, wrap: &mut WrapCache, rope: &Rope) -> usize {
         let dy = p.y.saturating_sub(self.body.y) as isize - self.top_padding as isize;
         let (line, row) = if dy < 0 {
@@ -80,8 +83,9 @@ impl ScreenMap {
         wrap.visual_to_char(rope, VisualPos { line, row, col })
     }
 
-    /// 拖拽位置 → char 索引：钳制到正文区域；拖出上下边缘时取 scrolloff 边界上的那一行，
-    /// 这样视口只按自动滚动的节奏移动，不会再被 scrolloff 额外推动。
+    /// Drag position → char index, clamped to the body area. Past the top or bottom edge, target the row
+    /// on the scrolloff boundary, so the viewport moves only at the autoscroll pace and scrolloff
+    /// doesn't push it further.
     pub fn drag_char(&self, p: Position, wrap: &mut WrapCache, rope: &Rope) -> usize {
         let b = self.body;
         let x = p.x.clamp(b.x, b.right() - 1);
@@ -95,7 +99,7 @@ impl ScreenMap {
         self.body_char_at(Position::new(x, y), wrap, rope)
     }
 
-    /// 是否拖出了正文上下边缘（需要自动滚动），以及方向。
+    /// Whether the drag is past the body's top or bottom edge (and needs autoscroll), and in which direction.
     pub fn drag_overflow(&self, p: Position) -> Option<isize> {
         if p.y < self.body.y {
             Some(-1)
@@ -106,7 +110,7 @@ impl ScreenMap {
         }
     }
 
-    /// 标题文本第 `col` 列 → 屏幕坐标（渲染放标题光标用）。
+    /// Title text column `col` → screen coordinates (used by rendering to place the title cursor).
     pub fn title_screen(&self, col: u16) -> Option<Position> {
         let t = self.title?;
         Some(Position::new(
@@ -115,8 +119,9 @@ impl ScreenMap {
         ))
     }
 
-    /// 屏幕坐标 → 标题 char 索引：扣除居中留白、加上水平滚动量；宽字符右半格吸附左侧，
-    /// 文字左侧取开头、右侧取末尾。不在标题行为 None。
+    /// Screen coordinates → title char index: subtract the centering padding and add the horizontal
+    /// scroll. The right half of a wide char snaps left; left of the text maps to the start, right of
+    /// it to the end. None off the title row.
     pub fn title_char(&self, p: Position, title: &str, tab_width: u16) -> Option<usize> {
         let t = self.title.filter(|t| t.rect.contains(p))?;
         let col = p.x.saturating_sub(t.rect.x + t.pad) + t.scroll;
@@ -149,33 +154,33 @@ mod tests {
 
     #[test]
     fn screen_to_body_char() {
-        // 正文区域 x = 4, y = 2，宽 6：第 0 行「一二三」|「四a」，第 1 行 "hello"
+        // Body area at x = 4, y = 2, 6 wide: line 0 wraps as "一二三" | "四a", line 1 is "hello"
         let rope = Rope::from_str("一二三四a\nhello\n");
         let mut wrap = WrapCache::new(6, 4);
         let body = Rect::new(4, 2, 6, 5);
         let mut m = map(body, ViewTop::default(), 0, None);
         let mut hit = |m: &ScreenMap, x, y| m.body_char(Position::new(x, y), &mut wrap, &rope);
         assert_eq!(hit(&m, 4, 2), Some(0));
-        // 宽字符：左半格与右半格都落在「二」上
+        // Wide char: both halves land on "二"
         assert_eq!(hit(&m, 6, 2), Some(1));
         assert_eq!(hit(&m, 7, 2), Some(1));
-        // 软换行后的第二个视觉行
+        // Second visual row after a soft wrap
         assert_eq!(hit(&m, 4, 3), Some(3));
         assert_eq!(hit(&m, 6, 3), Some(4));
-        // 超出行尾：逻辑行的末行取行尾
+        // Past the line end: on the last row of a logical line, map to the line end
         assert_eq!(hit(&m, 9, 3), Some(5));
         assert_eq!(hit(&m, 9, 4), Some(11));
-        // 文档末尾以下（区域内）：最后一个视觉行（末尾空行）
+        // Below the end of the document (inside the area): the last visual row (the trailing empty line)
         assert_eq!(hit(&m, 5, 6), Some(12));
-        // 正文区域之外
+        // Outside the body area
         for (x, y) in [(3, 2), (10, 2), (4, 1), (4, 7)] {
             assert_eq!(hit(&m, x, y), None, "({x},{y})");
         }
-        // 视口偏移：顶部是第 0 行的第 1 个视觉行
+        // Viewport offset: the top is visual row 1 of line 0
         m.top = ViewTop { line: 0, row: 1 };
         assert_eq!(hit(&m, 4, 2), Some(3));
         assert_eq!(hit(&m, 5, 3), Some(7));
-        // Typewriter 上方留白：映射到文档首行
+        // Typewriter top padding: maps to the first document line
         m.top = ViewTop::default();
         m.top_padding = 2;
         assert_eq!(hit(&m, 6, 2), Some(1));
@@ -197,7 +202,7 @@ mod tests {
                 "idx {idx} at {p:?}"
             );
         }
-        // 视口之上的行不在屏幕上（上方留白只出现在文档开头，这里不留白）
+        // Rows above the viewport are off screen (top padding only appears at the start of the document, so none here)
         let m = map(Rect::new(4, 2, 6, 5), ViewTop { line: 0, row: 1 }, 0, None);
         let pos = wrap.char_to_visual(&rope, 0, Affinity::Downstream);
         assert_eq!(m.body_screen(pos, &mut wrap, &rope, 80), None);
@@ -206,7 +211,7 @@ mod tests {
     #[test]
     fn title_click_with_centering_and_horizontal_scroll() {
         let rect = Rect::new(2, 1, 10, 1);
-        // 居中：「标题」宽 4，留白 3，文字从 x = 5 开始
+        // Centered: "标题" is 4 wide, padding 3, so the text starts at x = 5
         let m = map(
             Rect::new(2, 3, 10, 4),
             ViewTop::default(),
@@ -219,16 +224,16 @@ mod tests {
         );
         let t = |m: &ScreenMap, x, title| m.title_char(Position::new(x, 1), title, 4);
         assert_eq!(t(&m, 5, "标题"), Some(0));
-        assert_eq!(t(&m, 6, "标题"), Some(0), "右半格吸附左侧");
+        assert_eq!(t(&m, 6, "标题"), Some(0), "right half snaps left");
         assert_eq!(t(&m, 7, "标题"), Some(1));
-        assert_eq!(t(&m, 3, "标题"), Some(0), "文字左侧 → 开头");
-        assert_eq!(t(&m, 11, "标题"), Some(2), "文字右侧 → 末尾");
+        assert_eq!(t(&m, 3, "标题"), Some(0), "left of the text → start");
+        assert_eq!(t(&m, 11, "标题"), Some(2), "right of the text → end");
         assert_eq!(
             m.title_char(Position::new(5, 2), "标题", 4),
             None,
-            "不在标题行"
+            "not on the title row"
         );
-        // 超宽标题水平滚动了 7 列：屏幕第 0 列对应文字第 7 列
+        // An overlong title scrolled by 7 columns: screen column 0 shows text column 7
         let text = "abcdefghijklmnop";
         let m = map(
             Rect::new(2, 3, 10, 4),

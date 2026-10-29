@@ -1,9 +1,9 @@
-//! grapheme cluster 边界与显示宽度。所有偏移均为行内 char 偏移。
+//! Grapheme cluster boundaries and display width. All offsets are char offsets within a line.
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-/// 依次产出 `(char 起点, grapheme)`。
+/// Yields `(char start, grapheme)` in order.
 pub fn graphemes(s: &str) -> impl Iterator<Item = (usize, &str)> {
     let mut chars = 0;
     s.graphemes(true).map(move |g| {
@@ -13,7 +13,7 @@ pub fn graphemes(s: &str) -> impl Iterator<Item = (usize, &str)> {
     })
 }
 
-/// `char_idx` 之前最近的 grapheme 边界；已在行首则返回 0。
+/// The nearest grapheme boundary before `char_idx`, or 0 at line start.
 pub fn prev_boundary(s: &str, char_idx: usize) -> usize {
     graphemes(s)
         .map(|(start, _)| start)
@@ -22,7 +22,7 @@ pub fn prev_boundary(s: &str, char_idx: usize) -> usize {
         .unwrap_or(0)
 }
 
-/// `char_idx` 之后最近的 grapheme 边界；已在行尾则返回行的 char 长度。
+/// The nearest grapheme boundary after `char_idx`, or the line's char length at line end.
 pub fn next_boundary(s: &str, char_idx: usize) -> usize {
     graphemes(s)
         .map(|(start, g)| start + g.chars().count())
@@ -30,7 +30,8 @@ pub fn next_boundary(s: &str, char_idx: usize) -> usize {
         .unwrap_or_else(|| s.chars().count())
 }
 
-/// grapheme 在第 `col` 列开始时的显示宽度：Tab 对齐到 `tab_width` 的整数倍，其余至少 1。
+/// Display width of a grapheme starting at column `col`. A Tab advances to the next multiple of
+/// `tab_width`; anything else is at least 1.
 pub fn grapheme_width(g: &str, col: u16, tab_width: u16) -> u16 {
     if g == "\t" {
         let tab = tab_width.max(1);
@@ -40,7 +41,7 @@ pub fn grapheme_width(g: &str, col: u16, tab_width: u16) -> u16 {
     }
 }
 
-/// 软换行时可以悬挂在行尾的空白。
+/// Whitespace that may hang past the line end during soft wrap.
 pub fn is_whitespace(g: &str) -> bool {
     g.chars().all(char::is_whitespace)
 }
@@ -74,10 +75,10 @@ mod tests {
         assert_eq!(grapheme_width("\t", 0, 4), 4);
         assert_eq!(grapheme_width("\t", 3, 4), 1);
         assert_eq!(grapheme_width("\u{200b}", 0, 4), 1);
-        // tab_width 是显式参数：同一输入永远同一结果
+        // tab_width is an explicit parameter, so the same input always gives the same result
         assert_eq!(grapheme_width("\t", 0, 8), 8);
         assert_eq!(grapheme_width("\t", 3, 8), 5);
         assert_eq!(grapheme_width("\t", 5, 1), 1);
-        assert_eq!(grapheme_width("\t", 5, 0), 1, "0 按 1 处理");
+        assert_eq!(grapheme_width("\t", 5, 0), 1, "0 is treated as 1");
     }
 }

@@ -1,11 +1,11 @@
-//! Token → Style：只用 Modifier 与一个 ANSI 基本色，不写死 RGB、不设背景。
+//! Token → Style: only Modifiers and one basic ANSI color. No hard-coded RGB, no background.
 
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::keymap::Mode;
 use crate::markdown::Token;
 
-/// `code` 为行内代码与代码块的前景色（配置项 code_color，限 8 个 ANSI 基本色）。
+/// `code` is the foreground color for inline code and code blocks (the code_color setting, limited to the 8 basic ANSI colors).
 pub fn style(token: Token, code: Color) -> Style {
     let m = |m: Modifier| Style::default().add_modifier(m);
     match token {
@@ -26,8 +26,9 @@ pub fn style(token: Token, code: Color) -> Style {
     }
 }
 
-/// vim 模式标识：INS 默认前景色（最醒目，表示能打字），NOR 与周围 status bar 一样 DIM（待命），
-/// VIS 黄色（选区是特殊状态，vim 的通行约定）。文字本身已不同，颜色只是冗余强化。
+/// vim mode indicator: INS uses the default foreground (most prominent: you can type), NOR is DIM
+/// like the rest of the status bar (idle), and VIS is yellow (a selection is a special state, as vim
+/// conventionally shows it). The labels already differ; the color is only redundant reinforcement.
 pub fn mode(mode: Mode) -> Style {
     match mode {
         Mode::Insert => Style::default(),
@@ -36,7 +37,7 @@ pub fn mode(mode: Mode) -> Style {
     }
 }
 
-/// 选区：反显，同样不设背景色。
+/// Selection: reversed, again with no background color.
 pub fn selection() -> Style {
     Style::default().add_modifier(Modifier::REVERSED)
 }

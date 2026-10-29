@@ -1,4 +1,4 @@
-//! status bar 的状态：消息与「保存为: 」提示行。
+//! Status bar state: messages and the "Save as: " prompt.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -14,18 +14,18 @@ use crate::text::count::thousands;
 use crate::text::grapheme::{graphemes, next_boundary, prev_boundary};
 use crate::text::wrap::line_text;
 
-/// 「保存为: 」单行输入。
+/// The single-line "Save as: " input.
 #[derive(Debug, Default)]
 pub struct Prompt {
     pub input: String,
-    /// char 索引
+    /// Char index
     pub cursor: usize,
-    /// 目标已存在，等待再按一次 Enter 确认覆盖；改动路径后复位
+    /// The target exists; a second Enter confirms the overwrite. Reset when the path changes
     pub confirm_overwrite: bool,
 }
 
 impl Prompt {
-    /// 预填 `input`，光标放在末尾。
+    /// Prefills `input` with the cursor at the end.
     pub fn with_input(input: String) -> Self {
         Self {
             cursor: input.chars().count(),
@@ -42,7 +42,7 @@ impl Prompt {
         }
     }
 
-    /// 粘贴进单行输入：换行转为空格。
+    /// Pastes into the single-line input, turning newlines into spaces.
     pub fn paste(&mut self, s: &str) {
         let s = s.replace("\r\n", " ").replace(['\r', '\n'], " ");
         let at = self
@@ -55,7 +55,7 @@ impl Prompt {
         self.confirm_overwrite = false;
     }
 
-    /// 处理一个按键；返回 true 表示按下了 Enter。
+    /// Handles one key; returns true if it was Enter.
     pub fn edit(&mut self, key: KeyEvent) -> bool {
         let byte = |s: &str, i: usize| s.char_indices().nth(i).map_or(s.len(), |(b, _)| b);
         let len = self.input.chars().count();
@@ -90,18 +90,20 @@ impl Prompt {
     }
 }
 
-/// 文件名后的保存状态标记。
+/// Save-state mark shown after the file name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveMark {
-    /// 有未保存修改：`*`，默认前景色
+    /// Unsaved changes: `*` in the default foreground
     Dirty,
-    /// 内容与磁盘一致（打开的已有文件未改动、手动或自动保存过）：绿色 `●`
+    /// Content matches the disk (an opened file left unchanged, or saved manually or by autosave):
+    /// green `●`
     Saved,
 }
 
 impl SaveMark {
-    /// `on_disk`：文件在磁盘上存在且记录过它的状态（打开已有文件或保存过）。
-    /// 空 Untitled、尚未创建的新文件在未修改时不显示标记。
+    /// `on_disk`: the file exists on disk and its state was recorded (an existing file was opened,
+    /// or it was saved). An empty untitled document or a not-yet-created new file shows no mark
+    /// while unmodified.
     pub fn of(dirty: bool, on_disk: bool) -> Option<Self> {
         if dirty {
             Some(Self::Dirty)
@@ -115,12 +117,12 @@ impl SaveMark {
     pub fn symbol(self) -> &'static str {
         match self {
             Self::Dirty => "*",
-            // East Asian Width 为 Ambiguous，按 narrow（1 列）计
+            // East Asian Width is Ambiguous; we count it as narrow (1 column)
             Self::Saved => "\u{25CF}",
         }
     }
 
-    /// 都不 DIM，与 DIM 的文件名形成对比。
+    /// Neither is DIM, so they stand out against the DIM file name.
     pub fn style(self) -> Style {
         match self {
             Self::Dirty => Style::default(),
@@ -131,9 +133,9 @@ impl SaveMark {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MessageKind {
-    /// 到点自动消失
+    /// Disappears on its own when it expires
     Info { expires: Instant },
-    /// 保持到下一次按键
+    /// Stays until the next key press
     Error,
 }
 
@@ -145,14 +147,14 @@ pub struct Message {
 
 #[derive(Debug, Default)]
 pub struct StatusModel {
-    /// 覆盖左段
+    /// Overrides the left section
     pub message: Option<Message>,
     pub prompt: Option<Prompt>,
-    /// 自动保存因外部修改被放弃；常驻提示，直到保存成功
+    /// Autosave was abandoned because of an external change; the notice stays until a save succeeds
     pub externally_modified: bool,
-    /// 显示的字数（标题 + 正文）
+    /// The displayed word count (title + body)
     pub words: usize,
-    /// 启动键位提示的截止时刻
+    /// When the startup key hint ends
     pub hint_until: Option<Instant>,
 }
 
@@ -173,7 +175,7 @@ impl StatusModel {
         });
     }
 
-    /// 有按键时调用：错误类消息到此为止。
+    /// Called on key input; error messages end here.
     pub fn on_input(&mut self) {
         if self
             .message
@@ -191,7 +193,7 @@ impl StatusModel {
         }
     }
 
-    /// 清掉已过期的消息；返回是否有变化。
+    /// Clears an expired message; returns whether anything changed.
     pub fn expire(&mut self, now: Instant) -> bool {
         let expired = self.expiry().is_some_and(|t| now >= t);
         if expired {
@@ -202,7 +204,7 @@ impl StatusModel {
 
     pub fn words_label(&self) -> String {
         let n = thousands(self.words);
-        // 英文单复数：只有这一处，用两条 key 解决，不引入复数规则
+        // English plurals: this is the only place that needs them, so two keys beat plural rules
         if self.words == 1 {
             t_args("status-words-one", &[("n", &n)])
         } else {
@@ -210,8 +212,8 @@ impl StatusModel {
         }
     }
 
-    /// 终端窗口标题：非空的 H1 标题 > 文件名（含扩展名）> `Untitled`；控制字符已去掉。
-    /// 有未保存修改时前面加 `* `（不翻译）。
+    /// Terminal window title: a non-empty H1 title > the file name (with extension) > `Untitled`,
+    /// with control characters stripped. Unsaved changes add a `* ` prefix (not translated).
     pub fn window_title(title: &TitleField, path: Option<&Path>, dirty: bool) -> String {
         let text = Self::window_title_text(title, path);
         if dirty { format!("* {text}") } else { text }
@@ -231,7 +233,7 @@ impl StatusModel {
         }
     }
 
-    /// basename；无路径时为 `Untitled`（按界面语言）。
+    /// The basename, or `Untitled` (in the UI language) when there is no path.
     pub fn file_name(path: Option<&Path>) -> String {
         match path {
             Some(p) => p.file_name().map_or_else(
@@ -242,7 +244,7 @@ impl StatusModel {
         }
     }
 
-    /// 行 = 逻辑行号，列 = 行内 grapheme 序号，均从 1 起。
+    /// Line = logical line number, column = grapheme index within the line, both 1-based.
     pub fn position(rope: &Rope, head: usize) -> String {
         let line = rope.char_to_line(head);
         let local = head - rope.line_to_char(line);
@@ -269,16 +271,16 @@ mod tests {
         assert_eq!(wt(&h1("春天的信"), Some(path)), "春天的信");
         assert_eq!(wt(&h1("春天的信"), None), "春天的信");
         assert_eq!(wt(&TitleField::Unbound, Some(path)), "notes.md");
-        assert_eq!(wt(&h1(""), Some(path)), "notes.md", "空 H1 退回文件名");
+        assert_eq!(wt(&h1(""), Some(path)), "notes.md", "empty H1 → file name");
         assert_eq!(wt(&h1("  "), Some(path)), "notes.md");
         assert_eq!(wt(&TitleField::Unbound, None), "Untitled");
         assert_eq!(wt(&h1(""), None), "Untitled");
-        // 控制字符：BEL / ESC 会结束或注入序列，一律去掉
+        // Control characters: BEL / ESC can end or inject a sequence, so strip them all
         assert_eq!(wt(&h1("a\x07b\x1b]0;pwned\x07"), None), "ab]0;pwned");
         assert_eq!(
             wt(&h1("\x1b\x07"), Some(path)),
             "notes.md",
-            "只剩控制字符等于空"
+            "only control characters counts as empty"
         );
         assert_eq!(
             wt(&TitleField::Unbound, Some(Path::new("evil\x1b[2J.md"))),
@@ -295,14 +297,14 @@ mod tests {
         };
         let path = Path::new("/home/me/notes.md");
         let wt = StatusModel::window_title;
-        // 三种来源：H1 / 文件名 / Untitled，干净时无前缀，有修改时前缀 `* `
+        // Three sources (H1 / file name / Untitled): no prefix when clean, `* ` when modified
         assert_eq!(wt(&h1, Some(path), false), "春天的信");
         assert_eq!(wt(&h1, Some(path), true), "* 春天的信");
         assert_eq!(wt(&TitleField::Unbound, Some(path), false), "notes.md");
         assert_eq!(wt(&TitleField::Unbound, Some(path), true), "* notes.md");
         assert_eq!(wt(&TitleField::Unbound, None, false), "Untitled");
         assert_eq!(wt(&TitleField::Unbound, None, true), "* Untitled");
-        // 前缀不翻译；控制字符照样去掉
+        // The prefix is not translated; control characters are still stripped
         crate::i18n::init_for_test("zh-CN");
         let evil = TitleField::Bound {
             text: "\x1b]0;x\x07".into(),
@@ -346,13 +348,13 @@ mod tests {
         assert_eq!(
             SaveMark::of(true, false),
             Some(SaveMark::Dirty),
-            "Untitled 有修改也是星号"
+            "modified untitled also gets the asterisk"
         );
         assert_eq!(SaveMark::of(false, true), Some(SaveMark::Saved));
         assert_eq!(
             SaveMark::of(false, false),
             None,
-            "空 Untitled / 未创建的新文件"
+            "empty untitled / not-yet-created new file"
         );
         assert_eq!(SaveMark::Dirty.symbol(), "*");
         assert_eq!(SaveMark::Saved.symbol(), "●");
@@ -366,7 +368,7 @@ mod tests {
         let mut s = StatusModel::default();
         s.info("Typewriter 模式：开", t0, Duration::from_secs(2));
         s.on_input();
-        assert!(s.message.is_some(), "info 不因按键消失");
+        assert!(s.message.is_some(), "info does not disappear on key input");
         assert!(!s.expire(t0 + Duration::from_millis(1999)));
         assert!(s.expire(t0 + Duration::from_secs(2)));
         s.error("保存失败");

@@ -1,5 +1,6 @@
-//! 键位帮助的渲染：只占正文区，不画边框、不设背景。
-//! 两列：左列键位（不翻译），右列说明；vim 下的组标题单独一行（BOLD）。
+//! Help panel rendering: it occupies only the body area, with no border and no background.
+//! Two columns: keys on the left (never translated) and descriptions on the right. In vim mode,
+//! group headings get a row of their own (BOLD).
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -12,13 +13,13 @@ use crate::i18n::t_id;
 
 pub struct HelpWidget<'a> {
     pub lines: &'a [Line],
-    /// 第一行显示的下标
+    /// Index of the first visible line
     pub scroll: usize,
 }
 
 impl Widget for HelpWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // 键位列按最长的一条对齐，再留两格；最多占一半宽度，其余给说明
+        // Size the key column to the longest entry plus two cells, capped at half the width; the rest goes to descriptions
         let keys_w = self
             .lines
             .iter()

@@ -1,4 +1,4 @@
-//! 文档模型：标题（首行 H1）与正文分离。
+//! Document model: the title (a first-line H1) is kept separate from the body.
 
 use std::ops::Range;
 use std::path::PathBuf;
@@ -13,7 +13,7 @@ pub enum LineEnding {
 }
 
 impl LineEnding {
-    /// 新文件的换行符：Windows 上为 CRLF，其他平台 LF。
+    /// Line ending for new files: CRLF on Windows, LF elsewhere.
     pub fn platform() -> Self {
         if cfg!(windows) { Self::CrLf } else { Self::Lf }
     }
@@ -24,11 +24,11 @@ pub struct FileMeta {
     pub path: Option<PathBuf>,
     pub line_ending: LineEnding,
     pub has_bom: bool,
-    /// 上次读 / 写时磁盘上的修改时间与大小，用于外部修改检测
+    /// On-disk mtime and size at the last read / write, used to detect external changes
     pub stamp: Option<DiskStamp>,
 }
 
-/// mtime 粒度粗（或被同步盘还原）时，大小变化仍能发现外部修改。
+/// When mtime is coarse (or restored by a sync drive), a size change still reveals an external edit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DiskStamp {
     pub mtime: SystemTime,
@@ -45,7 +45,7 @@ impl FileMeta {
         }
     }
 
-    /// 测试用：固定 LF，让断言不随平台的默认换行变化（平台默认由专门的测试覆盖）。
+    /// For tests: pin LF so assertions don't depend on the platform default (a dedicated test covers that).
     #[cfg(test)]
     pub(crate) fn lf() -> Self {
         Self {
@@ -58,7 +58,7 @@ impl FileMeta {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TitleField {
     Unbound,
-    /// 首行 `# text`，`sep` 为紧随其后的连续换行符。
+    /// A first line of `# text`; `sep` holds the run of newlines right after it.
     Bound {
         text: String,
         sep: String,
@@ -67,19 +67,19 @@ pub enum TitleField {
 
 pub struct Document {
     pub title: TitleField,
-    /// 只能经 `replace` 修改
+    /// Modified only through `replace`
     body: Rope,
     pub meta: FileMeta,
-    /// 当前内容的版本号。undo 会回到旧值，所以新版本号从 `last_revision` 递增取得，永不复用。
+    /// Revision of the current content. Undo goes back to old values, so new revisions come from incrementing `last_revision` and are never reused.
     revision: u64,
     last_revision: u64,
 }
 
 impl Document {
-    /// `raw` 已去 BOM、换行已统一为 `\n`。
+    /// `raw` has its BOM stripped and line endings normalized to `\n`.
     pub fn parse(raw: &str, meta: FileMeta) -> Self {
         let (first, rest) = raw.split_once('\n').unwrap_or((raw, ""));
-        // 空标题不绑定：保存时会被删除，无法保证字节往返
+        // Don't bind an empty title: saving would drop it, breaking the byte-exact round trip
         let title = first
             .strip_prefix("# ")
             .filter(|t| !t.is_empty() && !first.ends_with('#'));
@@ -104,7 +104,7 @@ impl Document {
         }
     }
 
-    /// BOM? + 标题行 + sep + 正文，并还原换行符。
+    /// BOM? + title line + sep + body, with the original line endings restored.
     pub fn serialize(&self) -> String {
         let mut out = String::new();
         if self.meta.has_bom {
@@ -115,7 +115,7 @@ impl Document {
         {
             out.push_str("# ");
             out.push_str(text);
-            // 原文件只有标题行、之后又写了正文时，补一个换行
+            // If the file had only a title line and a body was written later, add a newline
             out.push_str(if sep.is_empty() && self.body.len_chars() > 0 {
                 "\n"
             } else {
@@ -129,14 +129,14 @@ impl Document {
         }
     }
 
-    /// 正文唯一写入口。
+    /// The body's single write path.
     pub fn replace(&mut self, range: Range<usize>, text: &str) {
         self.body.remove(range.clone());
         self.body.insert(range.start, text);
         self.bump();
     }
 
-    /// 写入标题；Unbound 时变为 `Bound { sep: "\n\n" }`。
+    /// Set the title; an Unbound title becomes `Bound { sep: "\n\n" }`.
     pub fn set_title(&mut self, text: String) {
         match &mut self.title {
             TitleField::Bound { text: t, .. } => *t = text,
@@ -155,7 +155,7 @@ impl Document {
         self.revision = self.last_revision;
     }
 
-    /// undo / redo 回到某个版本。
+    /// Undo / redo jumps back to a given revision.
     pub(crate) fn set_revision(&mut self, revision: u64) {
         self.revision = revision;
     }
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn new_documents_use_platform_line_ending() {
-        // 新文件按平台默认换行（Windows CRLF，其余 LF）
+        // New files use the platform line ending (CRLF on Windows, LF elsewhere)
         assert_eq!(FileMeta::new(None).line_ending, LineEnding::platform());
         let meta = FileMeta {
             line_ending: LineEnding::platform(),

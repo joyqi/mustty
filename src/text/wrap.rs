@@ -1,4 +1,4 @@
-//! 软换行：UAX #14 断行机会 + 悬挂空白 + 超长词强制断行。
+//! Soft wrap: UAX #14 break opportunities + hanging whitespace + forced breaks for overlong words.
 
 use std::ops::Range;
 
@@ -8,16 +8,16 @@ use unicode_linebreak::{BreakOpportunity, linebreaks};
 use super::grapheme::{grapheme_width, graphemes, is_whitespace};
 use crate::editor::cursor::Affinity;
 
-/// 一个视觉行，区间为行内 char 偏移 `[start, end)`。
+/// One visual row, spanning char offsets `[start, end)` within the line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisualRow {
     pub start: usize,
     pub end: usize,
-    /// 本行显示宽度（不含悬挂空白）。
+    /// Display width of this row (excluding hanging whitespace).
     pub width: u16,
 }
 
-/// 第 `line` 个逻辑行的第 `row` 个视觉行、第 `col` 列。
+/// Visual row `row` of logical line `line`, at column `col`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisualPos {
     pub line: usize,
@@ -50,7 +50,7 @@ pub fn wrap_line(line: &str, width: u16, tab_width: u16) -> Vec<VisualRow> {
     let char_at = |gi: usize| gs.get(gi).map_or(total, |&(c, _)| c);
     let mut rows = Vec::new();
     let (mut start, mut i, mut col) = (0, 0, 0u16);
-    // 当前视觉行内最近的断行机会：(grapheme 下标, 断在此处时的行宽)
+    // Latest break opportunity in this visual row: (grapheme index, row width if broken here)
     let mut last_opp: Option<(usize, u16)> = None;
     let mut hanging = false;
     while i < gs.len() {
@@ -71,7 +71,7 @@ pub fn wrap_line(line: &str, width: u16, tab_width: u16) -> Vec<VisualRow> {
         }
         let (at, row_width) = match last_opp {
             Some(opp) => opp,
-            // 单个 grapheme 比整行还宽，只能独占一行
+            // A single grapheme wider than the row has to take a row of its own
             None if i == start => {
                 col += w;
                 i += 1;
@@ -96,8 +96,8 @@ pub fn wrap_line(line: &str, width: u16, tab_width: u16) -> Vec<VisualRow> {
     rows
 }
 
-/// 行内 char 偏移 → `(row, col)`。软换行处的偏移按 `Downstream` 显示在下一视觉行行首，
-/// `Upstream` 显示在上一视觉行行尾。
+/// Char offset within the line → `(row, col)`. At a soft wrap point, `Downstream` places the offset
+/// at the start of the next visual row and `Upstream` at the end of the previous one.
 pub fn char_to_visual(
     line: &str,
     rows: &[VisualRow],
@@ -123,8 +123,9 @@ pub fn char_to_visual(
     (row, col)
 }
 
-/// `(row, col)` → 行内 char 偏移。列落在宽字符中间时吸附到其左侧；
-/// 超出行尾时，末行取行尾，其余行取最后一个 grapheme。
+/// `(row, col)` → char offset within the line. A column inside a wide character snaps to its left
+/// edge. Past the row end, the last row yields the line end and other rows yield their last
+/// grapheme.
 pub fn visual_to_char(
     line: &str,
     rows: &[VisualRow],
@@ -150,7 +151,7 @@ pub fn visual_to_char(
     if row + 1 == rows.len() { r.end } else { last }
 }
 
-/// 逻辑行文本（不含末尾 `\n`）。
+/// Text of a logical line (without the trailing `\n`).
 pub fn line_text(rope: &Rope, line: usize) -> String {
     let mut s = rope.line(line).to_string();
     if s.ends_with('\n') {
@@ -159,10 +160,10 @@ pub fn line_text(rope: &Rope, line: usize) -> String {
     s
 }
 
-/// 按逻辑行惰性缓存 `wrap_line` 的结果。
+/// Lazily caches `wrap_line` results per logical line.
 pub struct WrapCache {
     width: u16,
-    /// Tab 的显示宽度（配置 tab_width），换行与渲染都从这里取
+    /// Display width of a Tab (the tab_width setting); both wrapping and rendering read it here
     tab_width: u16,
     lines: Vec<Option<Vec<VisualRow>>>,
 }
@@ -191,7 +192,8 @@ impl WrapCache {
         }
     }
 
-    /// 改 Tab 宽度：所有行的换行结果都可能变，整体清空（配置面板运行时修改 tab_width）。
+    /// Changes the Tab width. Any line's wrap may change, so the whole cache is cleared (the
+    /// settings panel can change tab_width at runtime).
     pub fn set_tab_width(&mut self, tab_width: u16) {
         if tab_width != self.tab_width {
             self.tab_width = tab_width;
@@ -199,7 +201,8 @@ impl WrapCache {
         }
     }
 
-    /// 编辑后标脏：`lines` 为编辑前受影响的逻辑行，`inserted` 为行数净增量。
+    /// Marks lines dirty after an edit: `lines` are the affected logical lines before the edit,
+    /// `inserted` is the net change in line count.
     pub fn invalidate(&mut self, lines: Range<usize>, inserted: isize) {
         if lines.end > self.lines.len() {
             self.lines.clear();
@@ -209,7 +212,8 @@ impl WrapCache {
         self.lines.splice(lines, std::iter::repeat_n(None, new_len));
     }
 
-    /// `lines` 内已缓存的行都与重新换行的结果一致，且槽位数与文档行数对得上。
+    /// Every cached line in `lines` matches a fresh wrap, and the slot count matches the document's
+    /// line count.
     pub fn is_consistent(&self, rope: &Rope, lines: Range<usize>) -> bool {
         if self.lines.is_empty() {
             return true;
@@ -222,7 +226,8 @@ impl WrapCache {
     }
 
     pub fn rows(&mut self, rope: &Rope, line: usize) -> &[VisualRow] {
-        // 槽位数与文档对不上（首次使用或 invalidate 无法定位）时整体重建
+        // Rebuild everything when the slot count doesn't match the document (first use, or
+        // invalidate couldn't locate the edit)
         if self.lines.len() != rope.len_lines() {
             self.lines = vec![None; rope.len_lines()];
         }
@@ -246,7 +251,7 @@ impl WrapCache {
             + visual_to_char(&text, self.rows(rope, pos.line), pos.row, pos.col, tab)
     }
 
-    /// 从视觉行 `(line, row)` 前进 `delta` 个视觉行，在文档首尾处停住。
+    /// Moves `delta` visual rows from visual row `(line, row)`, stopping at document edges.
     pub fn step_rows(&mut self, rope: &Rope, from: (usize, usize), delta: isize) -> (usize, usize) {
         let (mut line, mut row) = from;
         for _ in 0..delta.unsigned_abs() {
@@ -270,7 +275,7 @@ impl WrapCache {
         (line, row)
     }
 
-    /// 从视觉行 `from` 到 `to` 相隔的视觉行数（`to` 在前时为负）。
+    /// Number of visual rows from visual row `from` to `to` (negative when `to` comes first).
     pub fn rows_between(&mut self, rope: &Rope, from: (usize, usize), to: (usize, usize)) -> isize {
         if to < from {
             return -self.rows_between(rope, to, from);
@@ -306,10 +311,10 @@ mod tests {
             ),
             ("chinese", "一二三四五六", 6, &[(0, 3, 6), (3, 6, 6)]),
             ("mixed", "Hello世界", 7, &[(0, 6, 7), (6, 7, 2)]),
-            // 避头：「，」不出现在行首
+            // Kinsoku: "，" is not allowed at line start
             ("no comma at head", "一二三，四", 6, &[(0, 2, 4), (2, 5, 6)]),
             ("no period at head", "一二三。", 6, &[(0, 2, 4), (2, 4, 4)]),
-            // 避尾：「「」不出现在行尾
+            // Kinsoku: "「" is not allowed at line end
             ("no open at tail", "一二「三」", 6, &[(0, 2, 4), (2, 5, 6)]),
             (
                 "long word forced",
@@ -339,8 +344,8 @@ mod tests {
         assert_eq!(grapheme_width("\t", 0, 8), 8);
         assert_eq!(grapheme_width("\t", 3, 8), 5);
         assert_eq!(wrap_line("a\tb", 20, 8)[0].width, 9);
-        assert_eq!(grapheme_width("\t", 5, 0), 1, "0 按 1 处理");
-        // 显式参数：同一进程里不同 tab 宽度互不影响
+        assert_eq!(grapheme_width("\t", 5, 0), 1, "0 is treated as 1");
+        // Explicit parameter: different tab widths in one process don't interfere
         assert_eq!(wrap_line("a\tb", 20, 2)[0].width, 3);
         assert_eq!(wrap_line("a\tb", 20, 8)[0].width, 9);
         let mut wide = WrapCache::new(20, 8);
@@ -389,23 +394,24 @@ mod tests {
             char_to_visual(line, &rows, 15, Affinity::Downstream, 4),
             (1, 3)
         );
-        // 非末行超出行尾：停在最后一个 grapheme 上
+        // Past the end of a non-last row: stop on the last grapheme
         assert_eq!(visual_to_char(line, &rows, 0, 40, 4), 11);
     }
 
     #[test]
     fn mapping_affinity_at_row_boundaries() {
         use Affinity::{Downstream, Upstream};
-        // 恰好写满一行：同一个偏移，Upstream 在本行行尾（第 6 列），Downstream 在下一行行首
+        // A row filled exactly: for the same offset, Upstream sits at this row's end (column 6),
+        // Downstream at the start of the next row
         let full = "一二三四五六";
         let rows = wrap_line(full, 6, 4);
         assert_eq!(char_to_visual(full, &rows, 3, Upstream, 4), (0, 6));
         assert_eq!(char_to_visual(full, &rows, 3, Downstream, 4), (1, 0));
-        // 悬挂空白之后
+        // After hanging whitespace
         let line = "hello world foo";
         let rows = wrap_line(line, 11, 4);
         assert_eq!(char_to_visual(line, &rows, 12, Upstream, 4), (0, 12));
-        // 非边界处两种 affinity 结果相同；行首、行尾、空行不受影响
+        // Off boundaries both affinities agree; line start, line end and empty lines are unaffected
         assert_eq!(char_to_visual(line, &rows, 5, Upstream, 4), (0, 5));
         assert_eq!(char_to_visual(line, &rows, 0, Upstream, 4), (0, 0));
         assert_eq!(char_to_visual(line, &rows, 15, Upstream, 4), (1, 3));
@@ -422,7 +428,7 @@ mod tests {
         for l in 0..3 {
             wrap.rows(&rope, l);
         }
-        rope.insert(1, "x\ny\nz"); // 第 0 行拆成 3 行
+        rope.insert(1, "x\ny\nz"); // line 0 splits into 3 lines
         wrap.invalidate(0..1, 2);
         assert_eq!(wrap.lines.len(), 5);
         assert!(wrap.lines[0].is_none() && wrap.lines[2].is_none());
@@ -454,7 +460,7 @@ mod tests {
             }
             for r in &rows {
                 prop_assert!(bounds.contains(&r.start) && bounds.contains(&r.end));
-                // 只有一个 grapheme（不计悬挂空白）的行允许超宽
+                // A row with a single grapheme (ignoring hanging whitespace) may exceed the width
                 let seg: String = line.chars().skip(r.start).take(r.end - r.start).collect();
                 let single = graphemes(seg.trim_end()).count() <= 1;
                 prop_assert!(r.width <= width || single, "{:?}", r);

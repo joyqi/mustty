@@ -1,54 +1,55 @@
-//! 界面文案：`locales/*.toml` 编译期嵌入，`en` 是源语言也是回退语言。
+//! UI strings: `locales/*.toml` are embedded at compile time; `en` is both the source and the fallback locale.
 //!
-//! 只有两个入口：`t("id")` 与 `t_args("id", &[("name", value)])`，第一个参数必须是
-//! 字符串字面量——测试会扫描源码，确认每个 id 都在 `en.toml` 里。
+//! There are only two entry points: `t("id")` and `t_args("id", &[("name", value)])`. The first
+//! argument must be a string literal, because a test scans the source to check every id is in `en.toml`.
 //!
-//! 界面语言可在运行时切换（设置面板的「语言」项）：`use_config` 重新协商，`t()` 随即返回新语言。
+//! The UI language can change at runtime (the Language item in the settings panel): `use_config`
+//! renegotiates, and `t()` returns the new language right away.
 
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// (语言标签, 文件内容)。新增一门语言：在这里加一行。第一行必须是 `en`。
+/// (locale tag, file contents). To add a language, add a row here. The first row must be `en`.
 pub const LOCALES: &[(&str, &str)] = &[
     ("en", include_str!("../locales/en.toml")),
     ("zh-CN", include_str!("../locales/zh-CN.toml")),
 ];
 
-/// 配置项 `lang` 为 `auto` 时依次读取的环境变量；都没有时用系统语言，再没有用 `en`。
+/// Env vars read in order when the `lang` option is `auto`. If none is set, use the system locale, then `en`.
 pub const ENV_VARS: [&str; 3] = ["LC_ALL", "LC_MESSAGES", "LANG"];
 
-/// 配置项 `lang` 的默认值：按环境变量与系统语言自动判断。
+/// Default for the `lang` option: detect from env vars and the system locale.
 pub const AUTO: &str = "auto";
 
-/// 不经 `t()` 读取、而是按语言直接取的元信息：每份译文用自己的语言写出语言名。
+/// Metadata read per locale rather than through `t()`: each catalog names its language in that language.
 pub const META_KEYS: [&str; 1] = ["language-name"];
 
 pub type Catalog = HashMap<String, String>;
 
-/// 当前语言在 `LOCALES` 里的下标；运行时可切换。
+/// Index of the active locale in `LOCALES`; can change at runtime.
 static ACTIVE: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {
-    /// 测试按线程固定语言：cargo test 每个测试一个线程，互不干扰。
+    /// Tests pin the locale per thread: cargo test runs each test on its own thread, so they don't interfere.
     static TEST_LOCALE: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
-/// 按环境变量与系统语言选定界面语言（还没读配置文件时的初值）。
-/// `main()` 随后用配置项 `lang` 调 `use_config`，都在 clap 解析之前（`--help` 也要翻译）。
+/// Picks the UI language from env vars and the system locale (the initial value before the config file is read).
+/// `main()` then calls `use_config` with the `lang` option, all before clap parses (`--help` needs translating too).
 pub fn init() {
     use_config(AUTO);
 }
 
-/// 按配置项 `lang`（`auto` 或语言标签）重新协商并切换；返回生效的语言。
+/// Renegotiates and switches based on the `lang` option (`auto` or a locale tag); returns the locale in effect.
 pub fn use_config(lang: &str) -> &'static str {
     let tag = negotiate_with(lang, |k| std::env::var(k).ok(), sys_locale::get_locale());
     set_language(tag);
     tag
 }
 
-/// 切换界面语言。测试线程固定过语言时只改这个线程，不影响并行的其他测试。
+/// Switches the UI language. On a test thread with a pinned locale, only that thread changes, so parallel tests are unaffected.
 pub fn set_language(tag: &str) {
     let i = index(tag);
     let pinned = TEST_LOCALE.with(|c| {
@@ -63,28 +64,28 @@ pub fn set_language(tag: &str) {
     }
 }
 
-/// 所有可选的语言标签，`LOCALES` 的顺序。
+/// All available locale tags, in `LOCALES` order.
 pub fn tags() -> impl Iterator<Item = &'static str> {
     LOCALES.iter().map(|(tag, _)| *tag)
 }
 
-/// 配置文件里写的语言标签（大小写不敏感）→ `LOCALES` 里的写法。
+/// Maps a locale tag from the config file (case-insensitive) to its spelling in `LOCALES`.
 pub fn known_tag(tag: &str) -> Option<&'static str> {
     tags().find(|t| t.eq_ignore_ascii_case(tag))
 }
 
-/// 语言自己的名字（English、简体中文），不随当前界面语言变化。
+/// The language's own name (English, 简体中文); doesn't change with the current UI language.
 pub fn native_name(tag: &str) -> &'static str {
     let i = index(tag);
     resolve(catalogs(), i, META_KEYS[0]).map_or(LOCALES[i].0, |(s, _)| s)
 }
 
-/// 测试里固定当前线程的语言。
+/// Pins the current thread's locale in tests.
 pub fn init_for_test(tag: &str) {
     TEST_LOCALE.with(|c| c.set(Some(index(tag))));
 }
 
-/// 当前语言的标签。
+/// Tag of the active locale.
 pub fn current() -> &'static str {
     LOCALES[active()].0
 }
@@ -93,13 +94,13 @@ pub fn t(id: &'static str) -> &'static str {
     lookup(id)
 }
 
-/// 按存在数据表里的 id 取文案（键位帮助的说明）。源码里能直接写字面量的地方一律用 `t()`；
-/// 这些 id 由 `help::ids()` 列出，测试同样确认它们都在 en.toml 里。
+/// Looks up an id stored in a data table (key binding descriptions in help). Wherever the source can use a literal, use `t()`.
+/// These ids are listed by `help::ids()`, and a test likewise checks they are all in en.toml.
 pub fn t_id(id: &'static str) -> &'static str {
     lookup(id)
 }
 
-/// `{name}` 简单替换；缺参数时保留原样。
+/// Plain `{name}` substitution; placeholders without an argument are left as-is.
 pub fn t_args(id: &'static str, args: &[(&str, &str)]) -> String {
     let (s, missing) = substitute(lookup(id), args);
     debug_assert!(missing.is_empty(), "{id}: missing arguments {missing:?}");
@@ -108,7 +109,7 @@ pub fn t_args(id: &'static str, args: &[(&str, &str)]) -> String {
 
 fn lookup(id: &'static str) -> &'static str {
     let locale = active();
-    // 缺译文时回退 en：每份译文的 key 都由测试检查，这里不再另外报告
+    // Fall back to en for missing translations. Tests check every catalog's keys, so don't report it here
     match resolve(catalogs(), locale, id) {
         Some((s, _)) => s,
         None => {
@@ -141,7 +142,7 @@ fn catalogs() -> &'static [Catalog] {
     })
 }
 
-/// 扁平的 `id = "文案"` 表；值必须是字符串。
+/// A flat `id = "text"` table; values must be strings.
 pub fn parse(src: &str) -> Result<Catalog, String> {
     let table: toml::Table = src.parse().map_err(|e: toml::de::Error| e.to_string())?;
     table
@@ -153,7 +154,7 @@ pub fn parse(src: &str) -> Result<Catalog, String> {
         .collect()
 }
 
-/// 查 `locale`，缺了查 `en`（第二项为 true 表示发生了回退）；都没有为 None。
+/// Looks in `locale`, then in `en` (the second item is true on fallback); None if neither has it.
 fn resolve<'a>(cats: &'a [Catalog], locale: usize, id: &str) -> Option<(&'a str, bool)> {
     match cats[locale].get(id) {
         Some(s) => Some((s, false)),
@@ -161,7 +162,7 @@ fn resolve<'a>(cats: &'a [Catalog], locale: usize, id: &str) -> Option<(&'a str,
     }
 }
 
-/// 替换 `{name}`；返回结果与没有对应参数的占位符名。
+/// Substitutes `{name}`; returns the result and the names of placeholders that had no argument.
 fn substitute<'a>(template: &'a str, args: &[(&str, &str)]) -> (String, Vec<&'a str>) {
     let mut out = String::with_capacity(template.len());
     let mut missing = Vec::new();
@@ -189,7 +190,7 @@ fn next_placeholder(s: &str) -> Option<(&str, &str, &str)> {
     Some((&s[..open], &s[open + 1..close], &s[close + 1..]))
 }
 
-/// 文案里出现的占位符名。
+/// Placeholder names that appear in a string.
 pub fn placeholders(s: &str) -> BTreeSet<&str> {
     let mut names = BTreeSet::new();
     let mut rest = s;
@@ -200,12 +201,12 @@ pub fn placeholders(s: &str) -> BTreeSet<&str> {
     names
 }
 
-/// 依次取第一个非空的环境变量，否则用系统语言；再与 `LOCALES` 匹配。
+/// Takes the first non-empty env var, or else the system locale, and matches it against `LOCALES`.
 pub fn negotiate(env: impl Fn(&str) -> Option<String>, system: Option<String>) -> &'static str {
     negotiate_with(AUTO, env, system)
 }
 
-/// 优先级：配置项 `lang`（不是 `auto` 时）> `LC_ALL` / `LC_MESSAGES` / `LANG` > 系统语言 > `en`。
+/// Precedence: the `lang` option (unless `auto`) > `LC_ALL` / `LC_MESSAGES` / `LANG` > system locale > `en`.
 pub fn negotiate_with(
     config: &str,
     env: impl Fn(&str) -> Option<String>,
@@ -221,7 +222,7 @@ pub fn negotiate_with(
         .map_or("en", |tag| match_tag(&tag))
 }
 
-/// POSIX（`zh_CN.UTF-8@x`）与 BCP 47（`zh-Hans-CN`）两种写法：先比语言 + 地区，再只比语言。
+/// Accepts both POSIX (`zh_CN.UTF-8@x`) and BCP 47 (`zh-Hans-CN`) forms: match language + region first, then language alone.
 fn match_tag(raw: &str) -> &'static str {
     let tag = raw.split(['.', '@']).next().unwrap_or_default();
     if matches!(tag, "" | "C" | "POSIX") {
@@ -240,7 +241,7 @@ fn match_tag(raw: &str) -> &'static str {
         }
     }
     if lang == "zh" {
-        // 繁体请求 zh-TW；没有这份译文时下面按语言匹配回退到 zh-CN
+        // Traditional Chinese asks for zh-TW; without that catalog, the language-only match below falls back to zh-CN
         let traditional = script.as_deref() == Some("hant")
             || matches!(region.as_deref(), Some("TW" | "HK" | "MO"));
         region = Some(if traditional { "TW" } else { "CN" }.to_owned());
@@ -273,7 +274,10 @@ mod tests {
         let mut registered: Vec<String> =
             LOCALES.iter().map(|(t, _)| format!("{t}.toml")).collect();
         registered.sort();
-        assert_eq!(files, registered, "locales/ 与 LOCALES 表不一致");
+        assert_eq!(
+            files, registered,
+            "locales/ doesn't match the LOCALES table"
+        );
         for (tag, src) in LOCALES {
             let cat = parse(src).unwrap_or_else(|e| panic!("{tag}: {e}"));
             assert!(!cat.is_empty(), "{tag}");
@@ -287,17 +291,17 @@ mod tests {
             for (id, text) in &cats[i] {
                 let en = cats[0]
                     .get(id)
-                    .unwrap_or_else(|| panic!("{tag}: 孤儿 key {id}"));
+                    .unwrap_or_else(|| panic!("{tag}: orphan key {id}"));
                 assert_eq!(
                     placeholders(text),
                     placeholders(en),
-                    "{tag}: {id} 的占位符与 en 不一致"
+                    "{tag}: placeholders of {id} differ from en"
                 );
             }
         }
     }
 
-    /// `src/**/*.rs`（各文件 `#[cfg(test)]` 之前的部分）里的 `t(` / `t_args(` 调用。
+    /// `t(` / `t_args(` calls in `src/**/*.rs` (the part of each file before `#[cfg(test)]`).
     fn source_ids() -> Vec<(String, String)> {
         fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
             for e in std::fs::read_dir(dir).unwrap() {
@@ -314,7 +318,7 @@ mod tests {
         let mut ids = Vec::new();
         for file in files {
             let text = std::fs::read_to_string(&file).unwrap();
-            // 注释行换成空行（保留行号）；cargo fmt 可能把字面量折到下一行，所以按整段扫
+            // Blank out comment lines (keeping line numbers). cargo fmt may wrap the literal onto the next line, so scan the whole text
             let code: Vec<&str> = text
                 .split("#[cfg(test)]")
                 .next()
@@ -342,7 +346,7 @@ mod tests {
                     let lit = rest
                         .strip_prefix('"')
                         .and_then(|r| r.split_once('"'))
-                        .unwrap_or_else(|| panic!("{at}: {name}… 的第一个参数必须是字符串字面量"));
+                        .unwrap_or_else(|| panic!("{at}: {name}… needs a string literal first"));
                     ids.push((lit.0.to_owned(), at));
                 }
             }
@@ -354,18 +358,18 @@ mod tests {
     fn en_covers_every_id_in_source_and_nothing_else() {
         let en = &catalogs()[0];
         let ids = source_ids();
-        assert!(ids.len() >= 30, "扫描到的调用太少：{}", ids.len());
+        assert!(ids.len() >= 30, "too few calls found: {}", ids.len());
         for (id, at) in &ids {
-            assert!(en.contains_key(id), "{at}: en.toml 缺少 {id}");
+            assert!(en.contains_key(id), "{at}: en.toml is missing {id}");
         }
         let mut used: BTreeSet<&str> = ids.iter().map(|(id, _)| id.as_str()).collect();
         used.extend(META_KEYS);
         for id in crate::help::ids() {
-            assert!(en.contains_key(id), "help.rs: en.toml 缺少 {id}");
+            assert!(en.contains_key(id), "help.rs: en.toml is missing {id}");
             used.insert(id);
         }
         let unused: Vec<&String> = en.keys().filter(|k| !used.contains(k.as_str())).collect();
-        assert!(unused.is_empty(), "en.toml 里没被使用的 key：{unused:?}");
+        assert!(unused.is_empty(), "unused keys in en.toml: {unused:?}");
     }
 
     #[test]
@@ -377,7 +381,7 @@ mod tests {
         assert_eq!(
             substitute("{n} 字 {m}", &[("n", "{m}")]),
             ("{m} 字 {m}".to_owned(), vec!["m"]),
-            "参数值不再替换；缺参数保留原样"
+            "argument values aren't substituted again; missing arguments stay as-is"
         );
         assert_eq!(substitute("a {b", &[]), ("a {b".to_owned(), vec![]));
         assert_eq!(placeholders("{a} {b} {a}"), BTreeSet::from(["a", "b"]));
@@ -390,7 +394,11 @@ mod tests {
         };
         let cats = [cat(&[("a", "A"), ("b", "B")]), cat(&[("a", "甲")])];
         assert_eq!(resolve(&cats, 1, "a"), Some(("甲", false)));
-        assert_eq!(resolve(&cats, 1, "b"), Some(("B", true)), "缺 key 回退 en");
+        assert_eq!(
+            resolve(&cats, 1, "b"),
+            Some(("B", true)),
+            "missing key falls back to en"
+        );
         assert_eq!(resolve(&cats, 1, "c"), None);
     }
 
@@ -416,7 +424,7 @@ mod tests {
             ("en", &[("LANG", "zh_CN.UTF-8")], Some("zh-Hans-CN"), "en"),
             ("zh-CN", &[("LC_ALL", "en_US.UTF-8")], None, "zh-CN"),
             ("zh-cn", &[], None, "zh-CN"),
-            // MUSTTY_LANG 已删除：设置了也没有任何效果
+            // MUSTTY_LANG was removed: setting it has no effect
             ("en", &[("MUSTTY_LANG", "zh-CN")], None, "en"),
             (
                 "zh-CN",
@@ -453,7 +461,7 @@ mod tests {
         assert_eq!(t_args("status-words-other", &[("n", "3")]), "3 字");
         set_language("en");
         assert_eq!(t("settings-title"), "Settings");
-        // 固定过语言的测试线程只改自己：另一个线程不受影响
+        // A test thread with a pinned locale only changes itself: other threads are unaffected
         std::thread::spawn(|| {
             init_for_test("zh-CN");
             set_language("zh-CN");
@@ -468,13 +476,17 @@ mod tests {
         let cats = catalogs();
         for (i, (tag, _)) in LOCALES.iter().enumerate() {
             for key in META_KEYS {
-                assert!(cats[i].contains_key(key), "{tag} 缺少 {key}");
+                assert!(cats[i].contains_key(key), "{tag} is missing {key}");
             }
         }
         assert_eq!(native_name("en"), "English");
         assert_eq!(native_name("zh-CN"), "简体中文");
         init_for_test("zh-CN");
-        assert_eq!(native_name("en"), "English", "不随界面语言翻译");
+        assert_eq!(
+            native_name("en"),
+            "English",
+            "not translated with the UI language"
+        );
         assert_eq!(known_tag("ZH-cn"), Some("zh-CN"));
         assert_eq!(known_tag("auto"), None);
         assert_eq!(tags().collect::<Vec<_>>(), vec!["en", "zh-CN"]);
@@ -489,7 +501,7 @@ mod tests {
             (&[], Some("en-US"), "en"),
             (&[("LANG", "zh_CN.UTF-8")], Some("en-US"), "zh-CN"),
             (&[("LANG", "en_US.UTF-8")], Some("zh-Hans-CN"), "en"),
-            // MUSTTY_LANG 不再参与协商
+            // MUSTTY_LANG no longer takes part in negotiation
             (
                 &[("MUSTTY_LANG", "en"), ("LC_ALL", "zh_CN.UTF-8")],
                 None,

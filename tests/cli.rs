@@ -1,11 +1,11 @@
-//! 真实二进制的命令行：只接受 FILE、--help、--version；语言只看配置文件与 LC_* / LANG；
-//! 不读任何 MUSTTY_* 环境变量。
+//! Command line of the real binary: it accepts only FILE, --help and --version. The language
+//! comes from the config file and LC_* / LANG alone; no MUSTTY_* variable is read.
 
 use std::process::Command;
 
 fn mustty(home: &std::path::Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mustty"));
-    // 隔离：不读真实的 ~/.mustty.toml；语言环境固定为英文
+    // Isolation: never read the real ~/.mustty.toml, and pin the locale to English
     cmd.env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("LC_MESSAGES")
@@ -49,7 +49,8 @@ fn mustty_lang_has_no_effect() {
     assert_eq!(plain, with_env);
 }
 
-/// `dirs::home_dir` 在 Windows 上不看 HOME，只在 Unix 上能把配置文件隔离到临时目录。
+/// `dirs::home_dir` ignores HOME on Windows, so only on Unix can the config file be redirected
+/// to a temp dir.
 #[cfg(unix)]
 #[test]
 fn config_lang_applies_to_help() {
@@ -60,9 +61,11 @@ fn config_lang_applies_to_help() {
     assert!(text.contains("终端里的极简 Markdown 写作器"), "{text}");
 }
 
-/// 日志已删除：设置 MUSTTY_LOG 不会创建文件，`--help` 的输出与退出码和不设置时完全一样。
-/// 不带 `--help` 启动真实 TUI 的写法不能用：Windows 上 stdin 为 null 时 crossterm 不会报错退出，
-/// 进程停在事件循环里，`.output()` 永远等不到；Unix 上子进程读终端会触发 SIGTTIN 把进程组挂起。
+/// Logging is gone: setting MUSTTY_LOG creates no file, and `--help` prints the same output with
+/// the same exit code as without it. Launching the real TUI without `--help` won't work here: on
+/// Windows crossterm doesn't fail on a null stdin, so the process sits in the event loop and
+/// `.output()` never returns; on Unix the child reading the terminal gets SIGTTIN, which stops
+/// the process group.
 #[test]
 fn mustty_log_has_no_effect() {
     let home = tempfile::tempdir().unwrap();
@@ -77,6 +80,6 @@ fn mustty_log_has_no_effect() {
     let with_log = help(mustty(home.path()).env("MUSTTY_LOG", &log));
     assert_eq!(plain.0, Some(0));
     assert_eq!(plain, with_log);
-    assert!(!log.exists(), "MUSTTY_LOG 仍然创建了日志文件");
+    assert!(!log.exists(), "MUSTTY_LOG still created a log file");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n");
 }

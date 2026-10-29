@@ -1,8 +1,8 @@
-//! Editor：Document + Cursor + History + Focus + 寄存器，以及由正文派生的两个缓存。
+//! Editor: Document + Cursor + History + Focus + register, plus two caches derived from the body.
 //!
-//! 正文唯一写入口是 `Editor::replace`：它同时让 WrapCache 与 HighlightCache 中受影响的逻辑行失效。
-//! 输入、删除、粘贴、剪切、寄存器粘贴、undo、redo 全部经由它；`doc` 与两个缓存都归 Editor 所有，
-//! 外部只能通过 `doc()` 读、通过 `view()` 惰性计算缓存。
+//! The body's single write path is `Editor::replace`, which also invalidates the affected logical lines in WrapCache and HighlightCache.
+//! Typing, deleting, pasting, cutting, register paste, undo, and redo all go through it. The Editor owns `doc` and both caches;
+//! outside code can only read through `doc()` and fill the caches lazily through `view()`.
 
 pub mod cursor;
 pub mod document;
@@ -30,18 +30,18 @@ pub enum Focus {
     Body,
 }
 
-/// 内部寄存器。行级（`DeleteLine` 产生）粘贴到下一行，字符级粘贴到光标处。
+/// The internal register. Linewise contents (from `DeleteLine`) paste onto the next line; charwise contents paste at the cursor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Register {
     pub text: String,
     pub linewise: bool,
 }
 
-/// `apply` 需要 App 处理的副作用。
+/// Side effects of `apply` that the App must handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     None,
-    /// 复制 / 剪切了文本，App 负责写系统剪贴板（OSC 52）
+    /// Text was copied / cut; the App writes it to the system clipboard (OSC 52)
     Copied(String),
 }
 
@@ -50,13 +50,13 @@ pub struct Editor {
     wrap: WrapCache,
     highlight: HighlightCache,
     pub cursor: Cursor,
-    /// 标题内的 char 索引。
+    /// Char index within the title.
     pub title_cursor: usize,
     pub focus: Focus,
     history: History,
     saved_revision: u64,
     register: Option<Register>,
-    /// 正文字数，在 `replace` 里按受影响的行增量维护（词不跨行，逐行之和即全文字数）
+    /// Body word count, updated incrementally in `replace` from the affected lines (words never span lines, so the per-line sum is the total)
     body_words: usize,
 }
 
@@ -78,7 +78,7 @@ impl Editor {
         }
     }
 
-    /// 标题 + 正文的字数。
+    /// Word count of title + body.
     pub fn word_count(&self) -> usize {
         count_words(self.doc.title_text()) + self.body_words
     }
@@ -87,7 +87,7 @@ impl Editor {
         &self.doc
     }
 
-    /// 渲染 / 滚动用：正文只读，缓存可惰性填充（不能借此写正文）。
+    /// For rendering / scrolling: the body is read-only, the caches can be filled lazily (this cannot write the body).
     pub fn view(&mut self) -> (&Document, &mut WrapCache, &mut HighlightCache) {
         (&self.doc, &mut self.wrap, &mut self.highlight)
     }
@@ -96,7 +96,7 @@ impl Editor {
         self.register.as_ref()
     }
 
-    /// 正文中的非空选区。
+    /// The non-empty selection in the body.
     pub fn selection(&self) -> Option<Range<usize>> {
         self.cursor
             .selection()
@@ -107,7 +107,7 @@ impl Editor {
         self.doc.revision() != self.saved_revision
     }
 
-    /// 保存成功：记录路径与磁盘信息；保存总是结束当前合并组。
+    /// A save succeeded: record the path and disk stamp. Saving always closes the current merge group.
     pub fn mark_saved(&mut self, path: PathBuf, stamp: DiskStamp) {
         self.doc.meta.path = Some(path);
         self.doc.meta.stamp = Some(stamp);
@@ -115,8 +115,8 @@ impl Editor {
         self.history.seal();
     }
 
-    /// 执行一个编辑 / 移动动作。`page` 为 PageUp/PageDown 的视觉行数。
-    /// 保存、退出、提示行由 App 处理；M4 的动作在此忽略。
+    /// Run one edit / motion action. `page` is the number of visual rows for PageUp/PageDown.
+    /// Save, quit, and the prompt are handled by the App; M4 actions are ignored here.
     pub fn apply(&mut self, action: &Action, page: isize, now: Instant) -> Effect {
         match action {
             Action::Undo => self.undo(),
@@ -140,7 +140,7 @@ impl Editor {
         effect
     }
 
-    /// 正文里 Tab 键插入的空格：个数取 WrapCache 的 tab_width，与换行、渲染用的是同一份。
+    /// The spaces Tab inserts in the body: the count is WrapCache's tab_width, the same value soft wrap and rendering use.
     pub fn tab_spaces(&self) -> String {
         " ".repeat(self.wrap.tab_width() as usize)
     }
@@ -220,7 +220,7 @@ impl Editor {
         let rope = self.doc.body();
         let wrap = &mut self.wrap;
         let head = self.cursor.head;
-        // 不扩展时，←/→ 先把选区收拢到对应一端
+        // Without extend, ←/→ first collapse the selection to the matching end
         if let (false, Some(sel)) = (extend, self.cursor.selection()) {
             match motion {
                 Motion::Left => return self.cursor.set(sel.start),
@@ -256,7 +256,7 @@ impl Editor {
         self.cursor.anchor = anchor;
     }
 
-    /// 鼠标定位：正文中按 `extend` 保留 / 建立选区；标题中只移动标题光标。
+    /// Mouse positioning: in the body, `extend` keeps or starts a selection; in the title, only the title cursor moves.
     fn move_to(&mut self, target: MoveTarget, extend: bool) {
         match target {
             MoveTarget::Body(at) => {
@@ -287,12 +287,12 @@ impl Editor {
             return self.change(Target::Body, head..head, &reg.text, EditKind::Other, now);
         }
         let line = rope.char_to_line(head);
-        // 光标放在粘贴出的那一行行首
+        // Put the cursor at the start of the pasted line
         let (at, text, head) = if line + 1 < rope.len_lines() {
             let at = rope.line_to_char(line + 1);
             (at, reg.text.clone(), at)
         } else {
-            // 最后一行之后没有行首可插：先补一个换行
+            // There is no line start after the last line to insert at: add a newline first
             let body = reg.text.strip_suffix('\n').unwrap_or(&reg.text);
             let at = rope.len_chars();
             (at, format!("\n{body}"), at + 1)
@@ -300,7 +300,7 @@ impl Editor {
         self.change_to(Target::Body, at..at, &text, head, EditKind::Other, now);
     }
 
-    /// 剪切整个逻辑行进寄存器（行级）；最后一行连同它前面的换行一起删除，不留空行。
+    /// Cut the whole logical line into the register (linewise). The last line is deleted together with the newline before it, so no empty line is left.
     fn delete_line(&mut self, now: Instant) {
         let rope = self.doc.body();
         let line = rope.char_to_line(self.cursor.head);
@@ -325,7 +325,7 @@ impl Editor {
         let len = text.chars().count();
         let at = self.title_cursor;
         match action {
-            // 标题是单行
+            // The title is a single line
             Action::Insert(s) | Action::Paste(s) => {
                 let s = s.replace("\r\n", " ").replace(['\r', '\n'], " ");
                 let kind = match action {
@@ -352,7 +352,7 @@ impl Editor {
                 let start = Cursor::word_left(&Rope::from_str(text), at);
                 self.change(Target::Title, start..at, "", EditKind::Other, now);
             }
-            // 单行标题里 Tab 没有意义，和 Enter / ↓ 一样离开标题
+            // Tab means nothing in a single-line title, so it leaves the title like Enter / ↓
             Action::Newline | Action::Tab | Action::Move(Motion::Down | Motion::DocStart, _) => {
                 self.focus = Focus::Body;
                 self.cursor.set(0);
@@ -396,7 +396,7 @@ impl Editor {
         self.doc.set_revision(s.revision);
     }
 
-    /// 一次用户编辑，光标放到插入内容之后。
+    /// One user edit, with the cursor placed after the inserted text.
     fn change(
         &mut self,
         target: Target,
@@ -409,7 +409,7 @@ impl Editor {
         self.change_to(target, range, text, head, kind, now);
     }
 
-    /// 一次用户编辑：写入、把光标放到 `head`、记入 History。
+    /// One user edit: write, put the cursor at `head`, and record it in History.
     fn change_to(
         &mut self,
         target: Target,
@@ -463,7 +463,7 @@ impl Editor {
         self.restore(tx.after);
     }
 
-    /// 替换正文或标题的 char 区间，返回被删除的文本。
+    /// Replace a char range of the body or title; return the deleted text.
     fn write(&mut self, target: Target, range: Range<usize>, text: &str) -> String {
         match target {
             Target::Body => {
@@ -483,7 +483,7 @@ impl Editor {
         }
     }
 
-    /// 正文唯一写入口：写正文，并让两个缓存中受影响的逻辑行失效。
+    /// The body's single write path: write the body and invalidate the affected logical lines in both caches.
     fn replace(&mut self, range: Range<usize>, text: &str) {
         let rope = self.doc.body();
         let first = rope.char_to_line(range.start);
@@ -501,15 +501,15 @@ impl Editor {
         self.body_words = self.body_words + words(rope, first..new_end) - old_words;
         self.wrap.invalidate(lines.clone(), inserted);
         let rescanned = self.highlight.invalidate(rope, lines.clone(), inserted);
-        // 编辑点附近（含前后各一行）的缓存必须与重新计算的结果一致
+        // Around the edit (including one line on each side), the caches must match a fresh recomputation
         let near = first.saturating_sub(1)..(new_end.max(first + rescanned) + 1).min(after);
         debug_assert!(
             self.wrap.is_consistent(rope, near.clone()),
-            "WrapCache 与正文不一致"
+            "WrapCache is out of sync with the body"
         );
         debug_assert!(
             self.highlight.is_consistent_in(rope, near),
-            "HighlightCache 与正文不一致"
+            "HighlightCache is out of sync with the body"
         );
     }
 }
@@ -562,7 +562,7 @@ mod tests {
         let mut ed = editor("");
         let clusters = ["e\u{301}", "👨\u{200d}👩\u{200d}👧", "🇨🇳", "中"];
         for c in clusters {
-            // IME / 终端可能逐个 char 送达
+            // IME / the terminal may deliver one char at a time
             for ch in c.chars() {
                 run(&mut ed, &[ins(&ch.to_string())]);
             }
@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn tab_in_title_leaves_like_enter() {
-        // 光标停在标题中间、行尾两种情况：Tab 的结果与 Enter 逐项相同
+        // With the cursor mid-title or at its end, Tab gives exactly the same result as Enter
         for left in [0, 1] {
             let mut by_tab = editor("# 标题\n\n正文");
             let mut by_enter = editor("# 标题\n\n正文");
@@ -602,7 +602,7 @@ mod tests {
             run(&mut by_tab, &[Action::Tab]);
             run(&mut by_enter, &[Action::Newline]);
             assert_eq!((by_tab.focus, by_tab.cursor.head), (Focus::Body, 0));
-            assert_eq!(by_tab.doc().title_text(), "标题", "标题里没有多出空格");
+            assert_eq!(by_tab.doc().title_text(), "标题", "title gains no spaces");
             assert_eq!(by_tab.doc().serialize(), "# 标题\n\n正文");
             assert!(!by_tab.is_dirty());
             assert_eq!(
@@ -610,7 +610,7 @@ mod tests {
                 (by_enter.focus, by_enter.cursor.head, by_enter.cursor.anchor)
             );
             assert_eq!(by_tab.doc().serialize(), by_enter.doc().serialize());
-            // 回到正文后再按 Tab 才插空格
+            // Only Tab back in the body inserts spaces
             run(&mut by_tab, &[Action::Tab]);
             assert_eq!(body(&by_tab), "    正文");
         }
@@ -624,10 +624,10 @@ mod tests {
             let spaces = " ".repeat(width as usize);
             assert_eq!(body(&ed), format!("a{spaces}b"), "tab_width {width}");
             assert_eq!(ed.cursor.head, 1 + width as usize);
-            // 选区被替换成空格
+            // The selection is replaced by spaces
             run(&mut ed, &[Action::SelectAll, Action::Tab]);
             assert_eq!(body(&ed), spaces);
-            // 一次撤销整段撤回
+            // A single undo reverts the whole thing
             run(&mut ed, &[Action::Undo]);
             assert_eq!(body(&ed), format!("a{spaces}b"));
         }
@@ -685,12 +685,12 @@ mod tests {
         ed.apply(&ins("y"), 5, t0);
         assert!(ed.is_dirty());
         run(&mut ed, &[Action::Undo]);
-        assert!(!ed.is_dirty(), "回到保存点");
+        assert!(!ed.is_dirty(), "back at the save point");
         run(&mut ed, &[Action::Undo]);
         assert!(ed.is_dirty());
         run(&mut ed, &[Action::Redo]);
         assert!(!ed.is_dirty());
-        // 撤销后另做一次编辑：版本号不能与保存点相撞
+        // A new edit after undo: its revision must not collide with the save point
         run(&mut ed, &[Action::Undo, ins("z")]);
         assert!(ed.is_dirty());
     }
@@ -729,12 +729,12 @@ mod tests {
         assert_eq!(ed.selection(), Some(0..18));
         run(&mut ed, &[ext(Motion::LineStart)]);
         assert_eq!(ed.selection(), Some(0..12));
-        // ← 不扩展：收拢到选区起点；Esc 取消
+        // ← without extend collapses to the selection start; Esc cancels
         run(&mut ed, &[mv(Motion::Left)]);
         assert_eq!((ed.selection(), ed.cursor.head), (None, 0));
         run(&mut ed, &[ext(Motion::Right), Action::Cancel]);
         assert_eq!(ed.selection(), None);
-        // Shift+↑ 在首行不进入标题
+        // Shift+↑ on the first line does not enter the title
         run(&mut ed, &[ext(Motion::Up)]);
         assert_eq!(ed.focus, Focus::Body);
     }
@@ -757,7 +757,7 @@ mod tests {
     #[test]
     fn select_all_copy_cut_paste_register() {
         let mut ed = editor("# T\n\n中文 text");
-        assert_eq!(run(&mut ed, &[Action::Copy]), Effect::None, "无选区不复制");
+        assert_eq!(run(&mut ed, &[Action::Copy]), Effect::None, "no selection");
         let copied = run(&mut ed, &[Action::SelectAll, Action::Copy]);
         assert_eq!(copied, Effect::Copied("中文 text".into()));
         run(&mut ed, &[mv(Motion::DocEnd), Action::PasteRegister]);
@@ -772,10 +772,10 @@ mod tests {
                 linewise: false
             })
         );
-        // 剪切可撤销
+        // Cut is undoable
         run(&mut ed, &[Action::Undo]);
         assert_eq!(body(&ed), "中文 text中文 text");
-        // 标题里粘贴：单行
+        // Pasting into the title: single line
         run(
             &mut ed,
             &[mv(Motion::Left), mv(Motion::Up), Action::PasteRegister],
@@ -795,16 +795,16 @@ mod tests {
                 linewise: true
             })
         );
-        // 行级寄存器粘贴到下一行
+        // A linewise register pastes onto the next line
         run(&mut ed, &[Action::PasteRegister]);
         assert_eq!((body(&ed).as_str(), ed.cursor.head), ("two\none\nthree", 4));
-        // 最后一行（无末尾换行）：连同前面的换行删掉，光标回到上一行
+        // Last line (no trailing newline): deleted along with the newline before it; the cursor goes back to the previous line
         run(&mut ed, &[mv(Motion::DocEnd), Action::DeleteLine]);
         assert_eq!((body(&ed).as_str(), ed.cursor.head), ("two\none", 4));
-        // 在最后一行粘贴：补一个换行
+        // Pasting on the last line adds a newline
         run(&mut ed, &[Action::PasteRegister]);
         assert_eq!((body(&ed).as_str(), ed.cursor.head), ("two\none\nthree", 8));
-        // 唯一一行
+        // A single-line body
         let mut single = editor("only");
         run(&mut single, &[Action::DeleteLine]);
         assert_eq!(body(&single), "");
@@ -888,15 +888,15 @@ mod tests {
     }
 
     proptest! {
-        /// 任意编辑 / 粘贴 / 剪切 / 寄存器 / undo / redo 序列后：两个缓存都与重新计算的结果一致，
-        /// 光标在文档内；全部撤销回到原文。
+        /// After any sequence of edits / pastes / cuts / register ops / undo / redo, both caches match a fresh recomputation
+        /// and the cursor stays inside the document; undoing everything restores the original text.
         #[test]
         fn caches_stay_consistent(ops in prop::collection::vec(op(), 1..60)) {
             let mut ed = editor("一二三四五六七八九十 **hello** world\n```\n代码\n```\n第二行\n");
             let original = body(&ed);
             let t0 = Instant::now();
             for (i, o) in ops.iter().enumerate() {
-                // 每步间隔 2 s：保证每步独立成组，便于全部撤销
+                // Steps are 2 s apart so each forms its own group, which makes undoing everything straightforward
                 let now = t0 + Duration::from_secs(2 * i as u64);
                 let action = match o {
                     Op::Act(a) => a.clone(),
@@ -911,7 +911,7 @@ mod tests {
                 let words = ed.word_count();
                 let (doc, wrap, hl) = ed.view();
                 let rope = doc.body();
-                // 像渲染一样惰性填充末行附近，覆盖缓存扩展路径
+                // Fill lazily near the last line like rendering does, to exercise the cache growth path
                 hl.ranges(rope, rope.len_lines() - 1);
                 wrap.rows(rope, rope.len_lines() - 1);
                 prop_assert!(wrap.is_consistent(rope, 0..rope.len_lines()));

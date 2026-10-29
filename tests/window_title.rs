@@ -1,4 +1,5 @@
-//! 真实二进制在 pty 里运行：窗口标题经 OSC 2 跟随文档标题，未保存时带 `* `，退出时清空。
+//! Runs the real binary in a pty: the window title follows the document title via OSC 2, gets a
+//! `* ` prefix while unsaved, and is cleared on exit.
 
 #![cfg(unix)]
 
@@ -15,7 +16,8 @@ const CLEAR: &str = "\x1b]2;\x07";
 struct Pty {
     child: Child,
     master: File,
-    /// 子进程写出的全部字节（后台线程持续读取，否则子进程会阻塞在写终端上）
+    /// Every byte the child has written (a background thread keeps draining it, otherwise the child
+    /// blocks writing to the terminal)
     out: Arc<Mutex<Vec<u8>>>,
 }
 
@@ -34,8 +36,9 @@ impl Pty {
                 &mut slave,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                // termp / winp 在 macOS 上是 *mut，在 Linux 上是 *const：传 *mut 裸指针两边都收
-                // （*mut 自动转 *const），写 `&mut size` 在 Linux 上会触发 unnecessary_mut_passed
+                // termp / winp are *mut on macOS and *const on Linux. A raw *mut pointer works
+                // for both (*mut coerces to *const); `&mut size` would trip
+                // unnecessary_mut_passed on Linux
                 &raw mut size,
             )
         };
@@ -51,7 +54,8 @@ impl Pty {
             .stdin(Stdio::from(slave.try_clone().unwrap()))
             .stdout(Stdio::from(slave.try_clone().unwrap()))
             .stderr(Stdio::from(slave));
-        // 新会话并把 pty 设为控制终端：/dev/tty 指向它，而不是跑测试的那个终端
+        // New session with the pty as controlling terminal, so /dev/tty points at it rather than at
+        // the terminal running the tests
         unsafe {
             cmd.pre_exec(|| {
                 if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
@@ -66,7 +70,7 @@ impl Pty {
         let sink = Arc::clone(&out);
         std::thread::spawn(move || {
             let mut buf = [0; 4096];
-            // 子进程退出后读到 EOF 或 EIO
+            // Once the child exits, reads return EOF or EIO
             while let Ok(n @ 1..) = reader.read(&mut buf) {
                 sink.lock().unwrap().extend_from_slice(&buf[..n]);
             }
@@ -82,20 +86,20 @@ impl Pty {
         self.master.write_all(bytes).unwrap();
     }
 
-    /// 等到输出里 `needle` 出现 `n` 次。
+    /// Waits until `needle` appears `n` times in the output.
     fn wait_for(&self, needle: &str, n: usize) {
         let end = Instant::now() + Duration::from_secs(10);
         while self.output().matches(needle).count() < n {
             assert!(
                 Instant::now() < end,
-                "等不到第 {n} 个 {needle:?}：{:?}",
+                "timed out waiting for occurrence {n} of {needle:?}: {:?}",
                 self.output()
             );
             std::thread::sleep(Duration::from_millis(20));
         }
     }
 
-    /// 等子进程退出（期间输出仍由后台线程读取）。
+    /// Waits for the child to exit (the background thread keeps reading output meanwhile).
     fn wait_exit(&mut self) -> bool {
         let end = Instant::now() + Duration::from_secs(10);
         while Instant::now() < end {
@@ -122,30 +126,31 @@ fn window_title_follows_the_h1_marks_unsaved_and_is_cleared_on_exit() {
     std::fs::write(&file, "# Spring letter\n\nbody\n").unwrap();
     let mut pty = Pty::spawn(home.path(), &file);
 
-    // 干净的文件：标题没有星号
+    // Clean file: no asterisk in the title
     pty.wait_for("\x1b]2;Spring letter\x07", 1);
     assert!(!pty.output().contains("\x1b]2;* "), "{:?}", pty.output());
-    // 正文里移动不改标题；进入标题（首行按 ↑）、到行尾，再打两个字：有未保存修改 → `* `
+    // Moving within the body leaves the title alone. Move into the title (↑ on the first
+    // line), go to the end of the line and type two characters: unsaved changes → `* `
     pty.send(b"\x1b[B\x1b[A\x1b[A\x1b[F");
     pty.send(b"!");
     pty.wait_for("\x1b]2;* Spring letter!\x07", 1);
     pty.send(b"?");
     pty.wait_for("\x1b]2;* Spring letter!?\x07", 1);
     let titles = pty.output().matches("\x1b]2;").count();
-    assert_eq!(titles, 3, "只在标题变化时发送：{:?}", pty.output());
-    // 等自动保存（默认空闲 2 秒）：星号消失
+    assert_eq!(titles, 3, "sent only on change: {:?}", pty.output());
+    // Wait for autosave (2 s idle by default): the asterisk goes away
     pty.wait_for("\x1b]2;Spring letter!?\x07", 1);
     assert_eq!(pty.output().matches("\x1b]2;").count(), 4);
 
-    // 退出：已保存，一次 Ctrl+Q 即退出
+    // Quit: the file is saved, so a single Ctrl+Q exits
     pty.send(b"\x11");
-    assert!(pty.wait_exit(), "Ctrl+Q 后没有退出");
+    assert!(pty.wait_exit(), "did not exit after Ctrl+Q");
     pty.wait_for(CLEAR, 1);
     let out = pty.output();
     let last_title = out.rfind("\x1b]2;Spring letter!?\x07").unwrap();
     assert!(
         out.rfind(CLEAR).unwrap() > last_title,
-        "清空在最后一次设置之后"
+        "the clear comes after the last title set"
     );
     assert_eq!(
         std::fs::read_to_string(&file).unwrap(),

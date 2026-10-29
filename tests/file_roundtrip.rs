@@ -15,7 +15,7 @@ fn crlf_bom_file_saved_unchanged_is_byte_identical() {
     assert!(doc.meta.has_bom);
     save(&doc, &path, true).unwrap();
     assert_eq!(fs::read(&path).unwrap(), original);
-    // 没有遗留临时文件
+    // No temp file left behind
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
@@ -67,7 +67,7 @@ fn external_modification_blocks_checked_save() {
     let path = dir.path().join("e.md");
     fs::write(&path, "v1").unwrap();
     let mut doc = load(&path).unwrap();
-    // 另一个程序改了文件：内容与 mtime 都变
+    // Another program edits the file: both content and mtime change
     fs::write(&path, "external").unwrap();
     let later = SystemTime::now() + Duration::from_secs(5);
     fs::File::options()
@@ -81,12 +81,13 @@ fn external_modification_blocks_checked_save() {
         Err(IoError::ExternallyModified)
     ));
     assert_eq!(fs::read_to_string(&path).unwrap(), "external");
-    // 强制保存后记录新的 mtime，之后的检查保存恢复正常
+    // A forced save records the new mtime, so later checked saves succeed again
     let stamp = save(&doc, &path, false).unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), "v1");
     doc.meta.stamp = Some(stamp);
     doc.meta.stamp = Some(save(&doc, &path, true).unwrap());
-    // mtime 被还原（粒度粗、同步盘）但大小变了：仍判定为外部修改
+    // mtime restored (coarse granularity, sync drives) but the size changed: still an
+    // external modification
     let original = doc.meta.stamp.unwrap().mtime;
     fs::write(&path, "changed by sync").unwrap();
     fs::File::options()
@@ -100,7 +101,7 @@ fn external_modification_blocks_checked_save() {
         Err(IoError::ExternallyModified)
     ));
     doc.meta.stamp = Some(save(&doc, &path, false).unwrap());
-    // 被外部删除也视为外部修改
+    // Deletion by someone else counts as an external modification too
     fs::remove_file(&path).unwrap();
     assert!(matches!(
         save(&doc, &path, true),

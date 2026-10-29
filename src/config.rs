@@ -1,5 +1,6 @@
-//! `~/.mustty.toml`：优先级 配置文件 > 内置默认值，按键逐个合并。
-//! 配置写错永远不阻止启动：语法错误整份作废，单个键出错只回退这个键，越界钳制；都只产生警告。
+//! `~/.mustty.toml`: the config file takes precedence over built-in defaults, merged key by key.
+//! A bad config never blocks startup: a syntax error discards the whole file, a bad key falls back on its own,
+//! out-of-range values are clamped. Each case only produces a warning.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -26,12 +27,12 @@ pub struct Config {
     pub focus_mode: bool,
     pub scrolloff: u16,
     pub tab_width: u16,
-    /// 存选项本身而不是 `Color`：`white` 与 `gray` 都映射到 `Color::Gray`，反推不回来
+    /// Stores the choice itself rather than a `Color`: `white` and `gray` both map to `Color::Gray`, so it can't be reversed
     pub code_color: CodeColor,
-    /// 编辑时的光标形状（vim Normal 态不受它影响，始终是方块）
+    /// Cursor shape while editing (vim Normal mode ignores it and always uses a block)
     pub cursor: CursorShape,
     pub cursor_blink: bool,
-    /// 界面语言：`i18n::AUTO` 或 `i18n::LOCALES` 里的标签
+    /// UI language: `i18n::AUTO` or a tag from `i18n::LOCALES`
     pub lang: &'static str,
 }
 
@@ -55,7 +56,7 @@ impl Default for Config {
     }
 }
 
-/// 光标形状：`cursor = "bar" | "block" | "underline"`。
+/// Cursor shape: `cursor = "bar" | "block" | "underline"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CursorShape {
@@ -65,10 +66,10 @@ pub enum CursorShape {
 }
 
 impl CursorShape {
-    /// 设置面板里的循环顺序。
+    /// Cycle order in the settings panel.
     pub const ALL: [CursorShape; 3] = [Self::Bar, Self::Block, Self::Underline];
 
-    /// 配置文件里的写法。
+    /// Spelling in the config file.
     pub fn name(self) -> &'static str {
         match self {
             Self::Bar => "bar",
@@ -77,7 +78,7 @@ impl CursorShape {
         }
     }
 
-    /// 对应的终端光标形状（DECSCUSR）。
+    /// The matching terminal cursor style (DECSCUSR).
     pub fn style(self, blink: bool) -> SetCursorStyle {
         match (self, blink) {
             (Self::Bar, false) => SetCursorStyle::SteadyBar,
@@ -90,8 +91,8 @@ impl CursorShape {
     }
 }
 
-/// 8 个标准 ANSI 前景色（SGR 30–37）。ratatui 把 SGR 37 叫 `Color::Gray`，
-/// 所以 `white`（以及需求里写的 `gray`）都映射到 `Color::Gray`。
+/// The 8 standard ANSI foreground colors (SGR 30–37). ratatui calls SGR 37 `Color::Gray`,
+/// so `white` (and `gray`, as the spec spells it) both map to `Color::Gray`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CodeColor {
@@ -107,7 +108,7 @@ pub enum CodeColor {
 }
 
 impl CodeColor {
-    /// 设置面板里的循环顺序 = SGR 30–37 的顺序。
+    /// Cycle order in the settings panel, which is SGR 30–37 order.
     pub const ALL: [CodeColor; 8] = [
         Self::Black,
         Self::Red,
@@ -119,7 +120,7 @@ impl CodeColor {
         Self::White,
     ];
 
-    /// 配置文件里的写法。
+    /// Spelling in the config file.
     pub fn name(self) -> &'static str {
         match self {
             Self::Black => "black",
@@ -147,7 +148,7 @@ impl CodeColor {
     }
 }
 
-/// 配置文件这一层：未给出（或写错）的键为 None，合并时保持默认值。
+/// The config file layer: missing (or invalid) keys are None and keep their defaults on merge.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PartialConfig {
     pub width: Option<u16>,
@@ -167,7 +168,7 @@ pub struct PartialConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigWarning {
-    /// 出问题的键；整份文件的问题（读不了、语法错误）为 None
+    /// The offending key; None for whole-file problems (unreadable, syntax error)
     pub key: Option<&'static str>,
     pub message: String,
 }
@@ -195,7 +196,7 @@ pub const KEYS: [&str; 13] = [
 ];
 
 impl PartialConfig {
-    /// 永不失败：语法错误 → 空配置 + 带行号的警告；未知键丢弃。
+    /// Never fails: a syntax error yields an empty config plus a warning with the line number; unknown keys are dropped.
     pub fn from_toml_str(s: &str) -> (Self, Vec<ConfigWarning>) {
         let table: toml::Table = match s.parse() {
             Ok(t) => t,
@@ -210,7 +211,7 @@ impl PartialConfig {
         let mut warnings = Vec::new();
         let mut p = Self::default();
         for (key, value) in &table {
-            // 未知键（含其他表）直接忽略，便于以后加键或与其他工具共用文件
+            // Ignore unknown keys (including other tables), so new keys can be added later and the file can be shared with other tools
             let Some(&key) = KEYS.iter().find(|&&k| k == key) else {
                 continue;
             };
@@ -258,7 +259,7 @@ impl PartialConfig {
                 "focus_mode" => p.focus_mode = boolean(&mut warn),
                 "cursor_blink" => p.cursor_blink = boolean(&mut warn),
                 "cursor" => {
-                    // 大小写不敏感
+                    // Case-insensitive
                     p.cursor = value.as_str().and_then(|s| {
                         CursorShape::ALL
                             .into_iter()
@@ -270,7 +271,7 @@ impl PartialConfig {
                     }
                 }
                 "code_color" => {
-                    // 大小写不敏感
+                    // Case-insensitive
                     let lowered = value
                         .as_str()
                         .map(|s| toml::Value::String(s.to_lowercase()));
@@ -281,7 +282,7 @@ impl PartialConfig {
                     }
                 }
                 "lang" => {
-                    // auto 或有译文的语言标签，大小写不敏感
+                    // auto or a locale tag that has a catalog, case-insensitive
                     p.lang = value.as_str().and_then(|s| {
                         if s.eq_ignore_ascii_case(i18n::AUTO) {
                             Some(i18n::AUTO)
@@ -301,7 +302,7 @@ impl PartialConfig {
                         ));
                     }
                 }
-                _ => unreachable!("KEYS 与 match 分支一一对应"),
+                _ => unreachable!("KEYS and the match arms correspond one to one"),
             }
         }
         (p, warnings)
@@ -309,7 +310,7 @@ impl PartialConfig {
 }
 
 impl Config {
-    /// 用配置文件这一层覆盖当前值（数值在 `from_toml_str` 里已经钳制过）。
+    /// Overrides current values with the config file layer (numbers were already clamped in `from_toml_str`).
     pub fn merge(mut self, p: &PartialConfig) -> Self {
         self.width = p.width.unwrap_or(self.width);
         self.vim = p.vim.unwrap_or(self.vim);
@@ -334,7 +335,7 @@ pub fn path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".mustty.toml"))
 }
 
-/// 读 `~/.mustty.toml` 并按 默认 ← 文件 合并。
+/// Reads `~/.mustty.toml` and merges it as defaults ← file.
 pub fn load() -> (Config, Vec<ConfigWarning>) {
     let (file, warnings) = match path() {
         Some(p) => read_file(&p),
@@ -354,7 +355,7 @@ fn read_file(path: &Path) -> (PartialConfig, Vec<ConfigWarning>) {
     }
 }
 
-/// 一个键在配置文件里的取值。
+/// A key's value as written in the config file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Scalar {
     Int(i64),
@@ -378,12 +379,12 @@ impl Config {
             "cursor" => Scalar::Str(self.cursor.name()),
             "cursor_blink" => Scalar::Bool(self.cursor_blink),
             "lang" => Scalar::Str(self.lang),
-            _ => unreachable!("不在 KEYS 里的键 {key}"),
+            _ => unreachable!("key {key} is not in KEYS"),
         }
     }
 }
 
-/// 两份配置之间取值不同的键，按 `KEYS` 的顺序。
+/// Keys whose values differ between two configs, in `KEYS` order.
 pub fn changed_keys(old: &Config, new: &Config) -> Vec<&'static str> {
     KEYS.into_iter()
         .filter(|k| old.scalar(k) != new.scalar(k))
@@ -392,15 +393,17 @@ pub fn changed_keys(old: &Config, new: &Config) -> Vec<&'static str> {
 
 #[derive(Debug)]
 pub enum WriteBackError {
-    /// 现有文件有语法错误：拒绝写入，不尝试修复用户的文件
+    /// The existing file has a syntax error: refuse to write rather than try to repair the user's file
     Syntax,
     Io(std::io::Error),
 }
 
-/// 把 `old` → `new` 之间变化的键写回配置文件。
+/// Writes the keys that changed from `old` to `new` back to the config file.
 ///
-/// 写入时重新读取文件，在最新内容上只改这些键：已有键原地改值（保留注释与键顺序），
-/// 新键追加到顶层末尾，未知键和其他表不动。符号链接解析到真实目标后再原子替换，链接本身保留。
+/// The file is re-read at write time and only these keys change on top of its latest content: existing keys
+/// are updated in place (keeping comments and key order), new keys are appended to the end of the top level,
+/// and unknown keys and other tables are left alone. Symlinks are resolved to the real target before the
+/// atomic replace, so the link itself survives.
 pub fn write_back(path: &Path, old: &Config, new: &Config) -> Result<(), WriteBackError> {
     let keys = changed_keys(old, new);
     if keys.is_empty() {
@@ -426,7 +429,7 @@ pub fn write_back(path: &Path, old: &Config, new: &Config) -> Result<(), WriteBa
         };
         match doc.get_mut(key).and_then(toml_edit::Item::as_value_mut) {
             Some(slot) => {
-                // 换值不换装饰：等号两侧的空白与行尾注释原样保留
+                // Swap the value, not the decor: whitespace around `=` and trailing comments stay as they were
                 let decor = slot.decor().clone();
                 *slot = value;
                 *slot.decor_mut() = decor;
@@ -439,7 +442,7 @@ pub fn write_back(path: &Path, old: &Config, new: &Config) -> Result<(), WriteBa
     crate::io::file::atomic_write(&target, doc.to_string().as_bytes()).map_err(WriteBackError::Io)
 }
 
-/// 把所有警告汇总成一行，用于 status bar 与 stderr。
+/// Joins all warnings into one line for the status bar and stderr.
 pub fn summarize(warnings: &[ConfigWarning]) -> Option<String> {
     if warnings.is_empty() {
         return None;
@@ -533,14 +536,17 @@ mod tests {
                 "{text}"
             );
         }
-        // 拼错或没有译文：回退 auto，警告列出该键与可选值
+        // Misspelled or no catalog: falls back to auto, and the warning names the key and the choices
         for bad in ["\"xx\"", "\"ja\"", "\"zh\"", "1"] {
             let (c, w) = parse(&format!("lang = {bad}"));
             assert_eq!((c.lang, keys(&w)), ("auto", vec![Some("lang")]), "{bad}");
             assert!(w[0].message.contains("auto en zh-CN"), "{}", w[0].message);
         }
         let (_, w) = parse("lang = \"xx\"\nwidth = 200");
-        assert!(summarize(&w).unwrap().contains("lang="), "汇总进配置警告");
+        assert!(
+            summarize(&w).unwrap().contains("lang="),
+            "included in the config warning summary"
+        );
     }
 
     #[test]
@@ -549,7 +555,7 @@ mod tests {
         assert_eq!(
             (Config::default().cursor, Config::default().cursor_blink),
             (CursorShape::Bar, false),
-            "默认与原来一样：常亮竖线"
+            "default is unchanged: a steady bar"
         );
         for (text, want) in [
             ("cursor = \"bar\"", CursorShape::Bar),
@@ -560,7 +566,7 @@ mod tests {
             let (c, w) = parse(text);
             assert_eq!((c.cursor, w), (want, vec![]), "{text}");
         }
-        // 非法值：回退 bar，警告列出该键与可选值，并汇总进配置警告
+        // Invalid value: falls back to bar, the warning names the key and the choices, and it shows up in the config warning summary
         for bad in ["\"beam\"", "\"\"", "1", "true"] {
             let (c, w) = parse(&format!("cursor = {bad}"));
             assert_eq!(
@@ -606,7 +612,7 @@ mod tests {
                 "{shape:?} blink={blink}"
             );
         }
-        // DECSCUSR 的编号：闪烁为奇数、常亮为偶数
+        // DECSCUSR numbering: blinking is odd, steady is even
         assert_eq!(ansi(CursorShape::Bar.style(false)), "\x1b[6 q");
         assert_eq!(ansi(CursorShape::Underline.style(true)), "\x1b[3 q");
     }
@@ -651,7 +657,7 @@ mod tests {
 
     #[test]
     fn numeric_bounds_are_clamped() {
-        // (配置, 键, 生效值, 是否警告)
+        // (config, key, effective value, warned?)
         let cases = [
             ("width = 39", "width", 40, true),
             ("width = 40", "width", 40, false),
@@ -697,7 +703,7 @@ mod tests {
             ("magenta", Magenta, Color::Magenta),
             ("cyan", Cyan, Color::Cyan),
             ("white", White, Color::Gray), // SGR 37
-            ("gray", White, Color::Gray),  // 需求中的写法，同为 SGR 37
+            ("gray", White, Color::Gray),  // Spelling from the spec, also SGR 37
             ("YELLOW", Yellow, Color::Yellow),
             ("Magenta", Magenta, Color::Magenta),
         ];
@@ -770,7 +776,7 @@ mod tests {
             (c.width, c.vim, c.mouse, c.autosave),
             (64, true, true, false)
         );
-        // 文件里没写的键保持默认值；空的一层什么都不改
+        // Keys absent from the file keep their defaults; an empty layer changes nothing
         assert_eq!((c.tab_width, c.code_color), (4, CodeColor::Cyan));
         assert_eq!(c.clone().merge(&PartialConfig::default()), c);
     }
@@ -788,7 +794,7 @@ mod tests {
         assert_eq!(summarize(&[]), None);
     }
 
-    /// 按文件内容算出打开面板时的配置。
+    /// The config the panel would open with, given this file content.
     fn loaded(text: &str) -> Config {
         Config::default().merge(&PartialConfig::from_toml_str(text).0)
     }
@@ -820,7 +826,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".mustty.toml");
         std::fs::write(&path, "width = 64\n").unwrap();
-        // 用户只改了 vim：文件里已有的 width 原样不动
+        // The user only changed vim: the width already in the file stays untouched
         let old = loaded("width = 64\n");
         assert_eq!(old.width, 64);
         let new = Config {
@@ -832,13 +838,13 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "width = 64\nvim = true\n",
-            "只写变化的键"
+            "writes only changed keys"
         );
-        // 没有变化：不写，也不创建不存在的文件
+        // No changes: write nothing, and don't create a missing file
         let missing = dir.path().join("none.toml");
         write_back(&missing, &old, &old).unwrap();
         assert!(!missing.exists());
-        // 文件不存在而有变化：新建，只含变化的键
+        // Missing file with changes: create it with only the changed keys
         write_back(&missing, &old, &new).unwrap();
         assert_eq!(std::fs::read_to_string(&missing).unwrap(), "vim = true\n");
     }
@@ -858,7 +864,11 @@ mod tests {
             write_back(&path, &old, &new),
             Err(WriteBackError::Syntax)
         ));
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "原样不动");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            text,
+            "left untouched"
+        );
     }
 
     #[cfg(unix)]
@@ -882,7 +892,7 @@ mod tests {
                 .unwrap()
                 .file_type()
                 .is_symlink(),
-            "链接本身保留"
+            "the link itself is kept"
         );
         assert_eq!(
             std::fs::read_to_string(&real).unwrap(),
@@ -891,7 +901,7 @@ mod tests {
     }
 
     proptest! {
-        /// 任意文本（含随机 TOML 片段）都不会让解析 panic。
+        /// No text (including random TOML fragments) makes parsing panic.
         #[test]
         fn never_panics(lines in prop::collection::vec(
             prop_oneof![

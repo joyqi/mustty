@@ -1,5 +1,6 @@
-//! 鼠标（仅 `mouse = true` 时调用）：屏幕坐标 → `Action::MoveTo` / `ScrollView`。
-//! 坐标换算只查渲染层给出的 `ScreenMap`，不自己重算布局；与键盘共用 Action，不另开编辑路径。
+//! Mouse input (only called when `mouse = true`): screen coordinates → `Action::MoveTo` / `ScrollView`.
+//! Coordinates are looked up in the `ScreenMap` produced by rendering, never recomputed from the
+//! layout here. The mouse reuses the keyboard's Actions rather than opening a separate editing path.
 
 use std::time::{Duration, Instant};
 
@@ -11,12 +12,12 @@ use crate::action::{Action, Target};
 use crate::text::wrap::WrapCache;
 use crate::view::screen::ScreenMap;
 
-/// 拖到正文上下边缘之外时，每隔这么久滚动一行。
+/// While a drag is past the top or bottom edge of the body, scroll one row per interval.
 pub const DRAG_SCROLL_INTERVAL: Duration = Duration::from_millis(50);
-/// 滚轮一格滚动的视觉行数。
+/// Visual rows scrolled per wheel notch.
 pub const WHEEL_ROWS: i32 = 3;
 
-/// 左键在正文里按下后的拖拽状态。`deadline` 只在拖出正文上下边缘时设置。
+/// Drag state after a left press inside the body. `deadline` is set only while the drag is past the body's top or bottom edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DragState {
     pub last: Position,
@@ -34,7 +35,7 @@ pub fn map_mouse(
 ) -> Option<Action> {
     let pos = Position::new(ev.column, ev.row);
     match ev.kind {
-        // 修饰键 + 点击（终端约定 Shift 拖拽为原生选择）不处理
+        // Ignore clicks with modifiers (by terminal convention, Shift-drag is native selection)
         _ if ev.modifiers != KeyModifiers::NONE => None,
         MouseEventKind::Down(MouseButton::Left) => {
             *drag = None;
@@ -92,7 +93,7 @@ mod tests {
     const DRAG: MouseEventKind = MouseEventKind::Drag(MouseButton::Left);
     const TITLE: &str = "标题";
 
-    /// 与渲染相同的方式构造 ScreenMap：40×12，标题 y = 1，正文 x = 2、y = 3、宽 36、高 6，status y = 10。
+    /// Build the ScreenMap the way rendering does: 40×12, title at y = 1, body at x = 2, y = 3, 36 wide, 6 tall, status bar at y = 10.
     fn screen(vp: &Viewport, title: &str, title_cursor: Option<u16>) -> ScreenMap {
         let layout = compute_layout(Rect::new(0, 0, 40, 12), MEASURE);
         assert_eq!(
@@ -104,7 +105,7 @@ mod tests {
         ScreenMap::new(layout.body, vp, Some(TitleMap { rect, pad, scroll }))
     }
 
-    /// 第 0 行 20 个汉字：第 0 视觉行 18 个，第 1 视觉行 2 个；第 1 行行尾有空白，其后一个悬挂
+    /// Line 0 has 20 CJK characters: 18 on visual row 0, 2 on visual row 1. Line 1 ends in whitespace, and its last space hangs
     fn doc() -> (Rope, WrapCache) {
         let text = format!("{}\n{}   tail\nend", "汉".repeat(20), "a".repeat(34));
         (Rope::from_str(&text), WrapCache::new(36, 4))
@@ -132,19 +133,19 @@ mod tests {
     fn click_table() {
         let vp = Viewport::default();
         let cases = [
-            ((2, 3), body(0)),        // 正文首行行首
-            ((4, 3), body(1)),        // 宽字符左半格
-            ((5, 3), body(1)),        // 宽字符右半格 → 吸附左侧
-            ((37, 3), body(17)),      // 第 0 视觉行最后一格
-            ((2, 4), body(18)),       // 软换行的第 2 个视觉行
-            ((20, 4), body(20)),      // 行尾右侧空白 → 行尾
-            ((37, 5), body(21 + 35)), // 第 1 行行尾的空白（其后的第 3 个空格悬挂）
-            ((5, 7), body(63 + 3)),   // 末行 "end" 行尾
-            ((5, 8), body(66)),       // 文档末尾以下（区域内）→ 最后一个视觉行
-            ((0, 3), None),           // 左留白
-            ((38, 3), None),          // 右留白
-            ((10, 10), None),         // status bar
-            ((10, 0), None),          // 上留白
+            ((2, 3), body(0)),        // start of the first body line
+            ((4, 3), body(1)),        // left half of a wide char
+            ((5, 3), body(1)),        // right half of a wide char → snaps left
+            ((37, 3), body(17)),      // last cell of visual row 0
+            ((2, 4), body(18)),       // second visual row of a soft wrap
+            ((20, 4), body(20)),      // blank space right of the line end → line end
+            ((37, 5), body(21 + 35)), // trailing whitespace on line 1 (the third space hangs)
+            ((5, 7), body(63 + 3)),   // end of the last line, "end"
+            ((5, 8), body(66)), // below the end of the document (inside the area) → last visual row
+            ((0, 3), None),     // left margin
+            ((38, 3), None),    // right margin
+            ((10, 10), None),   // status bar
+            ((10, 0), None),    // top margin
         ];
         for ((x, y), want) in cases {
             assert_eq!(click(&vp, x, y), want, "({x},{y})");
@@ -163,26 +164,31 @@ mod tests {
             top_padding: 2,
             ..Viewport::default()
         };
-        assert_eq!(click(&vp, 4, 3), body(1), "留白区映射到文档首行");
+        assert_eq!(
+            click(&vp, 4, 3),
+            body(1),
+            "top padding maps to the first document line"
+        );
         assert_eq!(click(&vp, 4, 5), body(1));
         assert_eq!(click(&vp, 4, 6), body(19));
     }
 
     #[test]
     fn click_title_accounts_for_centering() {
-        // 「标题」宽 4，正文宽 36 → 左侧留白 16，标题从 x = 18 开始
+        // "标题" is 4 columns wide and the body 36 → 16 columns of padding, so the title starts at x = 18
         let vp = Viewport::default();
         let title = |i| Some(Action::MoveTo(Target::Title(i), false));
         assert_eq!(click(&vp, 18, 1), title(0));
         assert_eq!(click(&vp, 19, 1), title(0));
         assert_eq!(click(&vp, 20, 1), title(1));
-        assert_eq!(click(&vp, 30, 1), title(2), "标题右侧 → 末尾");
-        assert_eq!(click(&vp, 3, 1), title(0), "标题左侧 → 开头");
+        assert_eq!(click(&vp, 30, 1), title(2), "right of the title → end");
+        assert_eq!(click(&vp, 3, 1), title(0), "left of the title → start");
     }
 
     #[test]
     fn click_title_while_horizontally_scrolled() {
-        // 60 个字母的标题比 36 列宽：焦点在标题、光标在末尾时，渲染把它滚动了 60 + 1 - 36 = 25 列
+        // A 60-letter title is wider than 36 columns: with focus on the title and the cursor at the end,
+        // rendering scrolls it by 60 + 1 - 36 = 25 columns
         let (rope, mut wrap) = doc();
         let long: String = ('a'..='z').cycle().take(60).collect();
         let map = screen(&Viewport::default(), &long, Some(60));
@@ -198,16 +204,16 @@ mod tests {
                 Instant::now(),
             )
         };
-        // 屏幕第 0 列（x = 2）显示的是第 25 个字母
+        // Screen column 0 (x = 2) shows letter 25
         assert_eq!(hit(2), Some(Action::MoveTo(Target::Title(25), false)));
         assert_eq!(hit(12), Some(Action::MoveTo(Target::Title(35), false)));
         assert_eq!(hit(36), Some(Action::MoveTo(Target::Title(59), false)));
         assert_eq!(
             hit(37),
             Some(Action::MoveTo(Target::Title(60), false)),
-            "最后一格：行尾光标位置"
+            "last cell: cursor position past the end"
         );
-        // 渲染放标题光标用的是同一个换算
+        // Rendering places the title cursor with the same mapping
         assert_eq!(map.title_screen(60), Some(Position::new(37, 1)));
     }
 
@@ -220,7 +226,7 @@ mod tests {
         let mut send = |kind, x, y, drag: &mut Option<DragState>| {
             map_mouse(&ev(kind, x, y), &map, &mut wrap, &rope, "", drag, t0)
         };
-        // 没有在正文里按下：拖拽忽略
+        // No press inside the body: the drag is ignored
         assert_eq!(send(DRAG, 5, 4, &mut drag), None);
         send(DOWN, 2, 3, &mut drag);
         assert_eq!(
@@ -228,13 +234,14 @@ mod tests {
             Some(Action::MoveTo(Target::Body(18), true))
         );
         assert_eq!(drag.unwrap().deadline, None);
-        // 拖到正文下方：取 scrolloff 边界行（正文高 6 → 边距 2 → 第 4 行 "tail"），设置 50 ms deadline
+        // Drag below the body: target the scrolloff boundary row (body height 6 → margin 2 → row 4, "tail")
+        // and set a 50 ms deadline
         assert_eq!(
             send(DRAG, 2, 11, &mut drag),
             Some(Action::MoveTo(Target::Body(21 + 37), true))
         );
         assert_eq!(drag.unwrap().deadline, Some(t0 + DRAG_SCROLL_INTERVAL));
-        // 回到视口内：清除 deadline；松开：结束拖拽
+        // Back inside the viewport: the deadline clears. Release: the drag ends
         send(DRAG, 2, 4, &mut drag);
         assert_eq!(drag.unwrap().deadline, None);
         assert_eq!(
@@ -242,7 +249,7 @@ mod tests {
             None
         );
         assert_eq!(drag, None);
-        // 滚轮
+        // Wheel
         assert_eq!(
             send(MouseEventKind::ScrollUp, 9, 9, &mut drag),
             Some(Action::ScrollView(-3))
@@ -269,7 +276,7 @@ mod tests {
     }
 
     proptest! {
-        /// 正文内容范围内的任意点击：得到的索引回到同一视觉行，列偏差小于该处 grapheme 的宽度。
+        /// Any click within the body's content maps to an index on the same visual row, off by less than the width of the grapheme there.
         #[test]
         fn click_round_trips_to_same_row(
             lines in prop::collection::vec("[a 中文，e\u{301}\t]{0,50}", 1..6),
@@ -284,15 +291,15 @@ mod tests {
             let Some(Action::MoveTo(Target::Body(at), false)) =
                 map_mouse(&ev(DOWN, bx, by), &map, &mut wrap, &rope, "", &mut None, Instant::now())
             else {
-                return Err(TestCaseError::fail("正文内点击必须得到 MoveTo"));
+                return Err(TestCaseError::fail("a click inside the body must yield MoveTo"));
             };
             let (line, row) = wrap.step_rows(&rope, (0, 0), y as isize);
             if wrap.rows_between(&rope, (0, 0), (line, row)) != y as isize {
-                return Ok(()); // 点在文档末尾以下
+                return Ok(()); // click is below the end of the document
             }
             let r = wrap.rows(&rope, line)[row];
             if x >= r.width {
-                return Ok(()); // 行尾右侧
+                return Ok(()); // click is right of the line end
             }
             let pos = wrap.char_to_visual(&rope, at, Affinity::Downstream);
             prop_assert_eq!((pos.line, pos.row), (line, row));

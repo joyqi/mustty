@@ -1,21 +1,21 @@
-//! 与按键解耦的编辑语义。全部变体在 M1 定稿，M4 不再增删；
-//! 有意的修订只有三处：设置面板的 `OpenSettings`、键位帮助的 `OpenHelp` 与 `Tab`。
-//! M1 未绑定按键或未实现的变体由 `Editor::apply` 忽略。
+//! Editing semantics, decoupled from keys. All variants were fixed in M1 and M4 adds or removes none;
+//! the only deliberate revisions are three: `OpenSettings` for the settings panel, `OpenHelp` for
+//! the help panel, and `Tab`. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
 
 use crossterm::event::KeyEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     Insert(String),
-    /// Tab 键：正文插入 tab_width 个空格，标题区切到正文（同 Enter）。
-    /// 不在 keymap 里展开成 `Insert`，否则标题区分不出 Tab 与敲空格。
+    /// Tab key: inserts tab_width spaces in the body; in the title it moves to the body (like Enter).
+    /// Not expanded into `Insert` in the keymap, or the title couldn't tell Tab from typed spaces.
     Tab,
     Paste(String),
     Newline,
     DeleteBack,
     DeleteForward,
     DeleteWordBack,
-    /// `bool`：是否扩展选区（M3）
+    /// `bool`: whether to extend the selection (M3)
     Move(Motion, bool),
     Undo,
     Redo,
@@ -25,22 +25,22 @@ pub enum Action {
     SelectAll,
     Copy,
     Cut,
-    /// Ctrl+V / vim `p`：粘贴内部寄存器（行级寄存器粘贴到下一行）
+    /// Ctrl+V / vim `p`: paste the internal register (a linewise register pastes onto the next line)
     PasteRegister,
-    /// vim `dd`：剪切整个逻辑行进寄存器（行级）
+    /// vim `dd`: cut the whole logical line into the register (linewise)
     DeleteLine,
-    /// vim `o`：移到逻辑行尾并插入 `\n`，作为一个 Transaction
+    /// vim `o`: move to the end of the logical line and insert `\n`, as one Transaction
     OpenLineBelow,
     ToggleTypewriter,
     ToggleFocusMode,
-    /// Ctrl+P：打开设置面板，由 App 消费
+    /// Ctrl+P: open the settings panel; consumed by App
     OpenSettings,
-    /// Ctrl+G（nano 的 ^G help）/ vim Normal 态 `?`：打开键位帮助，由 App 消费
+    /// Ctrl+G (nano's ^G help) / `?` in vim Normal mode: open the help panel; consumed by App
     OpenHelp,
     PromptInput(KeyEvent),
-    /// 鼠标单击 / 拖拽：直接定位到 char 索引；`bool` 为是否扩展选区
+    /// Mouse click / drag: jump straight to a char index; `bool` is whether to extend the selection
     MoveTo(Target, bool),
-    /// 鼠标滚轮：由 App / Viewport 消费，不进入 `Editor::apply`
+    /// Mouse wheel: consumed by App / Viewport, never reaches `Editor::apply`
     ScrollView(i32),
 }
 
@@ -56,15 +56,15 @@ pub enum Motion {
     PageDown,
     DocStart,
     DocEnd,
-    /// 上一个词首（Ctrl+← / vim `b`）
+    /// Previous word start (Ctrl+← / vim `b`)
     WordLeft,
-    /// 下一个词首（Ctrl+→ / vim `w`）
+    /// Next word start (Ctrl+→ / vim `w`)
     WordRight,
-    /// 当前或下一个词尾（仅 vim `e` 绑定）
+    /// End of the current or next word (bound only to vim `e`)
     WordEnd,
 }
 
-/// 鼠标定位的目标：正文全局 char 索引，或标题内 char 索引。
+/// Mouse target: a document-wide char index in the body, or a char index within the title.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Body(usize),

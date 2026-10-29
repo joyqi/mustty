@@ -1,28 +1,32 @@
-//! 键位帮助（Ctrl+G，vim Normal 态 `?`）：内容表与面板状态机。渲染见 `view::help`。
+//! Key help (Ctrl+G, or `?` in vim Normal mode): the content table and the help panel state
+//! machine. Rendering lives in `view::help`.
 //!
-//! 只列特殊的、不容易猜到的键：Enter、Backspace、Tab、打字这类任何编辑器都一样的不列，
-//! 方向键 / Home / End / PgUp / PgDn 合并成一条「移动」。
+//! Only special, hard-to-guess keys are listed. Keys that work the same in every editor (Enter,
+//! Backspace, Tab, typing) are left out, and arrows / Home / End / PgUp / PgDn collapse into a
+//! single "move" entry.
 //!
-//! 每一条 `Entry` 都写明它在 `Keymap::map_event` 里应当得到什么（`Expect`），由测试逐条喂给
-//! keymap 核对；反过来，keymap 能产生的每种 Action（常规输入除外）、Motion 与模式切换也必须
-//! 被这张表覆盖。所以帮助里写的「Ctrl+S 保存」由测试保证是真的，新增了快捷键而忘了写进帮助
-//! 会让测试失败。
+//! Every `Entry` states what `Keymap::map_event` should return for it (`Expect`), and the tests
+//! feed each one to the keymap to check. Conversely, every Action the keymap can produce (except
+//! conventional input), every Motion and every mode switch must be covered by this table. So
+//! "Ctrl+S saves" in the help is guaranteed true by the tests, and adding a shortcut without
+//! documenting it here fails them.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::action::{Action, Motion};
 use crate::keymap::{Mode, NormalState};
 
-/// 一条键位在 keymap 里应当产生的结果。
+/// What a key entry should produce in the keymap.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expect {
-    /// 按下这串键：最后一个键返回 `action`（之前的键必须返回 None），按完之后处于 `mode`
-    /// （None 表示模式不变）
+    /// Press this key sequence: the last key returns `action` (earlier keys must return None), and
+    /// afterwards the mode is `mode` (None means unchanged)
     Key {
         action: Option<Action>,
         mode: Option<Mode>,
     },
-    /// 常规移动的合并项：其中每个键单独按下都得到 `Move(_, extend)`，模式不变
+    /// Merged entry for ordinary movement: each key in it, pressed alone, yields `Move(_, extend)`
+    /// and leaves the mode unchanged
     Moves { extend: bool },
 }
 
@@ -36,7 +40,7 @@ impl Expect {
 
     fn then(self, mode: Mode) -> Self {
         let Self::Key { action, .. } = self else {
-            unreachable!("合并的移动项不切换模式");
+            unreachable!("merged move entries don't switch modes");
         };
         Self::Key {
             action,
@@ -54,20 +58,22 @@ impl Expect {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    /// 显示的键位（不翻译），` / ` 分隔几种写法，测试逐个核对。`Expect::Moves` 里空格也分隔，
-    /// 且 `↑↓←→` 这样连写的方向键各算一个键
+    /// Displayed keys (not translated). ` / ` separates alternatives, each checked by the tests.
+    /// In `Expect::Moves` spaces separate too, and run-together arrows like `↑↓←→` count as one
+    /// key each
     pub keys: &'static str,
-    /// 说明文字的 i18n id
+    /// i18n id of the description
     pub desc_id: &'static str,
-    /// 一个：所有写法结果相同；多个：与 ` / ` 分隔的写法一一对应（`Ctrl+Z / Ctrl+Y` 撤销 / 重做）
+    /// One: every alternative has the same result. Several: one per ` / `-separated alternative
+    /// (`Ctrl+Z / Ctrl+Y` for undo / redo)
     pub expect: Vec<Expect>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
-    /// 组标题的 i18n id；默认模式只有一组，不显示标题
+    /// i18n id of the group title. The default mode has a single group and shows no title
     pub title_id: Option<&'static str>,
-    /// 这组键位在哪个模式下生效（测试从这个模式开始核对）
+    /// Mode in which these keys apply (the tests start checking from this mode)
     pub mode: Mode,
     pub entries: Vec<Entry>,
 }
@@ -85,7 +91,7 @@ fn entry(keys: &'static str, desc_id: &'static str, expect: Expect) -> Entry {
     each(keys, desc_id, vec![expect])
 }
 
-/// 几种写法各有各的结果，合成一条显示。
+/// Alternatives with different results, shown as one entry.
 fn each(keys: &'static str, desc_id: &'static str, expect: Vec<Expect>) -> Entry {
     Entry {
         keys,
@@ -98,7 +104,7 @@ fn mv(m: Motion, extend: bool) -> Expect {
     Expect::action(Action::Move(m, extend))
 }
 
-/// 默认模式（也是 vim 的 Insert 态）。只有 `Esc` 在两者之间不同。
+/// Default mode (also vim Insert mode). Only `Esc` differs between the two.
 fn base_entries(vim: bool) -> Vec<Entry> {
     use Action::*;
     use Motion::*;
@@ -193,7 +199,8 @@ fn visual_entries() -> Vec<Entry> {
     ]
 }
 
-/// 帮助的全部内容：默认模式一张表；vim 下分 Insert / Normal / Visual 三组。
+/// The full help content: one table in default mode; three groups (Insert / Normal / Visual)
+/// under vim.
 pub fn groups(vim: bool) -> Vec<Group> {
     if !vim {
         return vec![Group {
@@ -221,7 +228,7 @@ pub fn groups(vim: bool) -> Vec<Group> {
     ]
 }
 
-/// 面板里的一行。
+/// One line in the help panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Line {
     Title(&'static str),
@@ -229,8 +236,8 @@ pub enum Line {
     Blank,
 }
 
-/// 帮助里用到的全部 i18n id（说明与组标题）。它们存在表里、经 `i18n::t_id` 取，
-/// i18n 的测试据此确认每个 id 都在 en.toml 里。
+/// Every i18n id the help uses (descriptions and group titles). They live in the table and are
+/// looked up via `i18n::t_id`, so the i18n tests use this list to confirm each id is in en.toml.
 pub fn ids() -> Vec<&'static str> {
     [false, true]
         .into_iter()
@@ -242,7 +249,7 @@ pub fn ids() -> Vec<&'static str> {
         .collect()
 }
 
-/// 展开成逐行内容：组之间空一行，组标题单独一行。
+/// Flattens into lines: a blank line between groups, each group title on its own line.
 pub fn lines(vim: bool) -> Vec<Line> {
     let mut out = Vec::new();
     for (i, g) in groups(vim).into_iter().enumerate() {
@@ -262,19 +269,20 @@ pub enum Outcome {
     Ignored,
     Scrolled,
     Close,
-    /// Ctrl+Q：先关面板，再走正常退出流程
+    /// Ctrl+Q: close the panel first, then go through the normal quit flow
     Quit,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Help {
-    /// 第一行显示的行号
+    /// Index of the first visible line
     pub scroll: usize,
 }
 
 impl Help {
-    /// `total` 行内容、正文区 `visible` 行高。滚动首尾不循环；一页是 `visible - 2` 行，与正文的
-    /// PageUp / PageDown 一致。`?` 只在 vim 下关闭（默认模式里它就是个普通字符）。
+    /// `total` lines of content in a body area `visible` rows tall. Scrolling doesn't wrap at
+    /// either end; a page is `visible - 2` lines, matching PageUp / PageDown in the body. `?`
+    /// closes the panel only under vim (in default mode it's an ordinary character).
     pub fn handle_key(
         &mut self,
         key: &KeyEvent,
@@ -309,14 +317,14 @@ impl Help {
         Outcome::Scrolled
     }
 
-    /// 窗口变高或内容变短后，滚动量不超过末尾。
+    /// Keeps the scroll from going past the end after the window grows or the content shrinks.
     pub fn clamp(&mut self, total: usize, visible: usize) -> usize {
         self.scroll = self.scroll.min(total.saturating_sub(visible));
         self.scroll
     }
 }
 
-/// 方向键符号对应的按键，其余字符原样。
+/// Maps arrow symbols to their keys; other characters pass through as is.
 fn char_key(c: char) -> KeyCode {
     match c {
         '←' => KeyCode::Left,
@@ -327,7 +335,7 @@ fn char_key(c: char) -> KeyCode {
     }
 }
 
-/// 把 `Ctrl+Shift+→`、`PgUp`、`gg`、`Shift+↑↓` 这类写法还原成按键序列。
+/// Turns notations like `Ctrl+Shift+→`, `PgUp`, `gg` or `Shift+↑↓` back into key sequences.
 pub fn parse_keys(keys: &str) -> Vec<KeyEvent> {
     let mut mods = KeyModifiers::NONE;
     let mut rest = keys;
@@ -355,7 +363,8 @@ pub fn parse_keys(keys: &str) -> Vec<KeyEvent> {
     };
     match named {
         Some(code) => vec![KeyEvent::new(code, mods)],
-        // 修饰键后的字母按小写（Ctrl+S 即 Ctrl+s）；没有修饰键时是逐个字符的序列（gg、dd、$、↑↓）
+        // A letter after modifiers is lowercase (Ctrl+S means Ctrl+s); without modifiers it's a
+        // sequence of single characters (gg, dd, $, ↑↓)
         None if mods != KeyModifiers::NONE => rest
             .chars()
             .map(|c| KeyEvent::new(char_key(c.to_ascii_lowercase()), mods))
@@ -375,7 +384,8 @@ mod tests {
     use std::collections::BTreeSet;
     use std::mem::discriminant;
 
-    /// 从 `mode` 开始依次按下 `keys`，返回最后一个键的 Action 与结束时的模式；之前的键必须没有 Action。
+    /// Presses `keys` in order starting from `mode` and returns the last key's Action and the final
+    /// mode. Earlier keys must produce no Action.
     fn press(vim: bool, mode: Mode, keys: &[KeyEvent]) -> (Option<Action>, Mode) {
         let keymap = Keymap { vim };
         let mut mode = mode;
@@ -383,13 +393,14 @@ mod tests {
         for (i, k) in keys.iter().enumerate() {
             last = keymap.map_event(&Event::Key(*k), &mut mode, false);
             if i + 1 < keys.len() {
-                assert_eq!(last, None, "前缀键 {k:?} 不应产生 Action");
+                assert_eq!(last, None, "prefix key {k:?} should not produce an Action");
             }
         }
         (last, mode)
     }
 
-    /// `Expect::Moves` 项里的每个键（写法之间用空格或 ` / ` 分隔，`↑↓←→` 各算一个）。
+    /// Every key in an `Expect::Moves` entry (alternatives are separated by spaces or ` / `, and
+    /// each of `↑↓←→` counts as one).
     fn move_keys(keys: &str) -> Vec<KeyEvent> {
         keys.split([' ', '/'])
             .filter(|w| !w.is_empty())
@@ -411,7 +422,7 @@ mod tests {
                             assert!(
                                 matches!(action, Some(Action::Move(_, x)) if x == extend)
                                     && mode == g.mode,
-                                "vim={vim} {:?} 组的 {:?}（{}）里 {k:?} 得到 {action:?} / {mode:?}",
+                                "vim={vim} group {:?}, {:?} ({}): {k:?} gave {action:?} / {mode:?}",
                                 g.title_id,
                                 e.keys,
                                 e.desc_id
@@ -423,7 +434,7 @@ mod tests {
                     let alts: Vec<&str> = e.keys.split(" / ").collect();
                     assert!(
                         e.expect.len() == 1 || e.expect.len() == alts.len(),
-                        "{:?}：{} 种写法却有 {} 个期望",
+                        "{:?}: {} alternatives but {} expectations",
                         e.keys,
                         alts.len(),
                         e.expect.len()
@@ -434,7 +445,7 @@ mod tests {
                             mode: want_mode,
                         } = &e.expect[i.min(e.expect.len() - 1)]
                         else {
-                            panic!("{:?}：Moves 只能单独使用", e.keys);
+                            panic!("{:?}: Moves must be the only expectation", e.keys);
                         };
                         let keys = parse_keys(alt);
                         assert!(!keys.is_empty(), "{alt:?}");
@@ -442,7 +453,7 @@ mod tests {
                         assert_eq!(
                             (&action, mode),
                             (want, want_mode.unwrap_or(g.mode)),
-                            "vim={vim} {:?} 组的 {alt:?}（{}）与 keymap 不符",
+                            "vim={vim} group {:?}: {alt:?} ({}) doesn't match the keymap",
                             g.title_id,
                             e.desc_id
                         );
@@ -451,10 +462,11 @@ mod tests {
                 }
             }
         }
-        assert!(checked > 60, "只核对了 {checked} 条");
+        assert!(checked > 60, "only {checked} keys checked");
     }
 
-    /// keymap 在某个模式下能产生的所有结果：单键（各种修饰键组合）与 g / d 前缀的两键序列。
+    /// Everything the keymap can produce in a mode: single keys (all modifier combinations) and the
+    /// two-key sequences behind the g / d prefixes.
     fn reachable(vim: bool, start: Mode) -> Vec<(Option<Action>, Mode, Mode)> {
         let mut codes: Vec<KeyCode> = (' '..='~').map(KeyCode::Char).collect();
         codes.extend([
@@ -500,8 +512,9 @@ mod tests {
         out
     }
 
-    /// 任何文本编辑器都一样的常规输入：帮助里不列，反向测试也不要求。没有通配分支，
-    /// 新增 Action 变体时必须在这里表态——默认（false）就是要求它出现在帮助里。
+    /// Conventional input that works the same in any text editor: not listed in the help and not
+    /// required by the reverse test. There's no wildcard arm, so every new Action variant must take
+    /// a side here; the default (false) means it has to appear in the help.
     fn conventional(a: &Action) -> bool {
         match a {
             Action::Insert(_)
@@ -509,7 +522,8 @@ mod tests {
             | Action::Newline
             | Action::DeleteBack
             | Action::DeleteForward => true,
-            // 不由按键产生（粘贴事件、保存提示行、鼠标），出现在这里说明 keymap 变了，要写进帮助
+            // Not produced by keys (paste events, the save prompt, mouse). If one shows up
+            // here, the keymap has changed and it belongs in the help
             Action::Paste(_)
             | Action::PromptInput(_)
             | Action::MoveTo(..)
@@ -536,8 +550,9 @@ mod tests {
 
     #[test]
     fn every_binding_appears_in_help() {
-        // 帮助覆盖到的 Action 变体、Motion 与模式切换。合并的移动项不逐个写 Motion，
-        // 它覆盖的就是其中各键实际得到的 Motion（前一个测试已核对它们都是移动）。
+        // Action variants, Motions and mode switches the help covers. A merged move entry
+        // doesn't list its Motions; it covers whatever Motions its keys actually yield (the
+        // previous test already checked that they are all moves).
         let mut variants = BTreeSet::new();
         let mut motions = BTreeSet::new();
         let mut switches = BTreeSet::new();
@@ -572,14 +587,15 @@ mod tests {
                 }
             }
         }
-        // 常规移动只靠合并项覆盖：默认表（也是 vim 的 Insert 组）里必须有它
+        // Ordinary movement is covered only by the merged entry, so the default table (also the vim
+        // Insert group) must have one
         for vim in [false, true] {
             assert!(
                 groups(vim)[0]
                     .entries
                     .iter()
                     .any(|e| e.expect == [Expect::Moves { extend: false }]),
-                "vim={vim}：缺少覆盖常规移动的合并项"
+                "vim={vim}: no merged entry covering ordinary movement"
             );
         }
         let starts = [
@@ -594,22 +610,22 @@ mod tests {
                     if !conventional(a) {
                         assert!(
                             variants.contains(&format!("{:?}", discriminant(a))),
-                            "vim={vim} {from:?} 下的 {a:?} 没有出现在帮助里"
+                            "vim={vim}: {a:?} in {from:?} is missing from the help"
                         );
                     }
                     if let Action::Move(m, _) = a {
                         assert!(
                             motions.contains(&format!("{m:?}")),
-                            "{m:?} 没有被帮助覆盖（单列或合并的移动项）"
+                            "{m:?} not covered by the help (no entry, no merged move entry)"
                         );
                     }
                 }
-                // 模式切换（不计 g / d 前缀这种中间状态）
+                // Mode switches (ignoring intermediate states like the g / d prefixes)
                 let settled = !matches!(to, Mode::Normal(s) if s.pending.is_some());
                 if settled && to != from {
                     assert!(
                         switches.contains(&format!("{from:?} → {to:?}")),
-                        "vim={vim} 的模式切换 {from:?} → {to:?} 没有出现在帮助里（{action:?}）"
+                        "vim={vim}: mode switch {from:?} → {to:?} not in the help ({action:?})"
                     );
                 }
             }
@@ -661,18 +677,20 @@ mod tests {
 
     #[test]
     fn default_list_is_short() {
-        // 只列特殊快捷键：默认表不超过 15 条，正文 16 行高时一屏放得下
+        // Only special shortcuts: at most 15 default entries, so they fit on one screen when
+        // the body is 16 rows tall
         let plain = lines(false);
-        assert!(plain.len() <= 15, "默认表有 {} 条", plain.len());
-        // vim 的 Insert 组与默认表同样精简，Normal / Visual 两组照旧全列
+        assert!(plain.len() <= 15, "{} default entries", plain.len());
+        // The vim Insert group is as lean as the default table; Normal / Visual still list
+        // everything
         let g = groups(true);
         assert_eq!(g[0].entries.len(), plain.len());
         assert!(g[1].entries.len() > g[0].entries.len());
-        // 常规输入不单列
+        // Conventional input gets no entry of its own
         for vim in [false, true] {
             for e in groups(vim).iter().take(1).flat_map(|g| &g.entries) {
                 for gone in ["Enter", "Backspace", "Delete", "Tab", "Home", "PgUp"] {
-                    assert!(e.keys != gone, "vim={vim}：{gone} 不该单列（{})", e.desc_id);
+                    assert!(e.keys != gone, "vim={vim}: {gone} listed ({})", e.desc_id);
                 }
             }
         }
@@ -683,7 +701,7 @@ mod tests {
         let plain = lines(false);
         assert!(
             plain.iter().all(|l| matches!(l, Line::Entry(..))),
-            "默认模式不分组"
+            "default mode has no groups"
         );
         let vim = lines(true);
         let titles: Vec<_> = vim
@@ -721,18 +739,18 @@ mod tests {
         for _ in 0..10 {
             h.handle_key(&key(KeyCode::PageDown), false, total, visible);
         }
-        assert_eq!(h.scroll, 20, "停在末尾：最后一行在最下面");
+        assert_eq!(h.scroll, 20, "stops at the end: last line at the bottom");
         assert_eq!(
             h.handle_key(&key(KeyCode::Down), false, total, visible),
             Outcome::Ignored
         );
         h.handle_key(&key(KeyCode::PageUp), false, total, visible);
-        assert_eq!(h.scroll, 12, "一页 = 正文高度 - 2，与正文的分页一致");
+        assert_eq!(h.scroll, 12, "page = body height - 2, as in the body");
         for _ in 0..5 {
             h.handle_key(&key(KeyCode::PageUp), false, total, visible);
         }
         assert_eq!(h.scroll, 0);
-        // Home / End 跳到首尾，已在那里时不再变化
+        // Home / End jump to the start / end and do nothing once there
         assert_eq!(
             h.handle_key(&key(KeyCode::End), false, total, visible),
             Outcome::Scrolled
@@ -751,13 +769,13 @@ mod tests {
             h.handle_key(&key(KeyCode::Home), false, total, visible),
             Outcome::Ignored
         );
-        // 放得下时不滚动
+        // No scrolling when everything fits
         let mut short = Help::default();
         assert_eq!(
             short.handle_key(&key(KeyCode::Down), false, 5, 10),
             Outcome::Ignored
         );
-        // 内容变短 / 窗口变高后钳制
+        // Clamped after the content shrinks / the window grows
         h.scroll = 20;
         assert_eq!(h.clamp(30, 25), 5);
     }
@@ -780,12 +798,12 @@ mod tests {
         assert_eq!(
             h.handle_key(&key(KeyCode::Char('?')), false, 1, 1),
             Outcome::Ignored,
-            "默认模式里 ? 是普通字符：面板吞掉它，不关闭"
+            "in default mode ? is an ordinary character: the panel swallows it and stays open"
         );
         assert_eq!(
             h.handle_key(&ctrl('p'), false, 1, 1),
             Outcome::Ignored,
-            "不能从帮助里打开设置"
+            "the settings panel can't be opened from the help"
         );
     }
 }

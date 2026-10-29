@@ -1,14 +1,14 @@
-//! 三区域布局，纯函数。
+//! Three-region layout, as a pure function.
 
 use ratatui::layout::Rect;
 
-/// 正文最大宽度。
+/// Maximum body width.
 pub const MEASURE: u16 = 72;
-/// 窄终端时左右最少留白。
+/// Minimum side margin on narrow terminals.
 pub const MIN_SIDE_MARGIN: u16 = 2;
-/// 标题与正文、正文与 status bar 之间的空行。
+/// Blank rows between the title and the body, and between the body and the status bar.
 pub const GAP: u16 = 1;
-/// 上下留白占终端高度的比例为 1 / V_PAD_DIVISOR。
+/// Top and bottom margins each take 1 / V_PAD_DIVISOR of the terminal height.
 pub const V_PAD_DIVISOR: u16 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +99,7 @@ mod tests {
             (24, 20, 2),
             (75, 71, 2),
             (76, 72, 2),
-            (77, 72, 2), // 奇数余量给右侧
+            (77, 72, 2), // an odd leftover column goes to the right
             (200, 72, 64),
         ];
         for (wt, w, x) in cases {
@@ -124,7 +124,7 @@ mod tests {
         assert_eq!(layout(80, 11).body, Rect::new(4, 1, 72, 9));
         assert_eq!(layout(80, 4).body, Rect::new(4, 0, 72, 3));
         assert_eq!(layout(80, 1).body, Rect::new(4, 0, 72, 1));
-        // H = 12：v_pad = 1，正文 6 行，status 紧贴底部留白之上
+        // H = 12: v_pad = 1, a 6-row body, and the status bar right above the bottom margin
         let l = layout(80, 12);
         assert_eq!((l.body.y, l.body.height), (3, 6));
         assert_eq!(l.status.unwrap().y, 10);
@@ -155,7 +155,7 @@ mod tests {
                     let (left, right) = (r.x, wt - r.right());
                     assert!(right == left || right == left + 1, "{wt}x{ht} not centered");
                 }
-                // 区域自上而下互不重叠
+                // Regions run top to bottom without overlapping
                 let ys: Vec<_> = rects.into_iter().flatten().collect();
                 for p in ys.windows(2) {
                     assert!(p[0].bottom() <= p[1].y, "{wt}x{ht}");

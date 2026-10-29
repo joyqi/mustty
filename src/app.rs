@@ -1,4 +1,4 @@
-//! App 状态与同步事件循环。
+//! App state and the synchronous event loop.
 
 use std::io::Write;
 use std::ops::Range;
@@ -28,17 +28,17 @@ use crate::view::mouse::{DRAG_SCROLL_INTERVAL, DragState, map_mouse};
 use crate::view::screen::ScreenMap;
 use crate::view::viewport::Viewport;
 
-/// 默认：最后一次编辑后空闲多久自动保存（配置项 autosave_idle_ms）。
+/// Default idle time after the last edit before autosave (config key `autosave_idle_ms`).
 pub const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
-/// 启动键位提示的显示时长。
+/// How long the startup key hint stays visible.
 pub const HINT_TTL: Duration = Duration::from_secs(5);
-/// Typewriter / Focus 模式切换提示的显示时长。
+/// How long the typewriter / focus mode toggle message stays visible.
 pub const TOGGLE_TTL: Duration = Duration::from_secs(2);
-/// 其他临时提示的显示时长。
+/// How long other transient messages stay visible.
 pub const INFO_TTL: Duration = Duration::from_secs(3);
-/// 超过此大小的正文不实时刷新字数，改为保存时刷新。
+/// Bodies larger than this refresh the word count on save instead of live.
 pub const LARGE_FILE: usize = 5 * 1024 * 1024;
-/// Windows 上同一批事件里连续插入这么多字符视为一次粘贴。
+/// On Windows, this many consecutive typed characters in one event batch count as a paste.
 pub const PASTE_MIN_CHARS: usize = 16;
 
 pub struct App {
@@ -48,45 +48,45 @@ pub struct App {
     pub(crate) status: StatusModel,
     pub(crate) viewport: Viewport,
     area: Rect,
-    /// 当前生效的配置，唯一的真值来源；只经 `apply_config` 修改。
-    /// 它的一部分还复制在子对象里：Keymap（vim）、Viewport（typewriter、scrolloff）、
-    /// Editor 的 WrapCache（tab_width，Tab 键插入的空格数也从这里取），由 `apply_config` 同步
+    /// The active config and the single source of truth; only `apply_config` modifies it.
+    /// Parts of it are copied into sub-objects: Keymap (vim), Viewport (typewriter, scrolloff),
+    /// and the Editor's WrapCache (tab_width, which also sets how many spaces Tab inserts). `apply_config` keeps them in sync
     pub(crate) config: Config,
-    /// 设置面板写回的配置文件；None 时只在本次会话生效（测试默认如此，不会碰到真实的 ~/.mustty.toml）
+    /// Config file the settings panel writes back to. With None, changes last only for this session (the test default, so tests never touch the real ~/.mustty.toml)
     config_path: Option<PathBuf>,
-    /// 设置面板（Ctrl+P）；打开时吞掉所有按键
+    /// Settings panel (Ctrl+P); swallows every key while open
     pub(crate) settings: Option<Settings>,
-    /// 键位帮助（Ctrl+G / vim Normal 态 `?`）；同样吞掉所有按键
+    /// Help panel (Ctrl+G, or `?` in vim Normal mode); also swallows every key
     pub(crate) help: Option<Help>,
-    /// 待执行的鼠标捕获开关，由事件循环用 `execute!` 执行（Windows 上走 WinAPI）
+    /// Pending mouse capture toggle; the event loop applies it with `execute!` (WinAPI on Windows)
     mouse_capture: Option<bool>,
-    /// 左键拖拽中（仅鼠标开启时）
+    /// Left-button drag in progress (only when the mouse is enabled)
     drag: Option<DragState>,
-    /// 上一帧渲染输出的屏幕 ↔ 文档坐标换算，鼠标只查它
+    /// Screen-to-document coordinate map from the last rendered frame; mouse handling reads only this
     pub(crate) screen: Option<ScreenMap>,
-    /// 大文件：字数只在保存时刷新
+    /// Large file: the word count refreshes only on save
     large: bool,
-    /// 最后一次改动内容的时刻；自动保存尝试后清空，避免失败时反复重试
+    /// When content last changed. Cleared after each autosave attempt so a failure doesn't retry forever
     last_edit: Option<Instant>,
-    /// 有未保存修改时按过一次 Ctrl+Q
+    /// Ctrl+Q was pressed once with unsaved changes
     quit_armed: bool,
-    /// 待写给终端的控制序列（OSC 52、光标形状），由事件循环写出
+    /// Control sequences waiting to be written to the terminal (OSC 52, cursor shape); the event loop flushes them
     output: Vec<String>,
-    /// 终端支持 OSC 52（macOS Terminal 不支持）
+    /// Whether the terminal supports OSC 52 (macOS Terminal doesn't)
     osc52_supported: bool,
     osc52_warned: bool,
-    /// 最后一次写给终端的光标形状序列（去重）；启动时 TerminalGuard 已设成竖线
+    /// Last cursor shape sequence written to the terminal, for dedup. TerminalGuard sets a bar at startup
     cursor_sent: String,
-    /// 已写给终端的窗口标题（去重）
+    /// Window title already written to the terminal, for dedup
     window_title: crate::terminal::WindowTitle,
-    /// 「保存为」的相对路径以它为基准，预填的 untitled 名也在这里避让重名；默认是启动时的工作目录
+    /// Base for relative "Save as" paths; the prefilled untitled name also avoids collisions here. Defaults to the working directory at startup
     pub save_dir: PathBuf,
     pub should_quit: bool,
     pub needs_redraw: bool,
 }
 
 impl App {
-    /// 默认配置，只指定是否自动保存。
+    /// Default config; only autosave is specified.
     pub fn new(doc: Document, size: Size, autosave: bool) -> Self {
         let config = Config {
             autosave,
@@ -95,7 +95,7 @@ impl App {
         Self::with_config(doc, size, &config)
     }
 
-    /// 先按默认配置搭好，再经 `apply_config` 应用 `config`：初始化与运行中修改走同一条路径。
+    /// Builds with the default config, then applies `config` through `apply_config`, so startup and live changes share one code path.
     pub fn with_config(doc: Document, size: Size, config: &Config) -> Self {
         let area = Rect::new(0, 0, size.width, size.height);
         let large = doc.body().len_bytes() > LARGE_FILE;
@@ -141,8 +141,8 @@ impl App {
             needs_redraw: true,
         };
         app.apply_config(config);
-        // 启动时的终端状态（鼠标捕获、竖线光标）已由 TerminalGuard 设好，不再重复输出；
-        // 配置的光标形状不是竖线时，再推一次
+        // TerminalGuard already set the startup terminal state (mouse capture, bar cursor), so don't emit it again.
+        // Push the cursor shape once more only if the configured one isn't a bar
         app.output.clear();
         app.mouse_capture = None;
         app.cursor_sent = ansi(SetCursorStyle::SteadyBar);
@@ -150,8 +150,8 @@ impl App {
         app
     }
 
-    /// 应用一份配置：逐项与当前值比较，把差异分发到各自的存放位置。
-    /// 启动（`with_config`）和设置面板的每次调整都只走这里。
+    /// Applies a config: compares each field with the current value and routes the differences to where each one lives.
+    /// Startup (`with_config`) and every settings panel change go through here and nowhere else.
     pub fn apply_config(&mut self, new: &Config) {
         self.apply_config_at(new, Instant::now());
     }
@@ -159,11 +159,11 @@ impl App {
     fn apply_config_at(&mut self, new: &Config, now: Instant) {
         let old = std::mem::replace(&mut self.config, new.clone());
         self.needs_redraw = true;
-        // width：sync_body 发现正文宽度变了会 rewrap，这里不用做什么
+        // width: sync_body rewraps when it sees the body width change, so nothing to do here
         self.viewport.typewriter = new.typewriter;
         self.viewport.scrolloff = new.scrolloff;
         if new.tab_width != old.tab_width {
-            // tab_width 的另一份副本：换行、渲染与 Tab 键插入的空格数共用 WrapCache 里这一份
+            // The other copy of tab_width: wrapping, rendering and the spaces Tab inserts all share the one in WrapCache
             let (doc, wrap, _) = self.editor.view();
             self.viewport.retab(new.tab_width, wrap, doc.body());
         }
@@ -174,7 +174,7 @@ impl App {
             }
         }
         if new.lang != old.lang {
-            // 下一帧起所有文案（含面板自己）都用新语言；Auto 时按环境变量重新协商
+            // From the next frame on, all text (including the panel itself) uses the new language; Auto renegotiates from the environment
             crate::i18n::use_config(new.lang);
         }
         self.keymap.vim = new.vim;
@@ -185,15 +185,15 @@ impl App {
             self.drag = None;
             self.mouse_capture = Some(new.mouse);
         }
-        // 从关切到开：有未保存修改时从现在起计时，空闲后照常自动保存
+        // Turned from off to on: with unsaved changes, start the idle timer now so autosave fires as usual
         if new.autosave && !old.autosave && self.editor.is_dirty() {
             self.last_edit = Some(now);
         }
-        // cursor / cursor_blink 变了（面板里即时预览），或 vim 关掉后回到 Insert
+        // cursor / cursor_blink changed (live preview in the panel), or vim was turned off and we're back in Insert
         self.sync_cursor_style();
     }
 
-    /// vim 被关掉：Normal 态强制回 Insert（光标换回配置的形状），清掉 pending / visual 与选区。
+    /// vim was turned off: force Normal mode back to Insert (the cursor returns to the configured shape) and clear pending / visual state and the selection.
     fn leave_vim(&mut self, now: Instant) {
         if matches!(self.mode, Mode::Insert) {
             return;
@@ -204,8 +204,8 @@ impl App {
         }
     }
 
-    /// 当前应有的光标形状。vim Normal 态（含 visual）始终是方块：那是「命令模式」的信号，不是偏好；
-    /// 设置面板打开时一律用配置的形状，好在面板里预览；其余用配置的形状。
+    /// The cursor shape to show right now. vim Normal mode (including Visual) is always a block: it signals command mode and isn't a preference.
+    /// While the settings panel is open, always use the configured shape so the panel can preview it; otherwise use the configured shape too.
     pub(crate) fn cursor_style(&self) -> SetCursorStyle {
         if self.settings.is_none() && matches!(self.mode, Mode::Normal(_)) {
             SetCursorStyle::SteadyBlock
@@ -214,7 +214,7 @@ impl App {
         }
     }
 
-    /// 光标形状的唯一推送点：与上次写出的不同时才推序列。每个事件处理完、每次应用配置后调用。
+    /// The only place that pushes the cursor shape, and only when it differs from the last one written. Called after every event and every config change.
     fn sync_cursor_style(&mut self) {
         let seq = ansi(self.cursor_style());
         if seq != self.cursor_sent {
@@ -223,7 +223,7 @@ impl App {
         }
     }
 
-    /// 设置面板按 Enter 时写回的配置文件。
+    /// Config file the settings panel writes back to on Enter.
     pub fn set_config_path(&mut self, path: Option<PathBuf>) {
         self.config_path = path;
     }
@@ -236,13 +236,13 @@ impl App {
         self.config.width
     }
 
-    /// 启动后 5 s 在 status bar 右段显示键位提示。
+    /// Shows the key hint in the right part of the status bar for 5 s after startup.
     pub fn show_startup_hint(&mut self, now: Instant) {
         self.status.hint_until = Some(now + HINT_TTL);
     }
 
-    /// vim visual 的选区是闭区间：锚点与光标所在的字都在选区内。编辑内核只认半开区间，
-    /// 这里在 App 层换算，内核不感知 Mode。
+    /// A vim Visual selection is inclusive: both the anchor and the character under the cursor are selected. The editing core only knows half-open ranges,
+    /// so the App layer converts here and the core stays unaware of Mode.
     fn visual_range(&self) -> Option<Range<usize>> {
         if self.editor.focus != crate::editor::Focus::Body {
             return None;
@@ -253,7 +253,7 @@ impl App {
         Some(lo..Cursor::next(self.editor.doc().body(), hi).max(lo))
     }
 
-    /// 渲染用的选区：vim visual 下为闭区间，其余为编辑内核的选区。
+    /// Selection to render: the inclusive range in vim Visual mode, the editing core's selection otherwise.
     pub(crate) fn visible_selection(&self) -> Option<Range<usize>> {
         match self.mode {
             Mode::Normal(s) if s.visual => self.visual_range(),
@@ -261,18 +261,18 @@ impl App {
         }
     }
 
-    /// 配置文件的警告：一条 status bar 错误消息，保留到第一次按键。
+    /// Config file warning: a status bar error message that stays until the first key press.
     pub fn show_startup_warning(&mut self, text: String) {
         self.status.error(text);
     }
 
-    /// 模式标识及其样式（`theme::mode`）。
+    /// Mode indicator and its style (`theme::mode`).
     pub(crate) fn mode_indicator(&self) -> Option<(&'static str, ratatui::style::Style)> {
         self.mode_label()
             .map(|label| (label, view::theme::mode(self.mode)))
     }
 
-    /// status bar 最前的模式标识，仅 vim 开启时显示。
+    /// Mode indicator at the start of the status bar, shown only when vim is on.
     pub(crate) fn mode_label(&self) -> Option<&'static str> {
         self.keymap.vim.then_some(match self.mode {
             Mode::Insert => "INS",
@@ -281,7 +281,7 @@ impl App {
         })
     }
 
-    /// Unbound 标题的占位：文件名去扩展名，或 `Untitled`。
+    /// Placeholder for an Unbound title: the file name without extension, or `Untitled`.
     pub(crate) fn placeholder(&self) -> String {
         self.editor
             .doc()
@@ -301,14 +301,14 @@ impl App {
 
     pub fn handle_at(&mut self, ev: Event, now: Instant) {
         self.handle_event(ev, now);
-        // 模式切换、面板开关、配置变化都可能改变光标形状
+        // Mode switches, panels opening or closing and config changes can all change the cursor shape
         self.sync_cursor_style();
     }
 
     fn handle_event(&mut self, ev: Event, now: Instant) {
         match ev {
             Event::Resize(w, h) => {
-                // 同一批里的多个 Resize 只记下尺寸，重排在下一次绘制时进行一次
+                // Multiple Resize events in one batch only record the size; relayout happens once at the next draw
                 self.area = Rect::new(0, 0, w, h);
                 self.needs_redraw = true;
                 return;
@@ -320,7 +320,7 @@ impl App {
                 return;
             }
             Event::Mouse(m) => {
-                // 面板不做点击 hit-test
+                // Panels don't hit-test clicks
                 if self.config.mouse && self.settings.is_none() && self.help.is_none() {
                     self.on_mouse(m, now);
                 }
@@ -328,8 +328,8 @@ impl App {
             }
             _ => {}
         }
-        // 抢占输入的浮层同一时刻最多一个：提示行打开时 Ctrl+P / Ctrl+G 进了 PromptInput，
-        // 面板打开时其他面板的快捷键与 Ctrl+S 都被吞掉
+        // At most one input-grabbing overlay is open at a time: while the prompt is open, Ctrl+P / Ctrl+G go to PromptInput,
+        // and while a panel is open, the other panel's shortcut and Ctrl+S are swallowed
         debug_assert!(
             [
                 self.settings.is_some(),
@@ -348,7 +348,7 @@ impl App {
             return;
         }
         if self.settings.is_some() {
-            // 面板吞掉所有按键，不经过 Keymap，mode 保持原样；粘贴丢弃
+            // The panel swallows every key without going through Keymap, and mode stays as is; pastes are dropped
             if let Event::Key(key) = ev {
                 self.settings_key(key, now);
             }
@@ -371,12 +371,12 @@ impl App {
         if before != after || self.mode_label().is_some() {
             self.needs_redraw = true;
         }
-        // 进入 visual：选区从光标所在的字开始
+        // Entering Visual mode: the selection starts at the character under the cursor
         if is_visual && !was_visual {
             let head = self.editor.cursor.head;
             self.edit(&Action::MoveTo(Target::Body(head), true), now);
         }
-        // visual 下的 d / x / y / p：先把选区换成闭区间（含光标所在的字），再交给编辑内核
+        // d / x / y / p in Visual mode: first turn the selection into the inclusive range (including the character under the cursor), then hand it to the editing core
         if was_visual
             && matches!(
                 action,
@@ -390,7 +390,7 @@ impl App {
         if let Some(action) = action {
             self.dispatch(action, now);
         }
-        // 离开 visual（y 复制之后等）：与 vim 一样不再保留选区
+        // Leaving Visual mode (e.g. after a y copy): drop the selection, as vim does
         if left_visual && self.editor.selection().is_some() {
             self.edit(&Action::Cancel, now);
         }
@@ -452,7 +452,7 @@ impl App {
         }
     }
 
-    /// 帮助面板的内容行（随 vim 开关变化）。
+    /// Lines of the help panel (they depend on whether vim is on).
     pub(crate) fn help_lines(&self) -> Vec<help::Line> {
         help::lines(self.config.vim)
     }
@@ -503,14 +503,14 @@ impl App {
         }
     }
 
-    /// Esc：恢复打开面板时的快照并关闭，不写文件。
+    /// Esc: restore the snapshot taken when the panel opened and close it, without writing the file.
     fn close_settings(&mut self, now: Instant) {
         if let Some(settings) = self.settings.take() {
             self.apply_config_at(&settings.snapshot, now);
         }
     }
 
-    /// Enter：只写与快照不同的键。失败时修改仍在本次会话生效。
+    /// Enter: write only the keys that differ from the snapshot. On failure the changes still apply for this session.
     fn write_settings(&mut self, path: &Path, snapshot: &Config) {
         match config::write_back(path, snapshot, &self.config) {
             Ok(()) => {}
@@ -526,7 +526,7 @@ impl App {
         }
     }
 
-    /// 取出待执行的鼠标捕获开关。
+    /// Takes the pending mouse capture toggle.
     pub fn take_mouse_capture(&mut self) -> Option<bool> {
         self.mouse_capture.take()
     }
@@ -560,7 +560,7 @@ impl App {
         }
     }
 
-    /// 内部寄存器已由 Editor 写入；这里再通过 OSC 52 写系统剪贴板（可穿透 SSH / tmux）。
+    /// The Editor has already filled the internal register; this also writes the system clipboard via OSC 52, which works through SSH / tmux.
     fn copy_to_clipboard(&mut self, text: &str, now: Instant) {
         if self.osc52_supported {
             self.output.push(crate::terminal::osc52(text));
@@ -569,17 +569,17 @@ impl App {
         }
     }
 
-    /// 窗口标题（含未保存标记）变了时返回要写的 OSC 2 序列（每轮事件循环查一次；没变就是 None）。
+    /// Returns the OSC 2 sequence to write when the window title (including the unsaved mark) changed; checked once per event loop iteration, None when unchanged.
     pub fn take_window_title(&mut self) -> Option<String> {
         let doc = self.editor.doc();
-        // 未保存标记与 status bar 的 SaveMark 同源：都直接取 Editor::is_dirty()。
-        // 去重比较的是最终字符串：标题文字没变、只有保存状态变了，也会推送
+        // The unsaved mark shares its source with the status bar's SaveMark: both read Editor::is_dirty() directly.
+        // Dedup compares the final string, so a change in save state alone is pushed even when the title text is the same
         let title =
             StatusModel::window_title(&doc.title, doc.meta.path.as_deref(), self.editor.is_dirty());
         self.window_title.update(&title)
     }
 
-    /// 取出待写给终端的控制序列。
+    /// Takes the control sequences waiting to be written to the terminal.
     pub fn take_terminal_output(&mut self) -> Vec<String> {
         std::mem::take(&mut self.output)
     }
@@ -591,7 +591,7 @@ impl App {
         if !prompt.edit(key) || prompt.input.is_empty() {
             return;
         }
-        // 相对 save_dir（启动时的 cwd），不做 ~ 展开；绝对路径原样
+        // Relative to save_dir (the cwd at startup), with no ~ expansion; absolute paths are used as is
         let path = self.save_dir.join(&prompt.input);
         if path.exists() && !prompt.confirm_overwrite {
             prompt.confirm_overwrite = true;
@@ -607,7 +607,7 @@ impl App {
             && !self.status.externally_modified
     }
 
-    /// 立即自动保存（检查外部修改）；返回是否成功。
+    /// Autosaves immediately (checking for external modification); returns whether it succeeded.
     fn autosave_now(&mut self) -> bool {
         self.last_edit = None;
         match self.editor.doc().meta.path.clone() {
@@ -621,7 +621,7 @@ impl App {
         match file::save(self.editor.doc(), &path, auto) {
             Ok(mtime) => {
                 self.editor.mark_saved(path, mtime);
-                // 保存状态由文件名后的标记表示，不再显示「已保存」文案
+                // The mark after the file name shows the save state, so no "Saved" message is shown
                 self.status.externally_modified = false;
                 if self.large {
                     self.status.words = self.editor.word_count();
@@ -646,7 +646,7 @@ impl App {
             .map(|t| t + self.config.autosave_idle)
     }
 
-    /// 下一次需要醒来的时刻：自动保存与消息过期中较早者。
+    /// When to wake up next: the earliest of the autosave, message expiry, hint and drag deadlines.
     pub fn next_deadline(&self) -> Option<Instant> {
         [
             self.autosave_deadline(),
@@ -659,7 +659,7 @@ impl App {
         .min()
     }
 
-    /// 处理到期的自动保存与消息。
+    /// Handles autosaves and messages that are due.
     pub fn tick(&mut self, now: Instant) {
         if self.autosave_deadline().is_some_and(|d| now >= d) {
             self.autosave_now();
@@ -674,12 +674,12 @@ impl App {
         }
     }
 
-    /// 鼠标：由 `view::mouse::map_mouse` 转成 Action，与键盘共用同一条编辑路径。
+    /// Mouse: `view::mouse::map_mouse` turns events into Actions, which share the keyboard's editing path.
     fn on_mouse(&mut self, m: MouseEvent, now: Instant) {
         if self.status.prompt.is_some() {
             return;
         }
-        // 只查上一帧渲染给出的换算；还没渲染过（或窗口太小）时忽略
+        // Use only the map from the last rendered frame; ignore the event if nothing has rendered yet (or the window is too small)
         let Some(map) = self.screen else { return };
         let title = self.editor.doc().title_text().to_owned();
         let (doc, wrap, _) = self.editor.view();
@@ -690,19 +690,19 @@ impl App {
     }
 
     fn mouse_action(&mut self, action: Action, now: Instant) {
-        // vim Normal 态拖拽出选区：同时进入 visual，之后可以直接 d / y
+        // Dragging a selection in vim Normal mode also enters Visual mode, so d / y work right after
         if let (Action::MoveTo(_, true), Mode::Normal(state)) = (&action, &mut self.mode) {
             state.visual = true;
         }
         self.dispatch(action, now);
-        // 定位可能让视口跟随滚动：同一批里后续的鼠标事件按新的视口查表
+        // Moving the cursor may scroll the viewport; later mouse events in the same batch must map against the new viewport
         if let Some(map) = &mut self.screen {
             map.follow(&self.viewport);
         }
     }
 
-    /// 滚轮：只移动视口；光标若离开 scrolloff 区间，就拉回可见区域边缘（保持 preferred_col），
-    /// 光标必须始终在屏幕上，IME 候选框才有处锚定。
+    /// Wheel: moves only the viewport. If the cursor leaves the scrolloff band, pull it back to the edge of the visible area (keeping preferred_col).
+    /// The cursor must stay on screen so the IME candidate window has something to anchor to.
     fn scroll_view(&mut self, delta: i32, now: Instant) {
         let layout = self.layout();
         if layout.too_small {
@@ -732,7 +732,7 @@ impl App {
         self.needs_redraw = true;
     }
 
-    /// 拖到正文上下边缘之外并保持不动：每 50 ms 滚动一行，光标跟到新的边缘行。
+    /// Dragging past the top or bottom of the body and holding still scrolls one row every 50 ms; the cursor follows to the new edge row.
     fn drag_autoscroll(&mut self, now: Instant) {
         let (Some(state), Some(mut map)) = (self.drag, self.screen) else {
             return;
@@ -754,7 +754,7 @@ impl App {
         self.mouse_action(Action::MoveTo(Target::Body(at), true), now);
     }
 
-    /// 绘制前调用：让换行宽度与视口适配当前正文区域，保证光标可见；刷新字数。
+    /// Called before drawing: fits the wrap width and viewport to the current body area, keeps the cursor visible and refreshes the word count.
     pub(crate) fn sync_body(&mut self, body: Rect) {
         let cursor = self.editor.cursor;
         let (doc, wrap, _) = self.editor.view();
@@ -774,7 +774,7 @@ fn on_off(on: bool) -> &'static str {
     if on { t("msg-on") } else { t("msg-off") }
 }
 
-/// Windows 不产生 `Event::Paste`：把同一批里连续 ≥ `PASTE_MIN_CHARS` 个字符输入合并为一次粘贴。
+/// Windows never produces `Event::Paste`, so merge a run of at least `PASTE_MIN_CHARS` typed characters in one batch into a single paste.
 pub fn coalesce_paste(events: Vec<Event>) -> Vec<Event> {
     let mut out = Vec::with_capacity(events.len());
     let mut run = String::new();
@@ -805,8 +805,8 @@ pub fn coalesce_paste(events: Vec<Event>) -> Vec<Event> {
     out
 }
 
-/// 粘贴时终端逐键送来的字符（含回车）。
-/// 光标形状的转义序列（DECSCUSR）。
+/// Characters the terminal sends key by key during a paste (including Enter).
+/// Escape sequence for a cursor shape (DECSCUSR).
 fn ansi(style: SetCursorStyle) -> String {
     let mut seq = String::new();
     let _ = style.write_ansi(&mut seq);
@@ -829,7 +829,7 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
             crate::terminal::set_mouse_capture(terminal.backend_mut(), on)?;
         }
         let mut output = app.take_terminal_output();
-        // 窗口标题（OSC 2）同样直接写 stdout：不移动光标，不经过 ratatui 的 Buffer
+        // The window title (OSC 2) also goes straight to stdout: it doesn't move the cursor and bypasses ratatui's Buffer
         output.extend(app.take_window_title());
         if !output.is_empty() {
             let backend = terminal.backend_mut();
@@ -848,11 +848,11 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
         let mut batch = Vec::new();
         let ready = match timeout {
             Some(t) => event::poll(t)?,
-            None => true, // 无事可等：阻塞在 read 上，空闲时 0 CPU
+            None => true, // Nothing to wait for: block on read, so idle uses zero CPU
         };
         if ready {
             batch.push(event::read()?);
-            // 先排空同一批事件再重绘：IME 一次提交的多个字符只重绘一次
+            // Drain the whole batch before redrawing, so several characters committed by the IME at once cost one redraw
             while event::poll(Duration::ZERO)? {
                 batch.push(event::read()?);
             }
@@ -905,13 +905,13 @@ mod tests {
         app.tick(t0 + AUTOSAVE_IDLE);
         assert_eq!(fs::read_to_string(&path).unwrap(), "xv1");
         assert!(!app.editor.is_dirty());
-        // 保存成功不再显示文案，也就没有需要醒来的定时器
+        // A successful save shows no message, so there is no timer to wake up for
         assert_eq!(
             (app.status.message.clone(), app.next_deadline()),
             (None, None)
         );
 
-        // 外部修改后：放弃自动保存、常驻提示、不再安排自动保存
+        // After an external modification: skip the autosave, keep the warning visible and schedule no further autosave
         fs::write(&path, "external").unwrap();
         let later = SystemTime::now() + Duration::from_secs(5);
         fs::File::options()
@@ -927,7 +927,7 @@ mod tests {
         assert!(app.status.externally_modified);
         app.tick(t1 + Duration::from_secs(60));
         assert_eq!(app.next_deadline(), None);
-        // 退出需要确认；Ctrl+S 强制覆盖
+        // Quitting needs confirmation; Ctrl+S forces an overwrite
         let ctrl = |c| Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
         app.handle_at(ctrl('q'), t1);
         assert!(!app.should_quit);
@@ -963,14 +963,14 @@ mod tests {
         };
         let mut app = App::with_config(doc, Size::new(80, 24), &config);
         app.handle(press(KeyCode::Tab));
-        assert_eq!(body(&app), "  x", "tab_width = 2 插两个空格");
+        assert_eq!(body(&app), "  x", "tab_width = 2 inserts two spaces");
         app.apply_config(&Config {
             tab_width: 8,
             ..app.config.clone()
         });
         app.handle(press(KeyCode::Tab));
         assert_eq!(body(&app), format!("{}x", " ".repeat(10)));
-        // ↑ 进标题区，Tab 回到正文开头，标题不变；Shift+Tab 什么也不做
+        // ↑ moves into the title, Tab returns to the start of the body and leaves the title alone; Shift+Tab does nothing
         app.handle(press(KeyCode::Up));
         app.handle(press(KeyCode::Up));
         app.handle(Event::Key(KeyEvent::new(
@@ -1011,7 +1011,7 @@ mod tests {
 
     #[test]
     fn vim_flow_moves_first_line_to_end() {
-        // M4 验收：i 输入 → Esc → gg → dd → G → p
+        // M4 acceptance: i to type → Esc → gg → dd → G → p
         let mut app = vim_app("");
         typed(&mut app, "\x1bione");
         app.handle(press(KeyCode::Enter));
@@ -1021,7 +1021,7 @@ mod tests {
         assert_eq!(app.mode_label(), Some("NOR"));
         typed(&mut app, "ggddGp");
         assert_eq!(body(&app), "two\nthree\none");
-        // u 与 Ctrl+Z 效果相同
+        // u does the same as Ctrl+Z
         typed(&mut app, "u");
         assert_eq!(body(&app), "two\nthree");
         app.handle(Event::Key(KeyEvent::new(
@@ -1040,33 +1040,33 @@ mod tests {
     fn vim_visual_word_delete_and_ignored_chars() {
         let mut app = vim_app("hello world foo");
         typed(&mut app, "\x1b");
-        // Normal 态的可打印字符（含汉字）不插入
+        // Printable characters in Normal mode (including CJK) are not inserted
         typed(&mut app, "中q");
         assert_eq!(body(&app), "hello world foo");
-        // visual 是闭区间：v 之后光标所在的字立即被选中
+        // Visual selection is inclusive: right after v, the character under the cursor is selected
         typed(&mut app, "v");
         assert_eq!(
             (app.mode_label(), app.visible_selection()),
             (Some("VIS"), Some(0..1))
         );
-        // v e d：删掉整个词，包括最后一个字母
+        // v e d deletes the whole word, including its last letter
         typed(&mut app, "ed");
         assert_eq!(
             (body(&app).as_str(), app.mode_label()),
             (" world foo", Some("NOR"))
         );
         assert_eq!(app.editor.cursor.head, 0);
-        // v w d：删到下一个词首（含词首这个字）
+        // v w d deletes up to and including the first character of the next word
         let mut app = vim_app("hello world foo");
         typed(&mut app, "\x1bvw");
         assert_eq!(
             app.visible_selection(),
             Some(0..7),
-            "渲染出的选区含光标所在的字"
+            "the rendered selection includes the character under the cursor"
         );
         typed(&mut app, "d");
         assert_eq!(body(&app), "orld foo");
-        // v e y 复制整个词，选区消失、光标回到选区开头；p 粘贴到光标处
+        // v e y copies the whole word; the selection goes away and the cursor returns to its start. p pastes at the cursor
         typed(&mut app, "vey");
         assert_eq!(
             (
@@ -1078,11 +1078,11 @@ mod tests {
         assert_eq!(app.editor.cursor.head, 0);
         typed(&mut app, "p");
         assert_eq!(body(&app), "orldorld foo");
-        // 反向选择（光标在锚点之前）同样包含两端
+        // A reversed selection (cursor before the anchor) also includes both ends
         let mut app = vim_app("abcdef");
-        typed(&mut app, "\x1blllvhhd"); // 锚点在「d」，光标退到「b」
+        typed(&mut app, "\x1blllvhhd"); // anchor on 'd', cursor moves back to 'b'
         assert_eq!(body(&app), "aef");
-        // 单独 v 再 x：删掉光标所在的一个字
+        // v alone then x deletes the one character under the cursor
         let mut app = vim_app("中文");
         typed(&mut app, "\x1bvx");
         assert_eq!(body(&app), "文");
@@ -1096,20 +1096,20 @@ mod tests {
         assert_eq!(
             app.take_terminal_output(),
             vec!["\x1b[2 q".to_owned()],
-            "Normal：SteadyBlock"
+            "Normal: SteadyBlock"
         );
         typed(&mut app, "v\x1b");
         assert!(
             app.take_terminal_output().is_empty(),
-            "visual 仍是 Normal，不换形状"
+            "Visual is still Normal, so the shape doesn't change"
         );
         typed(&mut app, "i");
         assert_eq!(
             app.take_terminal_output(),
             vec!["\x1b[6 q".to_owned()],
-            "Insert：SteadyBar"
+            "Insert: SteadyBar"
         );
-        // 默认模式从不改变光标形状、不显示模式
+        // The default (non-vim) mode never changes the cursor shape or shows a mode
         let mut plain = App::new(
             Document::parse("x", crate::editor::document::FileMeta::new(None)),
             Size::new(80, 24),
@@ -1120,7 +1120,7 @@ mod tests {
         assert_eq!(plain.mode_label(), None);
     }
 
-    /// 选到设置面板里的某一项。
+    /// Selects a field in the settings panel.
     fn select_field(app: &mut App, field: crate::settings::Field) {
         let all = crate::settings::Field::ALL;
         let want = all.iter().position(|&f| f == field).unwrap();
@@ -1138,7 +1138,7 @@ mod tests {
     fn configured_cursor_shape_and_vim_normal_block() {
         use crate::config::CursorShape;
         let doc = || Document::parse("x", crate::editor::document::FileMeta::new(None));
-        // 启动：配置不是竖线时推一次（竖线由 TerminalGuard 设好，不重复）
+        // Startup: push once when the configured shape isn't a bar (TerminalGuard already set the bar, so no repeat)
         let plain = App::new(doc(), Size::new(80, 24), false);
         assert!(plain.output.is_empty());
         let config = Config {
@@ -1149,24 +1149,27 @@ mod tests {
         };
         let mut app = App::with_config(doc(), Size::new(80, 24), &config);
         assert_eq!(app.take_terminal_output(), vec!["\x1b[4 q".to_owned()]);
-        // Normal（含 visual）始终 SteadyBlock，不受配置影响
+        // Normal (including Visual) is always SteadyBlock, regardless of config
         typed(&mut app, "\x1b");
         assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
         typed(&mut app, "v");
-        assert!(app.take_terminal_output().is_empty(), "visual 同 Normal");
+        assert!(
+            app.take_terminal_output().is_empty(),
+            "Visual behaves like Normal"
+        );
         typed(&mut app, "\x1bi");
         assert_eq!(
             app.take_terminal_output(),
             vec!["\x1b[4 q".to_owned()],
-            "回 Insert：配置的下划线"
+            "back in Insert: the configured underline"
         );
-        // 闪烁
+        // Blinking
         app.apply_config(&Config {
             cursor_blink: true,
             ..app.config.clone()
         });
         assert_eq!(app.take_terminal_output(), vec!["\x1b[3 q".to_owned()]);
-        // 关掉 vim 时正在 Normal：回到配置的形状（不是写死的竖线）
+        // Turning vim off while in Normal returns to the configured shape (not a hardcoded bar)
         typed(&mut app, "\x1b");
         app.take_terminal_output();
         app.apply_config(&Config {
@@ -1183,12 +1186,15 @@ mod tests {
         let mut app = vim_app("hello");
         typed(&mut app, "\x1b");
         assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
-        // 在 Normal 里打开面板：预览配置的形状（竖线），而不是 Normal 的方块
+        // Opening the panel from Normal previews the configured shape (bar), not Normal's block
         app.handle(ctrl('p'));
         assert_eq!(app.take_terminal_output(), vec!["\x1b[6 q".to_owned()]);
         select_field(&mut app, Field::Cursor);
-        assert!(app.take_terminal_output().is_empty(), "移动选中项不推");
-        // 每改一次立刻推新形状，不等关面板
+        assert!(
+            app.take_terminal_output().is_empty(),
+            "moving the selection pushes nothing"
+        );
+        // Every change pushes the new shape right away, without waiting for the panel to close
         let mut seen = Vec::new();
         for _ in 0..3 {
             app.handle(press(KeyCode::Right));
@@ -1208,22 +1214,22 @@ mod tests {
         app.handle(press(KeyCode::Char(' ')));
         assert!(app.config.cursor_blink);
         assert_eq!(app.take_terminal_output(), vec!["\x1b[1 q".to_owned()]);
-        // 面板里关掉 vim（Normal 被强制回 Insert）：模式切换不覆盖预览形状
+        // Turning vim off in the panel (Normal is forced back to Insert): the mode switch doesn't override the previewed shape
         select_field(&mut app, Field::Vim);
         app.handle(press(KeyCode::Char(' ')));
         assert!(!app.config.vim);
         assert_eq!(app.mode, Mode::Insert);
         assert!(
             app.take_terminal_output().is_empty(),
-            "仍是预览中的闪烁方块"
+            "still the previewed blinking block"
         );
-        // Esc 回滚：形状回到快照里的常亮竖线（此时在 Insert）
+        // Esc rolls back: the shape returns to the snapshot's steady bar (we're in Insert now)
         app.handle(press(KeyCode::Esc));
         assert!(app.settings.is_none());
         assert!(app.config.vim);
         assert_eq!(app.config.cursor, CursorShape::Bar);
         assert_eq!(app.take_terminal_output(), vec!["\x1b[6 q".to_owned()]);
-        // Normal 里再开面板改成 underline、Enter 保留：回到 Normal 后仍是方块，进 Insert 才是下划线
+        // Reopen the panel from Normal, switch to underline and keep it with Enter: back in Normal it's still a block, and only Insert shows the underline
         typed(&mut app, "\x1b");
         assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
         app.handle(ctrl('p'));
@@ -1247,7 +1253,7 @@ mod tests {
         })
     }
 
-    /// 与事件循环一样：先绘制一帧（产出 ScreenMap），再处理下一个事件。
+    /// Like the event loop: draw a frame first (producing the ScreenMap), then handle the next event.
     fn rendered(app: &mut App, ev: Event, now: Instant) {
         let size = app.area;
         let mut terminal =
@@ -1269,19 +1275,19 @@ mod tests {
 
     #[test]
     fn mouse_click_drag_and_wheel_use_move_actions() {
-        // 80×24：正文 x = 4、y = 5、高 14
+        // 80×24: body at x = 4, y = 5, height 14
         let text: String = (0..100).map(|i| format!("第{i:02}行 line\n")).collect();
         let mut app = mouse_app(&text, true);
         let left = MouseButton::Left;
         let t0 = Instant::now();
-        // 每行 "第NN行 line\n" 共 10 个 char：「第」占第 0–1 列，「0」第 2 列，「2」第 3 列
+        // Each line "第NN行 line\n" is 10 chars: '第' takes columns 0–1, '0' column 2, '2' column 3
         rendered(
             &mut app,
             mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2),
             t0,
         );
         assert_eq!(app.editor.cursor.head, 2 * 10 + 2);
-        // 宽字符右半格吸附左侧
+        // Clicking the right half of a wide character snaps to its left edge
         rendered(
             &mut app,
             mouse(MouseEventKind::Down(left), 4 + 1, 5 + 2),
@@ -1293,7 +1299,7 @@ mod tests {
             mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2),
             t0,
         );
-        // 点在正文之外：忽略
+        // Clicks outside the body are ignored
         rendered(&mut app, mouse(MouseEventKind::Down(left), 1, 7), t0);
         rendered(&mut app, mouse(MouseEventKind::Down(left), 4, 22), t0);
         assert_eq!(app.editor.cursor.head, 2 * 10 + 2);
@@ -1302,38 +1308,42 @@ mod tests {
             mouse(MouseEventKind::Down(left), 4 + 3, 5 + 2),
             t0,
         );
-        // 拖拽形成选区
+        // Dragging creates a selection
         rendered(&mut app, mouse(MouseEventKind::Drag(left), 4, 5 + 4), t0);
         assert_eq!(app.editor.selection(), Some(2 * 10 + 2..4 * 10));
-        // 拖到正文下方并保持不动：每 50 ms 滚动一行，选区跟着延伸；松开后停止
+        // Drag below the body and hold still: scrolls one row every 50 ms and the selection extends with it; stops on release
         let top = app.viewport.top.line;
         rendered(&mut app, mouse(MouseEventKind::Drag(left), 10, 23), t0);
         assert_eq!(app.next_deadline(), Some(t0 + DRAG_SCROLL_INTERVAL));
         for k in 1..=10 {
             app.tick(t0 + DRAG_SCROLL_INTERVAL * k);
         }
-        assert_eq!(app.viewport.top.line, top + 10, "持续滚动");
+        assert_eq!(app.viewport.top.line, top + 10, "keeps scrolling");
         let sel = app.editor.selection().unwrap();
         assert_eq!(sel.start, 2 * 10 + 2);
         assert!(sel.end > 20 * 10, "{sel:?}");
         rendered(&mut app, mouse(MouseEventKind::Up(left), 10, 23), t0);
         app.tick(t0 + DRAG_SCROLL_INTERVAL * 20);
-        assert_eq!(app.viewport.top.line, top + 10, "松开后停止");
-        // 滚轮只移动视口；光标离开 scrolloff 区间时被拉回边缘，始终可见
+        assert_eq!(app.viewport.top.line, top + 10, "stops after release");
+        // The wheel moves only the viewport; a cursor leaving the scrolloff band is pulled back to the edge and stays visible
         let line = |app: &App| app.editor.doc().body().char_to_line(app.editor.cursor.head);
         let (top, cursor_line) = (app.viewport.top.line, line(&app));
         rendered(&mut app, mouse(MouseEventKind::ScrollDown, 10, 10), t0);
         assert_eq!(
             (app.viewport.top.line, line(&app)),
             (top + 3, cursor_line),
-            "光标仍在区间内：不动"
+            "cursor still inside the band: it doesn't move"
         );
         for _ in 0..10 {
             rendered(&mut app, mouse(MouseEventKind::ScrollDown, 10, 10), t0);
         }
         assert_eq!(app.viewport.top.line, top + 33);
-        assert_eq!(line(&app), top + 33 + 3, "被拉到上边缘（scrolloff 3）");
-        // 鼠标关闭：完全忽略鼠标事件
+        assert_eq!(
+            line(&app),
+            top + 33 + 3,
+            "pulled to the top edge (scrolloff 3)"
+        );
+        // Mouse disabled: mouse events are ignored entirely
         let mut off = mouse_app(&text, false);
         rendered(
             &mut off,
@@ -1371,14 +1381,14 @@ mod tests {
         typed(&mut app, "d");
         assert_eq!(
             (body(&app).as_str(), app.mode_label()),
-            // 闭区间：拖到第 6 列，「w」也被删掉
+            // Inclusive: dragging to column 6 deletes the 'w' too
             ("orld\nsecond", Some("NOR"))
         );
     }
 
     #[test]
     fn click_on_horizontally_scrolled_title() {
-        // 80×24：标题行 y = 3、x = 4、宽 72。100 个字母的标题在焦点下、光标在末尾时滚动了 100 + 1 - 72 = 29 列
+        // 80×24: title row at y = 3, x = 4, width 72. A 100-letter title, focused with the cursor at the end, is scrolled by 100 + 1 - 72 = 29 columns
         let long: String = ('a'..='z').cycle().take(100).collect();
         let mut app = mouse_app(&format!("# {long}\n\nbody"), true);
         app.handle(press(KeyCode::Up));
@@ -1386,7 +1396,7 @@ mod tests {
             (app.editor.focus, app.editor.title_cursor),
             (crate::editor::Focus::Title, 100)
         );
-        // 点屏幕上标题的第一格：那里显示的是第 29 个字母
+        // Click the first cell of the title on screen, which shows letter 29
         rendered(
             &mut app,
             mouse(MouseEventKind::Down(MouseButton::Left), 4, 3),
@@ -1422,7 +1432,7 @@ mod tests {
             ..Config::default()
         };
         let mut app = App::with_config(doc, Size::new(80, 24), &config);
-        let body = app.layout().body; // 高 14 → 中线第 7 行
+        let body = app.layout().body; // height 14 → middle row 7
         app.sync_body(body);
         assert_eq!(app.viewport.top_padding, 7);
         for _ in 0..30 {
@@ -1471,10 +1481,10 @@ mod tests {
                 .map(|c| press(KeyCode::Char(c)))
                 .collect::<Vec<_>>()
         };
-        // 15 个字符：仍按逐字输入
+        // 15 characters: still typed one by one
         let short = typed("123456789012345");
         assert_eq!(coalesce_paste(short.clone()), short);
-        // 16 个字符（含回车，夹杂 Release）：合并为一次粘贴
+        // 16 characters (including Enter, mixed with Release events): merged into one paste
         let mut long = typed("第一行abc");
         long.push(press(KeyCode::Enter));
         long.push(release(KeyCode::Enter));
@@ -1483,14 +1493,14 @@ mod tests {
             coalesce_paste(long),
             vec![Event::Paste("第一行abc\n第二行defghi".into())]
         );
-        // 中间被其他按键打断：前后分别判断
+        // Interrupted by another key: each side is judged separately
         let mut mixed = typed("abc");
         mixed.push(press(KeyCode::Left));
         mixed.extend(typed("0123456789abcdef"));
         let out = coalesce_paste(mixed);
         assert_eq!(out.len(), 5);
         assert_eq!(out[4], Event::Paste("0123456789abcdef".into()));
-        // Ctrl 组合键不是输入
+        // Ctrl combinations are not typed input
         let ctrl_s = Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
         assert_eq!(coalesce_paste(vec![ctrl_s.clone()]), vec![ctrl_s]);
     }
@@ -1499,48 +1509,48 @@ mod tests {
         Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
     }
 
-    /// 窗口标题：启动后一次；只在最终字符串真的变化时再发（编辑、撤销、保存、未保存标记）。
+    /// Window title: sent once at startup, then only when the final string actually changes (edits, undo, save, the unsaved mark).
     #[test]
     fn window_title_follows_the_document() {
         crate::i18n::init_for_test("en");
         let osc = |s: &str| Some(format!("\x1b]2;{s}\x07"));
         let mut app = App::new(lf_doc("# Hello\n\nbody"), Size::new(80, 24), false);
         assert_eq!(app.take_window_title(), osc("Hello"));
-        assert_eq!(app.take_window_title(), None, "没变就不发");
-        // 正文里打字：标题文字没变，但有了未保存修改 → `* `；之后移动不再发
+        assert_eq!(app.take_window_title(), None, "nothing sent when unchanged");
+        // Typing in the body: the title text is unchanged but there are unsaved changes → `* `; moving afterwards sends nothing
         typed(&mut app, "x");
         assert_eq!(app.take_window_title(), osc("* Hello"));
         typed(&mut app, "y");
         app.handle(press(KeyCode::Down));
         assert_eq!(app.take_window_title(), None);
-        // 进入标题、在末尾打字：每个字都是一次变化
+        // Move into the title and type at the end: every character is a change
         app.handle(ctrl_key(KeyCode::Home));
         app.handle(press(KeyCode::Up));
         app.handle(press(KeyCode::End));
-        assert_eq!(app.take_window_title(), None, "只是移到标题里");
+        assert_eq!(app.take_window_title(), None, "only moved into the title");
         typed(&mut app, "!");
         assert_eq!(app.take_window_title(), osc("* Hello!"));
         typed(&mut app, "?");
         assert_eq!(app.take_window_title(), osc("* Hello!?"));
-        // 撤销影响到标题；正文的 xy 还没撤，仍有修改
+        // Undo affects the title; the xy in the body isn't undone yet, so it's still dirty
         app.handle(ctrl('z'));
         assert_eq!(
             app.take_window_title(),
             osc("* Hello"),
-            "连续输入合并为一步撤销"
+            "consecutive typing merges into one undo step"
         );
-        // 再撤销回到保存点：星号消失
+        // Undoing again reaches the save point: the asterisk goes away
         app.handle(ctrl('z'));
         assert!(!app.editor.is_dirty());
         assert_eq!(app.take_window_title(), osc("Hello"));
-        // 控制字符不会进序列
+        // Control characters never make it into the sequence
         app.handle(Event::Paste("\x1b]0;x\x07".into()));
         let pasted = app.take_window_title().unwrap_or_default();
         assert_eq!(pasted.matches('\x1b').count(), 1, "{pasted:?}");
         assert_eq!(pasted.matches('\x07').count(), 1, "{pasted:?}");
         assert!(pasted.starts_with("\x1b]2;* "), "{pasted:?}");
 
-        // 没有 H1：Untitled → 打字后 `* Untitled` → 保存为之后是文件名、没有星号
+        // No H1: Untitled → `* Untitled` after typing → the file name without an asterisk after Save as
         let dir = tempfile::tempdir().unwrap();
         let untitled = Document::parse("", crate::editor::document::FileMeta::new(None));
         let mut app = App::new(untitled, Size::new(80, 24), false);
@@ -1551,14 +1561,14 @@ mod tests {
         app.handle(ctrl('s'));
         app.handle(press(KeyCode::Enter));
         assert_eq!(app.take_window_title(), osc("untitled.md"));
-        // Ctrl+S 保存：星号出现又消失
+        // Saving with Ctrl+S: the asterisk appears and then goes away
         typed(&mut app, "!");
         assert_eq!(app.take_window_title(), osc("* untitled.md"));
         app.handle(ctrl('s'));
         assert_eq!(app.take_window_title(), osc("untitled.md"));
     }
 
-    /// 标题的 `* ` 与 status bar 的保存标记出自同一个 `Editor::is_dirty()`：任何状态下两边一致。
+    /// The title's `* ` and the status bar's save mark both come from `Editor::is_dirty()`, so they agree in every state.
     #[test]
     fn window_title_star_agrees_with_the_status_bar_mark() {
         use crate::status::SaveMark;
@@ -1572,32 +1582,32 @@ mod tests {
             assert_eq!(
                 mark == Some(SaveMark::Dirty),
                 title.starts_with("* "),
-                "{label}：标记 {mark:?}，标题 {title:?}"
+                "{label}: mark {mark:?}, title {title:?}"
             );
         }
         let dir = tempfile::tempdir().unwrap();
-        // 空 Untitled：status bar 无标记，标题也没有星号
+        // Empty Untitled: no status bar mark and no asterisk in the title
         let untitled = Document::parse("", crate::editor::document::FileMeta::new(None));
         let mut app = App::new(untitled, Size::new(80, 24), false);
         app.save_dir = dir.path().to_path_buf();
-        check(&mut app, "空 Untitled");
+        check(&mut app, "empty Untitled");
         assert_eq!(app.take_window_title(), Some("\x1b]2;Untitled\x07".into()));
         typed(&mut app, "a");
-        check(&mut app, "Untitled 有修改");
+        check(&mut app, "Untitled with changes");
         app.handle(ctrl('z'));
-        check(&mut app, "Untitled 撤销回空");
+        check(&mut app, "Untitled undone back to empty");
         typed(&mut app, "b");
         app.handle(ctrl('s'));
         app.handle(press(KeyCode::Enter));
-        check(&mut app, "保存为之后");
+        check(&mut app, "after Save as");
         typed(&mut app, "c");
-        check(&mut app, "已保存的文件有修改");
+        check(&mut app, "saved file with changes");
         app.handle(ctrl('z'));
-        check(&mut app, "撤销回保存点");
+        check(&mut app, "undone back to the save point");
         assert!(!app.editor.is_dirty());
     }
 
-    /// 自动保存完成后星号消失。
+    /// The asterisk goes away once autosave finishes.
     #[test]
     fn window_title_star_clears_after_autosave() {
         crate::i18n::init_for_test("en");
@@ -1611,7 +1621,7 @@ mod tests {
         app.handle_at(press(KeyCode::Char('x')), t0);
         assert_eq!(app.take_window_title(), osc("* Draft"));
         app.tick(t0 + AUTOSAVE_IDLE);
-        assert!(!app.editor.is_dirty(), "自动保存了");
+        assert!(!app.editor.is_dirty(), "autosaved");
         assert_eq!(app.take_window_title(), osc("Draft"));
     }
 
@@ -1619,7 +1629,7 @@ mod tests {
         Event::Key(KeyEvent::new(code, KeyModifiers::CONTROL))
     }
 
-    /// 删掉提示行里预填的文件名。
+    /// Deletes the file name prefilled in the prompt.
     fn clear_prompt(app: &mut App) {
         let n = app.status.prompt.as_ref().unwrap().input.chars().count();
         for _ in 0..n {
@@ -1628,7 +1638,7 @@ mod tests {
         assert_eq!(app.status.prompt.as_ref().unwrap().input, "");
     }
 
-    /// 无路径文档 Ctrl+S：预填 untitled.md、光标在末尾；回车即保存，下一次避开它。
+    /// Ctrl+S on a document without a path prefills untitled.md with the cursor at the end; Enter saves, and the next document avoids that name.
     #[test]
     fn untitled_save_prefills_a_free_name() {
         crate::i18n::init_for_test("en");
@@ -1638,9 +1648,13 @@ mod tests {
         app.save_dir = dir.path().to_path_buf();
         typed(&mut app, "hello");
         app.handle(ctrl('s'));
-        let prompt = app.status.prompt.as_ref().expect("提示行打开");
+        let prompt = app.status.prompt.as_ref().expect("prompt is open");
         assert_eq!(prompt.input, "untitled.md");
-        assert_eq!(prompt.cursor, "untitled.md".len(), "光标在文件名末尾");
+        assert_eq!(
+            prompt.cursor,
+            "untitled.md".len(),
+            "cursor at the end of the file name"
+        );
         assert!(!prompt.confirm_overwrite);
         app.handle(press(KeyCode::Enter));
         assert!(app.status.prompt.is_none());
@@ -1651,22 +1665,25 @@ mod tests {
             StatusModel::file_name(app.editor.doc().meta.path.as_deref()),
             "untitled.md"
         );
-        // 有路径之后 Ctrl+S 直接保存，不再弹提示行
+        // Once there is a path, Ctrl+S saves directly without the prompt
         typed(&mut app, "!");
         app.handle(ctrl('s'));
         assert!(app.status.prompt.is_none());
         assert_eq!(std::fs::read_to_string(&saved).unwrap(), "hello!");
 
-        // 第二个无路径文档：untitled.md 已被占用
+        // A second document without a path: untitled.md is already taken
         let mut app = App::new(untitled(), Size::new(80, 24), false);
         app.save_dir = dir.path().to_path_buf();
         typed(&mut app, "two");
         app.handle(ctrl('s'));
         assert_eq!(app.status.prompt.as_ref().unwrap().input, "untitled-2.md");
-        // 改成已存在的名字仍要二次确认覆盖
+        // Changing to an existing name still asks to confirm the overwrite
         clear_prompt(&mut app);
         app.handle(press(KeyCode::Enter));
-        assert!(app.status.prompt.is_some(), "空输入回车不保存");
+        assert!(
+            app.status.prompt.is_some(),
+            "Enter on empty input doesn't save"
+        );
         app.handle(Event::Paste("untitled.md".into()));
         app.handle(press(KeyCode::Enter));
         assert!(app.status.prompt.as_ref().unwrap().confirm_overwrite);
@@ -1681,17 +1698,17 @@ mod tests {
         Document::parse(text, crate::editor::document::FileMeta::lf())
     }
 
-    /// 让 WrapCache 把每一行都重新算一遍，并确认 tab_width 的各处取值一致、缓存与重新换行的结果一致。
+    /// Makes WrapCache recompute every line, then checks that every copy of tab_width agrees and the cache matches a fresh wrap.
     fn assert_tab_width_synced(app: &mut App, tab: u16) {
-        assert_eq!(app.config.tab_width, tab, "App 的配置");
+        assert_eq!(app.config.tab_width, tab, "App config");
         assert_eq!(
             app.editor.tab_spaces(),
             " ".repeat(tab as usize),
-            "Tab 键插入的空格数"
+            "spaces inserted by Tab"
         );
         let (doc, wrap, _) = app.editor.view();
         let rope = doc.body();
-        assert_eq!(wrap.tab_width(), tab, "WrapCache：换行与渲染");
+        assert_eq!(wrap.tab_width(), tab, "WrapCache: wrapping and rendering");
         for l in 0..rope.len_lines() {
             let rows = wrap.rows(rope, l).to_vec();
             let fresh = crate::text::wrap::wrap_line(
@@ -1716,7 +1733,7 @@ mod tests {
             ..app.config.clone()
         });
         assert_tab_width_synced(&mut app, 8);
-        // Tab 键按新的宽度插入空格
+        // Tab inserts spaces at the new width
         app.handle(press(KeyCode::Tab));
         assert!(body_text(&app).starts_with("        a\t"));
         app.apply_config(&Config {
@@ -1731,7 +1748,7 @@ mod tests {
     }
 
     proptest::proptest! {
-        /// 随机文本（含 Tab）+ 随机改 tab_width：缓存始终与重新换行一致，光标的屏幕位置往返不变。
+        /// Random text (with tabs) plus random tab_width changes: the cache always matches a fresh wrap, and the cursor's screen position round-trips.
         #[test]
         fn retab_keeps_cache_consistent(
             text in "[a-z \t中]{0,60}(\n[a-z \t中]{0,60}){0,4}",
@@ -1767,20 +1784,20 @@ mod tests {
         });
         assert_eq!(app.mode, Mode::Insert);
         assert_eq!(app.mode_label(), None);
-        assert_eq!(app.editor.selection(), None, "选区清掉");
+        assert_eq!(app.editor.selection(), None, "selection cleared");
         assert_eq!(
             app.take_terminal_output(),
             vec!["\x1b[6 q".to_owned()],
-            "换回竖线光标"
+            "back to the bar cursor"
         );
-        // 关闭时本来就在 Insert：不推光标序列
+        // Already in Insert when turned off: no cursor sequence is pushed
         let mut app = vim_app("hello");
         app.apply_config(&Config {
             vim: false,
             ..app.config.clone()
         });
         assert!(app.take_terminal_output().is_empty());
-        // 再打开：保持 Insert
+        // Turning it back on stays in Insert
         app.apply_config(&Config {
             vim: true,
             ..app.config.clone()
@@ -1794,7 +1811,7 @@ mod tests {
         assert_eq!(
             app.take_mouse_capture(),
             None,
-            "启动时由 TerminalGuard 处理"
+            "TerminalGuard handles it at startup"
         );
         let on = Config {
             mouse: true,
@@ -1803,7 +1820,11 @@ mod tests {
         app.apply_config(&on);
         assert_eq!(app.take_mouse_capture(), Some(true));
         app.apply_config(&on);
-        assert_eq!(app.take_mouse_capture(), None, "没有变化不重复发送");
+        assert_eq!(
+            app.take_mouse_capture(),
+            None,
+            "not sent again when nothing changed"
+        );
         app.drag = Some(DragState {
             last: ratatui::layout::Position::new(0, 0),
             deadline: None,
@@ -1813,7 +1834,7 @@ mod tests {
             ..app.config.clone()
         });
         assert_eq!(app.take_mouse_capture(), Some(false));
-        assert!(app.drag.is_none(), "拖拽状态清掉");
+        assert!(app.drag.is_none(), "drag state cleared");
         let mouse = mouse_app("x", true);
         assert!(mouse.config.mouse);
     }
@@ -1866,18 +1887,18 @@ mod tests {
         assert_eq!(app.mode_label(), Some("NOR"));
         app.handle(ctrl('p'));
         assert!(app.settings.is_some());
-        // width：→ 一次加 2，立即生效
+        // width: → adds 2 per press and applies immediately
         app.handle(press(KeyCode::Right));
         assert_eq!(app.config.width, 74);
         assert_eq!(app.layout().body.width, 74);
-        // 面板吞掉所有按键：x 不删字、mode 不变；粘贴丢弃；鼠标忽略
+        // The panel swallows every key: x deletes nothing and mode doesn't change; pastes are dropped; the mouse is ignored
         typed(&mut app, "xi");
         app.handle(Event::Paste("pasted".into()));
         app.handle(ctrl('s'));
         assert_eq!(body(&app), "hello");
         assert_eq!(app.mode_label(), Some("NOR"));
         assert!(app.status.prompt.is_none());
-        // 下到 tab_width，改成 5
+        // Move down to tab_width and set it to 5
         for _ in 0..8 {
             app.handle(press(KeyCode::Down));
         }
@@ -1885,10 +1906,18 @@ mod tests {
         assert_eq!(app.editor.tab_spaces(), "     ");
         app.handle(press(KeyCode::Esc));
         assert!(app.settings.is_none());
-        assert_eq!(app.config, vim_app("").config, "回滚到快照");
+        assert_eq!(
+            app.config,
+            vim_app("").config,
+            "rolled back to the snapshot"
+        );
         assert_eq!(app.editor.tab_spaces(), "    ");
-        assert_eq!(app.mode_label(), Some("NOR"), "Esc 只关面板，不切换模式");
-        // Ctrl+P 再按一次同样是取消
+        assert_eq!(
+            app.mode_label(),
+            Some("NOR"),
+            "Esc only closes the panel and doesn't switch modes"
+        );
+        // Pressing Ctrl+P again also cancels
         app.handle(ctrl('p'));
         app.handle(press(KeyCode::Left));
         assert_eq!(app.config.width, 70);
@@ -1911,7 +1940,7 @@ mod tests {
         assert!(app.config.vim);
         app.handle(press(KeyCode::Enter));
         assert!(app.settings.is_none());
-        assert!(app.config.vim, "Enter 保留修改");
+        assert!(app.config.vim, "Enter keeps the changes");
         assert_eq!(app.config.width, 64);
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
@@ -1931,8 +1960,11 @@ mod tests {
         app.handle(ctrl('p'));
         app.handle(press(KeyCode::Right));
         app.handle(press(KeyCode::Enter));
-        assert!(app.settings.is_none(), "面板照常关闭");
-        assert_eq!(app.config.width, 74, "修改仍在本次会话生效");
+        assert!(app.settings.is_none(), "panel closes as usual");
+        assert_eq!(
+            app.config.width, 74,
+            "the change still applies for this session"
+        );
         assert_eq!(
             app.status.message.as_ref().map(|m| m.text.as_str()),
             Some("配置文件有语法错误，修改仅本次有效")
@@ -1948,9 +1980,9 @@ mod tests {
         assert_eq!(app.config.width, 74);
         app.handle(ctrl('q'));
         assert!(app.settings.is_none());
-        assert_eq!(app.config.width, 72, "先回滚");
+        assert_eq!(app.config.width, 72, "rolled back first");
         assert!(app.should_quit);
-        // 有未保存修改：回滚后照常要求再按一次
+        // With unsaved changes: after the rollback it still asks for a second press
         let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
         typed(&mut app, "y");
         app.handle(ctrl('p'));
@@ -1968,11 +2000,17 @@ mod tests {
         app.handle(ctrl('s'));
         assert!(app.status.prompt.is_some());
         app.handle(ctrl('p'));
-        assert!(app.settings.is_none(), "提示行打开时 Ctrl+P 进了输入框");
+        assert!(
+            app.settings.is_none(),
+            "with the prompt open, Ctrl+P goes into the input"
+        );
         app.handle(press(KeyCode::Esc));
         app.handle(ctrl('p'));
         app.handle(ctrl('s'));
-        assert!(app.status.prompt.is_none(), "面板打开时 Ctrl+S 被吞掉");
+        assert!(
+            app.status.prompt.is_none(),
+            "with the panel open, Ctrl+S is swallowed"
+        );
     }
 
     #[test]
@@ -1993,7 +2031,7 @@ mod tests {
             app.settings.as_ref().unwrap().field(),
             crate::settings::Field::Lang
         );
-        // Auto → English → 简体中文：选中即生效
+        // Auto → English → Simplified Chinese: applies as soon as it's selected
         app.handle(press(KeyCode::Right));
         app.handle(press(KeyCode::Right));
         assert_eq!(app.config.lang, "zh-CN");
@@ -2005,7 +2043,7 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "# mine\nwidth = 80\nlang = \"zh-CN\"\n"
         );
-        // Esc 回滚语言也立即生效
+        // Rolling back the language with Esc also applies immediately
         app.handle(ctrl('p'));
         for _ in 0..12 {
             app.handle(press(KeyCode::Down));
@@ -2019,12 +2057,12 @@ mod tests {
         );
     }
 
-    /// 原来只写进日志的失败，用户在 status bar 上都看得到。
+    /// Failures that used to go only to the log now show up in the status bar.
     #[test]
     fn failures_reach_the_status_bar() {
         crate::i18n::init_for_test("zh-CN");
         let dir = tempfile::tempdir().unwrap();
-        // 保存失败：目标目录不存在
+        // Save failure: the target directory doesn't exist
         let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
         app.save_dir = dir.path().to_path_buf();
         app.handle(ctrl('s'));
@@ -2039,7 +2077,7 @@ mod tests {
             .map(|m| m.text.clone())
             .unwrap_or_default();
         assert!(msg.starts_with("保存失败："), "{msg:?}");
-        // 写回配置失败（不是语法错误）：配置路径是个目录
+        // Config write-back failure (not a syntax error): the config path is a directory
         let mut app = App::new(lf_doc(""), Size::new(80, 24), false);
         app.set_config_path(Some(dir.path().to_path_buf()));
         app.handle(ctrl('p'));
@@ -2055,7 +2093,10 @@ mod tests {
             msg.starts_with("无法写入配置文件") && msg.ends_with("修改仅本次有效"),
             "{msg:?}"
         );
-        assert_eq!(app.config.width, 74, "修改仍在本次会话生效");
+        assert_eq!(
+            app.config.width, 74,
+            "the change still applies for this session"
+        );
     }
 
     #[test]
@@ -2063,7 +2104,7 @@ mod tests {
         let mut app = App::new(lf_doc("hello"), Size::new(80, 24), false);
         app.handle(ctrl('g'));
         assert!(app.help.is_some());
-        // 吞掉所有按键：不编辑、不打开设置、不弹保存提示；粘贴丢弃
+        // Swallows every key: no edits, no settings panel, no save prompt; pastes are dropped
         typed(&mut app, "x?");
         app.handle(press(KeyCode::Enter));
         app.handle(ctrl('p'));
@@ -2071,26 +2112,30 @@ mod tests {
         app.handle(Event::Paste("pasted".into()));
         assert_eq!(body(&app), "hello");
         assert!(app.settings.is_none() && app.status.prompt.is_none());
-        assert!(app.help.is_some(), "默认模式里 ? 不关闭");
+        assert!(app.help.is_some(), "? doesn't close it in the default mode");
         app.handle(press(KeyCode::Esc));
         assert!(app.help.is_none());
         app.handle(ctrl('g'));
         app.handle(ctrl('g'));
-        assert!(app.help.is_none(), "Ctrl+G 再按一次关闭");
+        assert!(app.help.is_none(), "pressing Ctrl+G again closes it");
     }
 
     #[test]
     fn help_panel_in_vim_normal_mode() {
         let mut app = vim_app("hello");
         typed(&mut app, "\x1b?");
-        assert!(app.help.is_some(), "Normal 态 ? 打开");
+        assert!(app.help.is_some(), "? opens it in Normal mode");
         assert_eq!(app.mode_label(), Some("NOR"));
         typed(&mut app, "dd");
-        assert_eq!(body(&app), "hello", "面板打开时 dd 不生效");
+        assert_eq!(
+            body(&app),
+            "hello",
+            "dd has no effect while the panel is open"
+        );
         typed(&mut app, "?");
-        assert!(app.help.is_none(), "再按 ? 关闭");
-        assert_eq!(app.mode_label(), Some("NOR"), "模式保持原样");
-        // Insert 态里 ? 是普通字符
+        assert!(app.help.is_none(), "pressing ? again closes it");
+        assert_eq!(app.mode_label(), Some("NOR"), "mode stays the same");
+        // In Insert mode ? is an ordinary character
         typed(&mut app, "i?");
         assert!(app.help.is_none());
         assert_eq!(body(&app), "?hello");
@@ -2101,7 +2146,7 @@ mod tests {
         let mut app = vim_app("");
         let total = app.help_lines().len();
         let visible = app.layout().body.height as usize;
-        assert!(total > visible, "vim 的三组放不进 24 行");
+        assert!(total > visible, "the three vim groups don't fit in 24 rows");
         app.handle(ctrl('g'));
         app.handle(press(KeyCode::Up));
         assert_eq!(app.help.unwrap().scroll, 0);
@@ -2111,7 +2156,7 @@ mod tests {
         assert_eq!(
             app.help.unwrap().scroll,
             total - visible,
-            "最后一行停在最下面"
+            "the last line stops at the bottom"
         );
         app.handle(press(KeyCode::Down));
         assert_eq!(app.help.unwrap().scroll, total - visible);
@@ -2124,17 +2169,17 @@ mod tests {
         app.handle(ctrl('g'));
         assert!(
             app.settings.is_some() && app.help.is_none(),
-            "设置面板吞掉 Ctrl+G"
+            "the settings panel swallows Ctrl+G"
         );
         app.handle(press(KeyCode::Esc));
         app.handle(ctrl('g'));
         app.handle(ctrl('p'));
         assert!(
             app.help.is_some() && app.settings.is_none(),
-            "帮助面板吞掉 Ctrl+P"
+            "the help panel swallows Ctrl+P"
         );
         app.handle(press(KeyCode::Esc));
-        // 保存提示打开时 Ctrl+G 进了输入框
+        // With the save prompt open, Ctrl+G goes into the input
         app.handle(ctrl('s'));
         app.handle(ctrl('g'));
         assert!(app.help.is_none() && app.status.prompt.is_some());
@@ -2146,7 +2191,7 @@ mod tests {
         app.handle(ctrl('g'));
         app.handle(ctrl('q'));
         assert!(app.help.is_none() && app.should_quit);
-        // 有未保存修改：先关面板，再照常要求按第二次
+        // With unsaved changes: close the panel first, then ask for a second press as usual
         let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
         typed(&mut app, "y");
         app.handle(ctrl('g'));

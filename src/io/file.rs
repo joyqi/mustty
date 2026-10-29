@@ -1,4 +1,4 @@
-//! 加载与原子保存：UTF-8 校验、BOM、换行符。
+//! Loading and atomic saving: UTF-8 validation, BOM, line endings.
 
 use std::fmt;
 use std::fs;
@@ -16,7 +16,7 @@ pub enum IoError {
     Io(std::io::Error),
 }
 
-// 文案按界面语言取，thiserror 的 #[error] 只收字面量，所以手写
+// Messages follow the UI language, and thiserror's #[error] only takes literals, so this is hand-written
 impl fmt::Display for IoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -45,7 +45,7 @@ impl From<std::io::Error> for IoError {
     }
 }
 
-/// 打开文件；不存在则返回记住路径的空文档。
+/// Open a file; if it doesn't exist, return an empty document that remembers the path.
 pub fn load(path: &Path) -> Result<Document, IoError> {
     match fs::metadata(path) {
         Ok(m) if m.is_dir() => Err(IoError::IsDirectory),
@@ -61,7 +61,7 @@ pub fn load(path: &Path) -> Result<Document, IoError> {
     }
 }
 
-/// 去 BOM、按第一个换行判定换行符并统一为 `\n`。
+/// Strip the BOM, detect the line ending from the first newline, and normalize to `\n`.
 pub fn decode(bytes: &[u8], path: Option<PathBuf>) -> Result<Document, IoError> {
     let has_bom = bytes.starts_with(b"\xEF\xBB\xBF");
     let bom = if has_bom { 3 } else { 0 };
@@ -89,12 +89,12 @@ fn stamp_of(m: &fs::Metadata) -> Option<DiskStamp> {
     })
 }
 
-/// 当前磁盘上的 mtime 与大小；文件不存在为 None。
+/// Current mtime and size on disk; None if the file doesn't exist.
 fn disk_stamp(path: &Path) -> Option<DiskStamp> {
     stamp_of(&fs::metadata(path).ok()?)
 }
 
-/// 原子保存；`check_disk` 时若磁盘上的 mtime 或大小与 `doc.meta.stamp` 不同则放弃。返回保存后的 stamp。
+/// Save atomically. With `check_disk`, give up if the mtime or size on disk differs from `doc.meta.stamp`. Returns the stamp after saving.
 pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, IoError> {
     if path.is_dir() {
         return Err(IoError::IsDirectory);
@@ -106,12 +106,12 @@ pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, 
     disk_stamp(path).ok_or_else(|| std::io::Error::other(t("io-stat-after-save")).into())
 }
 
-/// `untitled-N` 扫到这个编号仍被占用时，改用时间戳兜底。
+/// If `untitled-N` is still taken up to this number, fall back to a timestamp.
 pub const MAX_UNTITLED: u32 = 1000;
 
-/// 无路径文档保存时预填的文件名：`{base}.{ext}`，被占用就 `{base}-2.{ext}`、`{base}-3.{ext}`……
-/// 取第一个空闲的；到 `MAX_UNTITLED` 仍被占用时用 `{base}-{stamp}.{ext}`。
-/// `taken` 判断某个名字是否已被占用，所以本函数不碰文件系统。
+/// File name prefilled when saving a document without a path: `{base}.{ext}`, or if taken `{base}-2.{ext}`, `{base}-3.{ext}`, …
+/// The first free one wins; if everything up to `MAX_UNTITLED` is taken, use `{base}-{stamp}.{ext}`.
+/// `taken` reports whether a name is in use, so this function never touches the file system.
 pub fn free_name(base: &str, ext: &str, taken: impl Fn(&str) -> bool, stamp: u64) -> String {
     (1..=MAX_UNTITLED)
         .map(|n| match n {
@@ -122,7 +122,7 @@ pub fn free_name(base: &str, ext: &str, taken: impl Fn(&str) -> bool, stamp: u64
         .unwrap_or_else(|| format!("{base}-{stamp}.{ext}"))
 }
 
-/// `dir` 里第一个空闲的 `untitled*.md`。悬空的符号链接也算占用（写入会顺着链接落到别处）。
+/// The first free `untitled*.md` in `dir`. A dangling symlink counts as taken (a write would follow it somewhere else).
 pub fn untitled_name(dir: &Path) -> String {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -135,20 +135,21 @@ pub fn untitled_name(dir: &Path) -> String {
     )
 }
 
-/// 同目录临时文件写入 → fsync → rename 原子替换；保留原文件权限（Unix）。文档与配置文件共用。
-/// `path` 若是符号链接，rename 会把链接换成普通文件：需要保留链接的调用方先 `canonicalize`。
+/// Write a temp file in the same directory → fsync → rename to replace atomically, keeping the original
+/// file's permissions (Unix). Shared by documents and the config file.
+/// If `path` is a symlink, rename replaces the link with a regular file: callers that need to keep the link `canonicalize` first.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = match path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
     };
     let builder = tempfile::Builder::new();
-    // 只有 unix 需要改 builder；重新绑定，免得 Windows 上 `mut` 未使用
+    // Only unix needs to modify the builder; rebind it so `mut` isn't unused on Windows
     #[cfg(unix)]
     let builder = {
         use std::os::unix::fs::PermissionsExt;
         let mut b = builder;
-        // 新文件与普通创建一致：0666 再经 umask
+        // New files match normal creation: 0666, then the umask
         b.permissions(fs::Permissions::from_mode(0o666));
         b
     };
@@ -173,11 +174,11 @@ mod tests {
         assert_eq!(free(&[]), "untitled.md");
         assert_eq!(free(&["untitled.md"]), "untitled-2.md");
         assert_eq!(free(&["untitled.md", "untitled-2.md"]), "untitled-3.md");
-        // 只要第一个空闲的：中间有空位就用空位
+        // Only the first free one: a gap in the middle gets used
         assert_eq!(free(&["untitled.md", "untitled-3.md"]), "untitled-2.md");
-        // 与别的文件名无关
+        // Other file names don't matter
         assert_eq!(free(&["notes.md", "untitled.txt"]), "untitled.md");
-        // 1..=MAX_UNTITLED 全被占用：时间戳兜底
+        // All of 1..=MAX_UNTITLED taken: fall back to the timestamp
         assert_eq!(
             free_name("untitled", "md", |_| true, 1_761_700_000),
             "untitled-1761700000.md"
@@ -192,10 +193,10 @@ mod tests {
         assert_eq!(untitled_name(dir.path()), "untitled.md");
         fs::write(dir.path().join("untitled.md"), "").unwrap();
         assert_eq!(untitled_name(dir.path()), "untitled-2.md");
-        // 目录也算占用
+        // A directory counts as taken
         fs::create_dir(dir.path().join("untitled-2.md")).unwrap();
         assert_eq!(untitled_name(dir.path()), "untitled-3.md");
-        // 悬空的符号链接也算占用
+        // So does a dangling symlink
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink("nowhere", dir.path().join("untitled-3.md")).unwrap();
@@ -236,7 +237,7 @@ mod tests {
     fn detects_line_ending_and_rejects_non_utf8() {
         let doc = decode(b"a\r\nb\nc", None).unwrap();
         assert_eq!(doc.meta.line_ending, LineEnding::CrLf);
-        // 混合换行规范化为首个换行的风格
+        // Mixed line endings are normalized to the style of the first one
         assert_eq!(doc.serialize(), "a\r\nb\r\nc");
         assert!(matches!(
             decode(b"\xEF\xBB\xBFok\xff", None),

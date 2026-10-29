@@ -1,4 +1,4 @@
-//! 标题 / 正文 / status bar 三个 Widget，直接写 Buffer，不画边框、不设背景。
+//! The title, body and status bar widgets. They write the Buffer directly, with no border and no background.
 
 use std::ops::Range;
 
@@ -15,7 +15,7 @@ use crate::text::wrap::{WrapCache, line_text};
 use crate::view::theme;
 use crate::view::viewport::ViewTop;
 
-/// 按 mustty 的宽度规则逐 grapheme 写入一行：跳过前 `scroll` 列，超出 `max_w` 的部分裁剪。
+/// Write one row grapheme by grapheme using mustty's width rules: skip the first `scroll` columns and clip anything past `max_w`.
 #[allow(clippy::too_many_arguments)]
 fn draw_text(
     buf: &mut Buffer,
@@ -30,7 +30,7 @@ fn draw_text(
     draw_styled(buf, x, y, max_w, text, scroll, tab, |_| style);
 }
 
-/// 同 `draw_text`，样式按 grapheme 的行内 char 偏移决定。
+/// Like `draw_text`, but the style depends on each grapheme's char offset within the line.
 #[allow(clippy::too_many_arguments)]
 fn draw_styled(
     buf: &mut Buffer,
@@ -51,7 +51,7 @@ fn draw_styled(
                 break;
             }
             let style = style_at(c);
-            // Tab、控制字符、零宽字符 ratatui 不会占格，用空格补齐以保持列对齐
+            // ratatui gives tabs, control characters and zero-width characters no cells; pad with spaces to keep columns aligned
             if g == "\t" || g.contains(char::is_control) || g.width() == 0 {
                 for i in 0..w {
                     buf[(x + at + i, y)].set_symbol(" ").set_style(style);
@@ -68,7 +68,7 @@ pub fn text_width(text: &str, tab: u16) -> u16 {
     graphemes(text).fold(0, |col, (_, g)| col + grapheme_width(g, col, tab))
 }
 
-/// 单行输入在宽度 `w` 内的水平滚动量：放得下（含行尾光标）时为 0，否则让光标尽量居中。
+/// Horizontal scroll for single-line input within width `w`: 0 when it fits (including the cursor at the end), otherwise keep the cursor as close to the center as possible.
 pub fn hscroll(text_w: u16, cursor_col: u16, w: u16) -> u16 {
     if text_w < w {
         0
@@ -77,8 +77,9 @@ pub fn hscroll(text_w: u16, cursor_col: u16, w: u16) -> u16 {
     }
 }
 
-/// 标题在宽度 `w` 内的 `(左侧留白, 水平滚动量)`：放得下时居中，否则以光标为中心水平滚动。
-/// 渲染用它填 `ScreenMap`，标题文字与鼠标点击都按这一份结果换算。
+/// `(left padding, horizontal scroll)` for the title within width `w`: centered when it fits,
+/// otherwise scrolled to keep the cursor centered. Rendering stores this in the `ScreenMap`, so the
+/// title text and mouse clicks are both mapped from the same result.
 pub fn title_placement(text: &str, cursor_col: Option<u16>, w: u16, tab: u16) -> (u16, u16) {
     let tw = text_width(text, tab);
     let pad = if tw < w { (w - tw) / 2 } else { 0 };
@@ -88,7 +89,7 @@ pub fn title_placement(text: &str, cursor_col: Option<u16>, w: u16, tab: u16) ->
 pub struct TitleWidget<'a> {
     pub text: &'a str,
     pub style: Style,
-    /// 来自 `ScreenMap` 的摆放
+    /// Placement from the `ScreenMap`
     pub pad: u16,
     pub scroll: u16,
     pub tab_width: u16,
@@ -115,11 +116,11 @@ pub struct BodyWidget<'a> {
     pub wrap: &'a mut WrapCache,
     pub highlight: &'a mut HighlightCache,
     pub top: ViewTop,
-    /// Typewriter 模式在文档开头时的上方留白行数
+    /// Rows of top padding in typewriter mode at the start of the document
     pub top_padding: u16,
-    /// 全局 char 区间
+    /// Document-wide char range
     pub selection: Option<Range<usize>>,
-    /// Focus 模式：当前段落的逻辑行区间，之外的行 DIM
+    /// Focus mode: logical line range of the current paragraph; lines outside it are DIM
     pub focus: Option<Range<usize>>,
     pub code_color: Color,
 }
@@ -173,7 +174,7 @@ impl Widget for BodyWidget<'_> {
     }
 }
 
-/// 把一行的样式区间按顺序叠加成每个 char 的样式（外层在前，内层覆盖）。
+/// Layer a line's style ranges in order into one style per char (outer first, inner overrides).
 fn line_styles(ranges: &[StyledRange], len: usize, code: Color) -> Vec<Style> {
     let mut styles = vec![Style::default(); len];
     for r in ranges {
@@ -185,18 +186,18 @@ fn line_styles(ranges: &[StyledRange], len: usize, code: Color) -> Vec<Style> {
 }
 
 pub struct StatusWidget<'a> {
-    /// vim 模式标识及其样式，最左侧，与后面隔一个空格（空格用 `left_style`）；截断时保留
+    /// vim mode indicator and its style, leftmost and followed by one space (styled with `left_style`). Kept when truncating
     pub mode: Option<(&'a str, Style)>,
-    /// 文件名，或临时消息
+    /// File name, or a transient message
     pub left: &'a str,
     pub left_style: Style,
-    /// 文件名后的保存状态标记：文字与样式。与文件名之间隔一个空格，计入左段宽度
+    /// Save-state mark after the file name: text and style. Separated from the name by one space and counted in the left segment's width
     pub mark: Option<(&'a str, Style)>,
-    /// `1,284 字`
+    /// `1,284 words`
     pub words: &'a str,
-    /// `行:列` 或 `标题`
+    /// `line:col` or `Title`
     pub position: &'a str,
-    /// 启动键位提示：在提示期内取代右段
+    /// Startup key hint: replaces the right segment while it is shown
     pub hint: Option<&'a str>,
     pub tab_width: u16,
 }
@@ -208,7 +209,8 @@ impl Widget for StatusWidget<'_> {
         let mark_w = self.mark.map_or(0, |(m, _)| 1 + text_width(m, tab));
         let mode_w = self.mode.map_or(0, |(m, _)| text_width(m, tab) + 1);
         let left_w = mode_w + text_width(self.left, tab) + mark_w;
-        // 宽度不足时先省略位置，再省略字数，最后从左截断文件名（标记保留在截断后的文件名右侧）
+        // When space runs out, drop the position first, then the word count, and finally truncate the file
+        // name from the left (the mark stays right of the truncated name)
         let full = format!("{} · {}", self.words, self.position);
         let candidates = match self.hint {
             Some(hint) => vec![hint],
@@ -260,7 +262,7 @@ impl Widget for StatusWidget<'_> {
     }
 }
 
-/// status bar 整行变为「保存为: 」输入。
+/// The whole status bar turns into a "Save as: " input.
 pub struct PromptWidget<'a> {
     pub label: &'a str,
     pub input: &'a str,
@@ -269,7 +271,7 @@ pub struct PromptWidget<'a> {
 }
 
 impl PromptWidget<'_> {
-    /// 光标相对 status bar 左端的列。
+    /// Cursor column relative to the left end of the status bar.
     pub fn cursor_x(&self, w: u16) -> u16 {
         let tab = self.tab_width;
         let label_w = text_width(self.label, tab).min(w);
@@ -299,7 +301,7 @@ impl Widget for PromptWidget<'_> {
     }
 }
 
-/// 从左侧截断为 `…tes.md`，使显示宽度不超过 `max_w`。
+/// Truncate from the left, as in `…tes.md`, so the display width is at most `max_w`.
 fn truncate_left(text: &str, max_w: u16, tab: u16) -> String {
     if text_width(text, tab) <= max_w {
         return text.to_owned();
@@ -333,7 +335,7 @@ mod tests {
     fn title_centers_then_scrolls() {
         let t = |text, cursor_col| title_placement(text, cursor_col, 10, 4);
         assert_eq!(t("标题", None), (3, 0));
-        // 放不下：以光标为中心滚动，且不超过「文本宽 + 行尾光标」
+        // Doesn't fit: scroll around the cursor, never past text width + the end-of-line cursor
         assert_eq!(t("abcdefghijklmnop", Some(12)), (0, 7));
         assert_eq!(t("abcdefghijklmnop", Some(16)), (0, 7));
         assert_eq!(t("abcdefghijklmnop", Some(2)), (0, 0));

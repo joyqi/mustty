@@ -27,7 +27,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let layout = compute_layout(area, app.measure());
     if layout.too_small {
         app.screen = None;
-        // 不设置光标位置 → ratatui 隐藏硬件光标
+        // No cursor position set → ratatui hides the hardware cursor
         frame.buffer_mut().set_stringn(
             area.x,
             area.y,
@@ -52,7 +52,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let ed = &app.editor;
     let mut cursor = None;
 
-    // 标题：放得下时居中，否则以光标为中心水平滚动；摆放结果记进 ScreenMap
+    // Title: centered when it fits, otherwise scrolled horizontally around the cursor. The placement goes into the ScreenMap
     let focused = ed.focus == Focus::Title;
     let text = ed.doc().title_text();
     let (title_text, title_style, title_col) = if text.is_empty() && !focused {
@@ -124,7 +124,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             frame.render_widget(prompt, r);
         } else {
             let status = &app.status;
-            // 消息与外部修改提示覆盖左段（连同标记）；否则是文件名 + 保存状态标记
+            // A message or the external-modification notice replaces the left segment (mark included); otherwise it shows the file name and save-state mark
             let (left, left_style, mark) = match &status.message {
                 Some(m) => (m.text.clone(), Style::default(), None),
                 None if status.externally_modified => (
@@ -163,8 +163,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     }
 }
 
-/// 面板共用的外框：标题行显示面板名（BOLD），status bar 显示操作提示；错误消息优先于提示。
-/// 面板打开时不接受鼠标；光标只在设置面板里显示（停在选中值的末尾，用于预览光标形状）。
+/// Chrome shared by the panels: the title row shows the panel name (BOLD) and the status bar shows
+/// the key hint, with error messages taking precedence over the hint. Panels ignore the mouse. The
+/// cursor is shown only in the settings panel (on the help line, to preview the cursor shape).
 fn render_panel_chrome(frame: &mut Frame, app: &mut App, layout: &Layout, title: &str, hint: &str) {
     app.screen = None;
     let tab = app.config.tab_width;
@@ -180,7 +181,7 @@ fn render_panel_chrome(frame: &mut Frame, app: &mut App, layout: &Layout, title:
         frame.render_widget(widget, rect);
     }
     if let Some(r) = layout.status {
-        // 写回失败等错误消息优先于操作提示
+        // Error messages, such as a failed write-back, take precedence over the key hint
         let (text, style) = match &app.status.message {
             Some(m) => (m.text.as_str(), Style::default()),
             None => (hint, Style::from(Modifier::DIM)),
@@ -191,7 +192,7 @@ fn render_panel_chrome(frame: &mut Frame, app: &mut App, layout: &Layout, title:
     }
 }
 
-/// 设置面板：正文区换成设置列表。
+/// Settings panel: the body area is replaced by the settings list.
 fn render_settings(frame: &mut Frame, app: &mut App, layout: &Layout) {
     render_panel_chrome(frame, app, layout, t("settings-title"), t("settings-hint"));
     let (rows, _) = settings::list_rows(layout.body.height);
@@ -206,13 +207,13 @@ fn render_settings(frame: &mut Frame, app: &mut App, layout: &Layout) {
         scroll,
     };
     frame.render_widget(widget, layout.body);
-    // 硬件光标停在说明行的固定列（不在反显的选中行上）：改 cursor / cursor_blink 时立刻能看到新形状
+    // The hardware cursor sits at a fixed column on the help line (not on the reversed selected row), so changing cursor / cursor_blink shows the new shape immediately
     if let Some(p) = settings::cursor_position(layout.body) {
         frame.set_cursor_position(p);
     }
 }
 
-/// 键位帮助：正文区换成键位表，内容超出时按 `Help::scroll` 滚动。
+/// Help panel: the body area is replaced by the key table, scrolled by `Help::scroll` when it overflows.
 fn render_help(frame: &mut Frame, app: &mut App, layout: &Layout) {
     render_panel_chrome(frame, app, layout, t("help-title"), t("help-hint"));
     let lines = app.help_lines();
@@ -229,7 +230,7 @@ fn render_help(frame: &mut Frame, app: &mut App, layout: &Layout) {
     );
 }
 
-/// 光标所在段落（相邻非空行）的逻辑行区间，只在 `[lo, hi)` 内查找（可见范围之外无需判断）。
+/// Logical line range of the cursor's paragraph (adjacent non-blank lines), searched only within `[lo, hi)` since nothing outside the visible range matters.
 fn current_paragraph(
     rope: &ropey::Rope,
     line: usize,

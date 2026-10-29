@@ -1,4 +1,4 @@
-//! 光标、选区锚点与 grapheme / 视觉行 / 词级移动。
+//! Cursor, selection anchor, and movement by grapheme, visual row, and word.
 
 use std::ops::Range;
 
@@ -7,7 +7,7 @@ use ropey::Rope;
 use crate::text::grapheme::{graphemes, next_boundary, prev_boundary};
 use crate::text::wrap::{VisualPos, WrapCache, line_text};
 
-/// 软换行处同一个 char 索引显示在哪一行：默认下一视觉行行首，`End` 键之后为本行行尾。
+/// Which row shows a char index at a soft wrap: the start of the next visual row by default, the end of this row after `End`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Affinity {
     Upstream,
@@ -17,17 +17,17 @@ pub enum Affinity {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Cursor {
-    /// 全局 char 索引，永远落在 grapheme 边界。
+    /// Global char index, always on a grapheme boundary.
     pub head: usize,
-    /// `Some` 时 `[min(anchor, head), max)` 为选区。
+    /// When `Some`, `[min(anchor, head), max)` is the selection.
     pub anchor: Option<usize>,
-    /// 上下移动时保持的视觉列，水平移动 / 编辑后清空。
+    /// Visual column kept across vertical moves; cleared by horizontal moves and edits.
     pub preferred_col: Option<u16>,
     pub affinity: Affinity,
 }
 
 impl Cursor {
-    /// 放到 `head`，清空选区、preferred_col 与 affinity。
+    /// Move to `head`, clearing the selection, preferred_col, and affinity.
     pub fn set(&mut self, head: usize) {
         *self = Cursor {
             head,
@@ -35,7 +35,7 @@ impl Cursor {
         };
     }
 
-    /// 非空选区。
+    /// The selection, if non-empty.
     pub fn selection(&self) -> Option<Range<usize>> {
         let anchor = self.anchor.filter(|&a| a != self.head)?;
         Some(anchor.min(self.head)..anchor.max(self.head))
@@ -45,7 +45,7 @@ impl Cursor {
         wrap.char_to_visual(rope, self.head, self.affinity)
     }
 
-    /// 前一个 grapheme 边界；行首则为上一行行尾（`\n` 之前）。
+    /// The previous grapheme boundary; at line start, the end of the previous line (before `\n`).
     pub fn prev(rope: &Rope, head: usize) -> usize {
         let line = rope.char_to_line(head);
         let start = rope.line_to_char(line);
@@ -56,7 +56,7 @@ impl Cursor {
         }
     }
 
-    /// 后一个 grapheme 边界；行尾则为下一行行首。
+    /// The next grapheme boundary; at line end, the start of the next line.
     pub fn next(rope: &Rope, head: usize) -> usize {
         let line = rope.char_to_line(head);
         let start = rope.line_to_char(line);
@@ -68,7 +68,7 @@ impl Cursor {
         }
     }
 
-    /// ←：在软换行的下一行行首时，先移到上一视觉行行尾（同一索引，Upstream）。
+    /// ←: at the start of a soft-wrapped row, first move to the end of the previous visual row (same index, Upstream).
     pub fn move_left(&mut self, rope: &Rope, wrap: &mut WrapCache) {
         let pos = self.visual(rope, wrap);
         let row = wrap.rows(rope, pos.line)[pos.row];
@@ -81,7 +81,7 @@ impl Cursor {
         }
     }
 
-    /// →：在软换行的本行行尾（Upstream）时，先移到下一视觉行行首（同一索引）。
+    /// →: at the end of a soft-wrapped row (Upstream), first move to the start of the next visual row (same index).
     pub fn move_right(&mut self, rope: &Rope, wrap: &mut WrapCache) {
         let pos = self.visual(rope, wrap);
         let rows = wrap.rows(rope, pos.line);
@@ -93,7 +93,7 @@ impl Cursor {
         }
     }
 
-    /// 按视觉行上下移动 `delta` 行，保持 `preferred_col`。
+    /// Move `delta` visual rows up or down, keeping `preferred_col`.
     pub fn move_vertical(&mut self, rope: &Rope, wrap: &mut WrapCache, delta: isize) {
         let pos = self.visual(rope, wrap);
         let col = *self.preferred_col.get_or_insert(pos.col);
@@ -104,14 +104,14 @@ impl Cursor {
         }
     }
 
-    /// 视觉行行首。
+    /// Start of the visual row.
     pub fn move_row_start(&mut self, rope: &Rope, wrap: &mut WrapCache) {
         let pos = self.visual(rope, wrap);
         let start = wrap.rows(rope, pos.line)[pos.row].start;
         self.set(rope.line_to_char(pos.line) + start);
     }
 
-    /// 视觉行最后一个 grapheme 之后，显示在本行末尾。
+    /// After the last grapheme of the visual row, shown at the end of this row.
     pub fn move_row_end(&mut self, rope: &Rope, wrap: &mut WrapCache) {
         let pos = self.visual(rope, wrap);
         let end = wrap.rows(rope, pos.line)[pos.row].end;
@@ -119,7 +119,7 @@ impl Cursor {
         self.affinity = Affinity::Upstream;
     }
 
-    /// 下一个词首（Ctrl+→）：跳过当前词与其后的空白；在行尾时跳到下一行第一个词首。
+    /// Start of the next word (Ctrl+→): skip the current word and the whitespace after it; at line end, jump to the first word of the next line.
     pub fn word_right(rope: &Rope, head: usize) -> usize {
         let (line, start, text) = locate(rope, head);
         match Words::new(&text).right(head - start) {
@@ -132,7 +132,7 @@ impl Cursor {
         }
     }
 
-    /// 上一个词首（Ctrl+←）；在行首时到上一行行尾。
+    /// Start of the previous word (Ctrl+←); at line start, go to the end of the previous line.
     pub fn word_left(rope: &Rope, head: usize) -> usize {
         let (_, start, text) = locate(rope, head);
         match Words::new(&text).left(head - start) {
@@ -141,7 +141,7 @@ impl Cursor {
         }
     }
 
-    /// 当前或下一个词的最后一个 grapheme（vim `e`）；本行之后没有词时看下一行。
+    /// Last grapheme of the current or next word (vim `e`); if no word follows on this line, look at the next line.
     pub fn word_end(rope: &Rope, head: usize) -> usize {
         let (line, start, text) = locate(rope, head);
         if let Some(p) = Words::new(&text).end(head - start, true) {
@@ -162,8 +162,8 @@ fn locate(rope: &Rope, head: usize) -> (usize, usize, String) {
     (line, rope.line_to_char(line), line_text(rope, line))
 }
 
-/// 词的划分：连续的同类 grapheme 为一个词。CJK 连续成一个词（与 VS Code 一致），
-/// 字母数字与 `_` 成词，其他标点各自成词。
+/// Word segmentation: a run of graphemes of the same class is one word. A CJK run is one word (as in VS Code),
+/// alphanumerics and `_` form words, and every other punctuation mark is a word of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Class {
     Space,
@@ -186,7 +186,7 @@ fn class(g: &str) -> Class {
     }
 }
 
-/// 一个逻辑行内的 grapheme 与类别；位置都是行内 char 偏移。
+/// The graphemes of one logical line and their classes; positions are char offsets within the line.
 struct Words {
     starts: Vec<usize>,
     classes: Vec<Class>,
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn vertical_keeps_preferred_col() {
-        // 第 0 行 "abcdef"，第 1 行 "中文"，第 2 行 "abcdef"
+        // line 0 "abcdef", line 1 "中文", line 2 "abcdef"
         let rope = Rope::from_str("abcdef\n中文\nabcdef");
         let mut wrap = WrapCache::new(20, 4);
         let mut c = Cursor {
@@ -294,7 +294,7 @@ mod tests {
             ..Cursor::default()
         };
         c.move_vertical(&rope, &mut wrap, 1);
-        // 第 3 列落在「文」的第二格 → 吸附到「文」左侧
+        // column 3 lands on the second cell of 「文」 → snaps to the left of 「文」
         assert_eq!(c.head, 7 + 1);
         c.move_vertical(&rope, &mut wrap, 1);
         assert_eq!(c.head, 10 + 3);
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn end_key_is_upstream_at_soft_wrap() {
-        // 宽 6：第 0 视觉行「一二三」恰好写满，第 1 视觉行「四五」
+        // width 6: visual row 0 「一二三」 fills exactly, visual row 1 is 「四五」
         let rope = Rope::from_str("一二三四五");
         let mut wrap = WrapCache::new(6, 4);
         let mut c = Cursor::default();
@@ -312,10 +312,10 @@ mod tests {
         assert_eq!((c.head, c.affinity), (3, Affinity::Upstream));
         let pos = c.visual(&rope, &mut wrap);
         assert_eq!((pos.row, pos.col), (0, 6));
-        // 从第 0 行的 Upstream 行尾按 Home：回到第 0 行行首，而不是第 1 行行首
+        // Home from the Upstream end of row 0 goes to the start of row 0, not row 1
         c.move_row_start(&rope, &mut wrap);
         assert_eq!(c.head, 0);
-        // 末行 End：行尾，无歧义
+        // End on the last row: line end, no ambiguity
         c.set(4);
         c.move_row_end(&rope, &mut wrap);
         assert_eq!((c.head, c.visual(&rope, &mut wrap).row), (5, 1));
@@ -328,7 +328,7 @@ mod tests {
         let mut c = Cursor::default();
         c.move_row_end(&rope, &mut wrap); // (0, 6) Upstream
         c.move_right(&rope, &mut wrap);
-        // 同一索引换到下一视觉行行首，不跳过「四」之前的位置
+        // same index moves to the start of the next visual row, without skipping the position before 「四」
         assert_eq!((c.head, c.affinity), (3, Affinity::Downstream));
         assert_eq!(c.visual(&rope, &mut wrap).row, 1);
         c.move_left(&rope, &mut wrap);
@@ -344,7 +344,7 @@ mod tests {
         let mut c = Cursor::default();
         c.move_row_end(&rope, &mut wrap);
         c.move_vertical(&rope, &mut wrap, 1);
-        // preferred_col = 6 超出第 1 行（末行）→ 行尾
+        // preferred_col = 6 is past the end of row 1 (the last row) → line end
         assert_eq!((c.head, c.affinity), (5, Affinity::Downstream));
     }
 
@@ -367,7 +367,7 @@ mod tests {
         assert_eq!(walk(Cursor::word_right, 16, 2), vec![17, 22]);
         assert_eq!(walk(Cursor::word_left, 22, 5), vec![17, 16, 15, 9, 7]);
         assert_eq!(walk(Cursor::word_left, 7, 2), vec![0, 0]);
-        // vim e：当前或下一个词的最后一个字
+        // vim e: the last character of the current or next word
         assert_eq!(walk(Cursor::word_end, 0, 5), vec![6, 7, 12, 15, 20]);
     }
 

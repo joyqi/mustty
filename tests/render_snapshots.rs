@@ -11,7 +11,7 @@ fn key(code: KeyCode) -> Event {
 }
 
 fn draw(path: Option<&str>, raw: &str, w: u16, h: u16, events: &[Event]) -> TestBackend {
-    // 快照按中文界面录制
+    // Snapshots are recorded with the Chinese UI
     mustty::i18n::init_for_test("zh-CN");
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     let meta = FileMeta::new(path.map(Into::into));
@@ -61,11 +61,11 @@ fn too_small() {
 
 #[test]
 fn end_of_full_row_does_not_overlap() {
-    // 40×10：正文宽 36、x = 2、y = 1。首个视觉行恰好 18 个汉字写满
+    // 40×10: body is 36 wide at x = 2, y = 1. Exactly 18 CJK characters fill the first visual row
     let raw = "一二三四五六七八九十一二三四五六七八九十";
     let mut b = draw(Some("n.md"), raw, 40, 10, &[key(KeyCode::End)]);
     assert_eq!(b.get_cursor_position().unwrap(), Position::new(38, 1));
-    // 同一 char 索引默认显示在下一行行首
+    // The same char index shows at the start of the next row by default
     let events = [key(KeyCode::Down), key(KeyCode::Home)];
     let mut b = draw(Some("n.md"), raw, 40, 10, &events);
     assert_eq!(b.get_cursor_position().unwrap(), Position::new(2, 2));
@@ -87,7 +87,7 @@ fn editing_title_and_dirty_marker() {
 #[test]
 fn untitled_save_as_prompt() {
     mustty::i18n::init_for_test("zh-CN");
-    // 预填的名字取决于目录里有什么：用空的临时目录
+    // The prefilled name depends on what the directory holds, so use an empty temp dir
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::new(
         Document::parse("", FileMeta::new(None)),
@@ -107,9 +107,9 @@ fn untitled_save_as_prompt() {
         KeyCode::Char('s'),
         KeyModifiers::CONTROL,
     )));
-    // 预填 untitled.md，光标在末尾
+    // Prefilled with untitled.md, cursor at the end
     insta::assert_snapshot!("untitled_save_as_prompt_prefilled", shot(&mut app));
-    // 删掉预填、改输入 a.md
+    // Delete the prefill and type a.md instead
     for _ in 0.."untitled.md".len() {
         app.handle(key(KeyCode::Backspace));
     }
@@ -119,7 +119,8 @@ fn untitled_save_as_prompt() {
     insta::assert_snapshot!(shot(&mut app));
 }
 
-/// 每行按样式分段：`"文本" 样式`，跳过无样式的空白，便于快照审阅高亮与选区。
+/// Splits each line into styled runs (`"text" style`), skipping unstyled whitespace, so
+/// highlighting and selection are easy to review in snapshots.
 fn styled(backend: &TestBackend) -> String {
     let buf = backend.buffer();
     let mut out = String::new();
@@ -201,7 +202,8 @@ fn typewriter_at_document_start_and_startup_hint() {
         typewriter: true,
         ..Default::default()
     };
-    // 40×12：正文高 6，光标行恒在第 3 行；文档开头上方留白
+    // 40×12: the body is 6 rows tall and the cursor line stays on row 3; blank space above the
+    // start of the document
     let b = draw_with(
         &config,
         "第一行\n第二行\n第三行\n",
@@ -242,7 +244,7 @@ fn draw_meta(meta: FileMeta, raw: &str, w: u16, h: u16, events: &[Event]) -> Tes
     terminal.backend().clone()
 }
 
-/// 磁盘上存在的文件（打开时记录过 mtime / 大小）。
+/// A file that exists on disk (mtime / size recorded when opened).
 fn on_disk(path: &str) -> FileMeta {
     FileMeta {
         stamp: Some(mustty::editor::document::DiskStamp {
@@ -253,7 +255,7 @@ fn on_disk(path: &str) -> FileMeta {
     }
 }
 
-/// 只取 status bar 那一行的样式分段。
+/// Styled runs of the status bar row only.
 fn status_line(b: &TestBackend, y: u16) -> String {
     styled(b)
         .lines()
@@ -286,7 +288,8 @@ fn save_mark_states() {
             "尚未创建的新文件",
             draw_meta(FileMeta::new(Some("new.md".into())), "", 40, 10, &[]),
         ),
-        // 24 列：正文宽 20，文件名从左截断，标记仍在截断后的文件名右侧
+        // 24 columns: body is 20 wide, the file name is truncated from the left, and the mark
+        // stays to the right of the truncated name
         (
             "窄窗口截断文件名",
             draw_meta(on_disk("a-rather-long-file-name.md"), "", 24, 10, &[]),
@@ -297,7 +300,7 @@ fn save_mark_states() {
         .map(|(name, b)| format!("{name}\n{}", status_line(b, 9)))
         .collect();
     insta::assert_snapshot!(rows.join("\n"));
-    // 标记不 DIM：已保存为绿色 ●，未保存为默认前景色 *
+    // The mark is never DIM: saved is a green ●, unsaved is * in the default foreground
     let saved = &cases[0].1;
     let cell = (0..40)
         .map(|x| &saved.buffer()[(x, 9)])
@@ -335,7 +338,7 @@ fn prompt_hides_save_mark() {
         &[key(KeyCode::Char('x')), ctrl_s.clone()],
     );
     assert!(!status_line(&b, 9).contains('*'), "{}", status_line(&b, 9));
-    // Esc 关闭提示行后恢复
+    // Restored once Esc closes the prompt
     let b = draw_meta(
         FileMeta::new(None),
         "",
@@ -378,7 +381,7 @@ fn ctrl(c: char) -> Event {
     Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
 }
 
-/// Ctrl+P 打开设置面板，再按 `downs` 次 ↓。
+/// Opens the settings panel with Ctrl+P, then presses ↓ `downs` times.
 fn settings_panel(width: u16, w: u16, h: u16, downs: usize) -> String {
     let config = mustty::config::Config {
         width,
@@ -398,7 +401,7 @@ fn settings_panel_width_40() {
 
 #[test]
 fn settings_panel_width_72() {
-    // 选中代码颜色：说明行带着色样例
+    // Code color selected: the help line carries a colored sample
     insta::assert_snapshot!(settings_panel(72, 80, 24, 9));
 }
 
@@ -407,7 +410,8 @@ fn settings_panel_scrolls_when_short() {
     insta::assert_snapshot!(settings_panel(72, 80, 12, 7));
 }
 
-/// 选中 `Cursor` 一项的设置面板，`vim` 决定光标两项的标签与说明。
+/// Settings panel with the `Cursor` item selected; `vim` decides the labels and help line of the
+/// two cursor items.
 fn settings_cursor_rows(vim: bool, events: &[Event]) -> TestBackend {
     let config = mustty::config::Config {
         vim,
@@ -434,7 +438,7 @@ fn settings_cursor_labels_without_vim() {
         .unwrap();
     assert!(
         !help.contains("vim") && !help.contains("方块"),
-        "说明不提 vim: {help:?}"
+        "help line must not mention vim: {help:?}"
     );
     insta::assert_snapshot!(snapshot(b));
 }
@@ -450,7 +454,8 @@ fn settings_cursor_labels_with_vim() {
 
 #[test]
 fn settings_cursor_labels_follow_vim_toggle_live() {
-    // 面板开着，在 Vim 一行切换开关：光标两项的标签当场变，不用关面板重开
+    // With the panel open, toggle the Vim row: the two cursor labels change on the spot, no need to
+    // close and reopen the panel
     let mut events = vec![ctrl('p'), key(KeyCode::Down), key(KeyCode::Right)];
     let on = format!("{}", settings_cursor_rows(false, &events));
     assert!(on.contains("插入模式光标闪烁"), "{on}");
@@ -462,7 +467,7 @@ fn settings_cursor_labels_follow_vim_toggle_live() {
     );
 }
 
-/// vim 开启：Esc 进 Normal，再 v 进 visual。
+/// vim on: Esc enters Normal mode, then v enters Visual mode.
 fn vim_frame(events: &[Event]) -> TestBackend {
     let config = mustty::config::Config {
         vim: true,
@@ -472,7 +477,7 @@ fn vim_frame(events: &[Event]) -> TestBackend {
     draw_with(&config, "hello world\n", 40, 10, events, false)
 }
 
-/// 缓冲区里某段文字第一次出现的位置。
+/// Position of the first occurrence of some text in the buffer.
 fn find_text(b: &TestBackend, text: &str) -> (u16, u16) {
     let buf = b.buffer();
     (0..buf.area.height)
@@ -504,7 +509,7 @@ fn vim_mode_indicator_styles() {
             let cell = &b.buffer()[(x + i, y)];
             assert_eq!((cell.fg, cell.modifier), (fg, modifier), "{label}");
         }
-        // 空格与文件名仍是 DIM，和标识区分开
+        // The space and file name stay DIM, setting them apart from the mode label
         for i in 3..12 {
             assert_eq!(b.buffer()[(x + i, y)].modifier, Modifier::DIM, "{label}");
         }
@@ -513,7 +518,7 @@ fn vim_mode_indicator_styles() {
     insta::assert_snapshot!(lines.join("\n"));
 }
 
-/// 收集 CrosstermBackend 写出的字节。
+/// Collects the bytes CrosstermBackend writes.
 #[derive(Clone, Default)]
 struct Sink(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
 
@@ -527,7 +532,8 @@ impl std::io::Write for Sink {
     }
 }
 
-/// 真实终端后端写出的字节：INS 前没有 DIM，NOR 带 DIM（SGR 2），VIS 是黄色前景（SGR 33 或 38;5;3）。
+/// Bytes from the real terminal backend: no DIM before INS, DIM (SGR 2) on NOR, and a yellow
+/// foreground (SGR 33 or 38;5;3) on VIS.
 #[test]
 fn vim_mode_indicator_sgr() {
     use ratatui::backend::CrosstermBackend;
@@ -564,21 +570,21 @@ fn vim_mode_indicator_sgr() {
     assert_eq!(
         sgr_before(&[], "INS"),
         (false, None),
-        "INS：无 DIM、默认前景"
+        "INS: no DIM, default foreground"
     );
     assert_eq!(
         sgr_before(&[key(KeyCode::Esc)], "NOR"),
         (true, None),
-        "NOR：DIM（SGR 2）"
+        "NOR: DIM (SGR 2)"
     );
     assert_eq!(
         sgr_before(&[key(KeyCode::Esc), key(KeyCode::Char('v'))], "VIS"),
         (false, Some(3)),
-        "VIS：黄色前景（SGR 33 / 38;5;3），无 DIM"
+        "VIS: yellow foreground (SGR 33 / 38;5;3), no DIM"
     );
 }
 
-/// 依次执行字节流里的 SGR，返回末尾的（是否 DIM, 前景色的 ANSI 编号）。
+/// Replays the SGR sequences in a byte stream and returns the final (DIM?, ANSI foreground index).
 fn sgr_state(bytes: &str) -> (bool, Option<u8>) {
     let (mut dim, mut fg) = (false, None);
     for seq in bytes.split("\x1b[").skip(1) {
@@ -609,14 +615,15 @@ fn without_vim_status_starts_with_file_name() {
     let b = draw(Some("notes.md"), "hello\n", 40, 10, &[]);
     let (x, y) = find_text(&b, "notes.md");
     let row: String = (0..40).map(|x| b.buffer()[(x, y)].symbol()).collect();
-    // 左段从正文左边缘开始：前面只有居中留白，没有标识留下的空格
+    // The left segment starts at the body's left edge: only centering padding before it, no space
+    // left over from a mode label
     assert!(row.trim_start().starts_with("notes.md"), "{row:?}");
     let body_x = find_text(&b, "hello").0;
-    assert_eq!(x, body_x, "与正文左对齐");
+    assert_eq!(x, body_x, "aligned with the body's left edge");
 }
 
-/// 面板里把语言从 Auto 切到 English：同一个 App、同一帧之后，面板自己的标签、
-/// 说明行与 status bar 提示全部换成英文。
+/// Switching the language from Auto to English in the panel: with the same App, by the next frame
+/// the panel's own labels, the help line and the status bar hints are all in English.
 #[test]
 fn settings_language_switches_live() {
     let config = mustty::config::Config {
@@ -648,9 +655,10 @@ fn settings_language_switches_live() {
         "Enter save",
         "‹ English ›",
     ] {
-        assert!(text.contains(s), "{s:?} 没有切换过来");
+        assert!(text.contains(s), "{s:?} was not switched");
     }
-    // 回到 Auto：按真实的环境变量与系统语言重新协商，Auto 后面标出协商结果
+    // Back to Auto: renegotiate from the real environment variables and system locale, and show the
+    // result after Auto
     app.handle(key(KeyCode::Left));
     let negotiated = mustty::i18n::negotiate(|k| std::env::var(k).ok(), sys_locale_or_none());
     assert_eq!(mustty::i18n::current(), negotiated);
@@ -658,7 +666,7 @@ fn settings_language_switches_live() {
     assert!(shown.ends_with(&format!("›  ({negotiated})")), "{shown:?}");
 }
 
-/// 面板里语言那一行的值。
+/// Value of the language row in the panel.
 fn app_lang_shown(terminal: &mut Terminal<TestBackend>, app: &mut App) -> String {
     terminal.draw(|f| view::render(f, app)).unwrap();
     let buf = terminal.backend().buffer();
@@ -673,12 +681,13 @@ fn app_lang_shown(terminal: &mut Terminal<TestBackend>, app: &mut App) -> String
     row[row.find('‹').unwrap()..].trim_end().to_owned()
 }
 
-/// 与 `i18n::use_config` 相同的系统语言来源。
+/// Same system locale source as `i18n::use_config`.
 fn sys_locale_or_none() -> Option<String> {
     sys_locale::get_locale()
 }
 
-/// Ctrl+G 打开键位帮助，再依次按 `keys`；返回渲染结果和 App。
+/// Opens the help panel with Ctrl+G, presses `keys` in order, and returns the rendered frame and
+/// the App.
 fn help_panel(vim: bool, w: u16, h: u16, keys: &[Event]) -> (TestBackend, App) {
     mustty::i18n::init_for_test("en");
     let config = mustty::config::Config {
@@ -718,15 +727,16 @@ fn help_panel_scrolled_to_the_end() {
     let downs = vec![key(KeyCode::PageDown); 20];
     let (b, _) = help_panel(true, 80, 24, &downs);
     let text = snapshot(b.clone());
-    assert!(text.contains("End the selection"), "最后几条可见");
+    assert!(text.contains("End the selection"), "last entries visible");
     insta::assert_snapshot!(text);
 }
 
-/// 窗口太小时和其它界面一样只显示提示；恢复后面板还在。
+/// When the window is too small it shows only the notice, like every other screen; the panel is
+/// still there once the size recovers.
 #[test]
 fn help_panel_survives_too_small() {
     let (_, mut app) = help_panel(false, 80, 24, &[]);
-    // 宽度不足 10 列即「窗口太小」
+    // Under 10 columns wide counts as "window too small"
     let mut terminal = Terminal::new(TestBackend::new(9, 3)).unwrap();
     app.handle(Event::Resize(9, 3));
     terminal.draw(|f| view::render(f, &mut app)).unwrap();
@@ -750,6 +760,6 @@ fn help_panel_survives_too_small() {
         .collect();
     assert!(
         back.contains("Keys") && back.contains("Ctrl+S"),
-        "恢复后仍是帮助面板"
+        "still the help panel after recovery"
     );
 }

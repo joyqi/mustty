@@ -1,5 +1,6 @@
-//! 设置面板的渲染：只占正文区，不画边框、不设背景。
-//! 标签靠左、值靠右；选中行整行反显（与文本选区同一种样式）；底部一行说明。
+//! Settings panel rendering: it occupies only the body area, with no border and no background.
+//! Labels sit on the left and values on the right. The selected row is reversed across its full
+//! width (the same style as a text selection), with a help line at the bottom.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -12,8 +13,9 @@ use crate::i18n::{self, t};
 use crate::settings::{Field, Kind, Value, color_name, cursor_name};
 use crate::view::theme;
 
-/// 正文区高 `height` 行时列表可用的行数与说明行的位置（相对正文区顶端）。
-/// 放得下时列表 10 行、空一行、说明；不够 11 行时说明固定在最后一行，列表滚动。
+/// For a body area `height` rows tall: the rows available to the list, and the help line's position
+/// (relative to the top of the body area). When everything fits: the full list, a blank row, then
+/// the help line. Otherwise the help line is pinned to the last row and the list scrolls.
 pub fn list_rows(height: u16) -> (usize, Option<u16>) {
     let n = Field::ALL.len() as u16;
     match height {
@@ -27,11 +29,11 @@ pub fn list_rows(height: u16) -> (usize, Option<u16>) {
 pub struct SettingsWidget<'a> {
     pub config: &'a Config,
     pub selected: usize,
-    /// 第一行显示的 `Field::ALL` 下标
+    /// Index into `Field::ALL` of the first visible row
     pub scroll: usize,
 }
 
-/// 一项的值，拆成带样式的片段。
+/// A field's value, split into styled spans.
 fn value_spans(field: Field, config: &Config) -> Vec<(String, Style)> {
     let plain = Style::default();
     let dim = Style::from(Modifier::DIM);
@@ -46,7 +48,7 @@ fn value_spans(field: Field, config: &Config) -> Vec<(String, Style)> {
             ("■".to_owned(), Style::default().fg(c.color())),
             (format!(" {} ›", color_name(c)), plain),
         ],
-        // Auto 后面用 DIM 标出实际生效的语言；语言名用各自的母语写法，不翻译
+        // After Auto, show the effective language in DIM. Language names are written natively, never translated
         (Value::Cursor(c), _) => vec![(format!("‹ {} ›", cursor_name(c)), plain)],
         (Value::Lang(i18n::AUTO), _) => vec![
             (format!("‹ {} ›", t("settings-lang-auto")), plain),
@@ -57,16 +59,18 @@ fn value_spans(field: Field, config: &Config) -> Vec<(String, Style)> {
     }
 }
 
-/// 一项的值占几列。
+/// Display width of a field's value.
 fn value_width(spans: &[(String, Style)]) -> u16 {
     spans.iter().map(|(s, _)| s.width() as u16).sum()
 }
 
-/// 设置面板打开时硬件光标的位置：说明行上离右边界两格的固定列。
-/// 选中行整行反显，光标压在反显区边缘时形状看不清；说明行是普通背景，
-/// 说明文字也在这一列之前截断，光标总是落在空白处，形状清晰可辨。
-/// 列固定不随选中项变，上下选时光标不会左右跳。正文区不到两列时退到最后一列；
-/// 没有说明行（只剩一行高）时为 None。
+/// Hardware cursor position while the settings panel is open: a fixed column two cells from the
+/// right edge, on the help line. The selected row is reversed, and a cursor on the edge of a reversed
+/// area makes its shape hard to see. The help line has a normal background and its text is truncated
+/// before this column, so the cursor always sits on a blank cell and its shape stays clear.
+/// The column doesn't depend on the selection, so the cursor doesn't jump sideways when moving up
+/// and down. A body area narrower than two columns falls back to the last column. None when there is
+/// no help line (only one row left).
 pub fn cursor_position(area: Rect) -> Option<(u16, u16)> {
     let (_, help_y) = list_rows(area.height);
     let dy = help_y?;
@@ -76,7 +80,7 @@ pub fn cursor_position(area: Rect) -> Option<(u16, u16)> {
     Some((cursor_column(area), area.y + dy))
 }
 
-/// 预览光标所在列：`area.right() - 2`，窄到放不下时退到 `area.right() - 1`。
+/// Column of the preview cursor: `area.right() - 2`, or `area.right() - 1` when the area is too narrow.
 fn cursor_column(area: Rect) -> u16 {
     if area.width >= 2 {
         area.right() - 2
@@ -112,7 +116,7 @@ impl Widget for SettingsWidget<'_> {
             let spans = value_spans(field, self.config);
             let value_w = value_width(&spans);
             let value_x = right.saturating_sub(value_w).max(area.x);
-            // 标签与值之间至少留一格
+            // Keep at least one cell between label and value
             put(
                 buf,
                 area.x,
@@ -129,7 +133,7 @@ impl Widget for SettingsWidget<'_> {
         if let Some(dy) = help_y {
             let y = area.y + dy;
             let field = Field::ALL[self.selected];
-            // 说明在预览光标那一列之前截断，光标格总是空白
+            // Truncate the help text before the preview cursor's column so the cursor cell stays blank
             let help_right = if area.width >= 2 {
                 cursor_column(area)
             } else {
@@ -143,7 +147,7 @@ impl Widget for SettingsWidget<'_> {
                 field.help(self.config.vim),
                 Style::from(Modifier::DIM),
             );
-            // 代码颜色：说明后面放一个着色的样例
+            // Code color: append a colored sample after the help text
             if field == Field::CodeColor {
                 let sample = Style::default().fg(self.config.code_color.color());
                 put(buf, x + 2, y, help_right, "`code`", sample);
@@ -158,7 +162,7 @@ mod tests {
 
     #[test]
     fn rows_fit_or_scroll() {
-        // 13 项：放得下时列表、空一行、说明
+        // 13 fields: when they fit, the list, a blank row, then the help line
         assert_eq!(list_rows(20), (13, Some(14)));
         assert_eq!(list_rows(15), (13, Some(14)));
         assert_eq!(list_rows(14), (13, Some(13)));
@@ -167,7 +171,7 @@ mod tests {
         assert_eq!(list_rows(1), (1, None));
     }
 
-    /// 说明行那一行里，`x` 处及右边全是空白（没有被说明文字或样例占用）。
+    /// On the help line, `x` and everything to its right are blank (not taken by help text or the sample).
     fn blank_from(buf: &Buffer, area: Rect, x: u16, y: u16) -> bool {
         (x..area.right()).all(|x| buf[(x, y)].symbol() == " ")
     }
@@ -190,9 +194,9 @@ mod tests {
             }
             .render(area, &mut buf);
             let (x, y) = cursor_position(area).unwrap();
-            // 在说明行上，不在列表行里；列表行的选中行整行反显
+            // On the help line, not a list row; the selected list row is reversed across its full width
             assert_eq!(y, help_y);
-            assert!(y >= area.y + rows as u16, "不在列表行里");
+            assert!(y >= area.y + rows as u16, "not on a list row");
             assert!(area.contains((x, y).into()));
             let sel_y = area.y + selected as u16;
             assert!(buf[(area.x, sel_y)].modifier.contains(Modifier::REVERSED));
@@ -202,12 +206,15 @@ mod tests {
                     .contains(Modifier::REVERSED)
             );
             assert!(!buf[(x, y)].modifier.contains(Modifier::REVERSED));
-            assert!(blank_from(&buf, area, x, y), "光标格是空白: {selected}");
+            assert!(
+                blank_from(&buf, area, x, y),
+                "cursor cell is blank: {selected}"
+            );
         }
-        // 短终端：说明固定在最后一行，列表滚动，光标跟着说明行
+        // Short terminal: the help line is pinned to the last row, the list scrolls, and the cursor follows the help line
         let short = Rect::new(4, 2, 72, 6);
         assert_eq!(cursor_position(short), Some((short.right() - 2, 2 + 5)));
-        // 只剩一行时没有说明行，也就不放光标（那一行是反显的选中行）
+        // With only one row there is no help line, so no cursor either (that row is the reversed selected row)
         assert_eq!(cursor_position(Rect::new(4, 2, 72, 1)), None);
     }
 
@@ -218,17 +225,20 @@ mod tests {
         for width in 0..=6u16 {
             let area = Rect::new(3, 1, width, 20);
             let Some((x, y)) = cursor_position(area) else {
-                assert_eq!(width, 0, "只有零宽时才没有光标");
+                assert_eq!(width, 0, "only a zero-width area has no cursor");
                 continue;
             };
-            assert!(area.contains((x, y).into()), "宽 {width} 越界: {x}");
+            assert!(
+                area.contains((x, y).into()),
+                "width {width} out of bounds: {x}"
+            );
             let want = if width >= 2 {
                 area.right() - 2
             } else {
                 area.right() - 1
             };
-            assert_eq!(x, want, "宽 {width}");
-            // 说明文字占不满：光标那一格及右边都是空白（宽 1 时说明本身就放不下）
+            assert_eq!(x, want, "width {width}");
+            // The help text doesn't fill the row: the cursor cell and everything right of it are blank (at width 1 the help text doesn't fit at all)
             let mut buf = Buffer::empty(area);
             SettingsWidget {
                 config: &c,
@@ -237,7 +247,7 @@ mod tests {
             }
             .render(area, &mut buf);
             if width >= 2 {
-                assert!(blank_from(&buf, area, x, y), "宽 {width}");
+                assert!(blank_from(&buf, area, x, y), "width {width}");
             }
         }
     }

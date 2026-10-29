@@ -1,5 +1,5 @@
-//! undo / redo：线性栈 + 合并规则。
-//! History 只记录编辑；撤销时由 Editor 经正文唯一写入口回放。
+//! Undo / redo: a linear stack plus merge rules.
+//! History only records edits; on undo, the Editor replays them through the body's single write path.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -13,14 +13,14 @@ use crate::text::grapheme::is_whitespace;
 pub const MAX_TRANSACTIONS: usize = 1000;
 pub const MERGE_WINDOW: Duration = Duration::from_secs(1);
 
-/// 写入的是正文还是标题；两者的坐标都是各自的 char 索引。
+/// Whether an edit targets the body or the title; each uses its own char indices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Title,
     Body,
 }
 
-/// char 坐标的区间替换：`[at, at + deleted.len)` 被 `inserted` 取代。
+/// A range replacement in char coordinates: `[at, at + deleted.len)` is replaced by `inserted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edit {
     pub target: Target,
@@ -29,18 +29,18 @@ pub struct Edit {
     pub inserted: String,
 }
 
-/// 决定能否与上一个 Transaction 合并。
+/// Decides whether an edit can merge into the previous Transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditKind {
-    /// 单个 grapheme 的插入
+    /// Inserting a single grapheme
     Insert,
     DeleteBack,
     DeleteForward,
-    /// 换行、粘贴、多字符插入：总是独立成组
+    /// Newline, paste, multi-character insert: always a group of its own
     Other,
 }
 
-/// 撤销 / 重做后要恢复的编辑器状态。
+/// Editor state to restore after undo / redo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Snapshot {
     pub focus: Focus,
@@ -99,12 +99,12 @@ impl History {
         self.last_edit_at = Some(now);
     }
 
-    /// 强制结束当前合并组（光标移动、保存、焦点切换）。
+    /// Force-close the current merge group (cursor move, save, focus change).
     pub fn seal(&mut self) {
         self.sealed = true;
     }
 
-    /// 取出要撤销的 Transaction（已移入 redo 栈）。
+    /// Pop the Transaction to undo (already pushed onto the redo stack).
     pub fn undo(&mut self) -> Option<Transaction> {
         let tx = self.undo.pop_back()?;
         self.redo.push(tx.clone());
@@ -130,7 +130,7 @@ fn mergeable(tx: &Transaction, edit: &Edit) -> bool {
     match tx.kind {
         EditKind::Insert => {
             let adjacent = edit.at == last.at + last.inserted.chars().count();
-            // 以词为单位：空白之后开始的新词另起一组
+            // Group by word: a new word starting after whitespace opens a new group
             let new_word = last
                 .inserted
                 .chars()
@@ -167,7 +167,7 @@ mod tests {
         }
     }
 
-    /// 依次记录 `(edit, kind, 距起点毫秒)`，返回各 Transaction 的 edit 数。
+    /// Record each `(edit, kind, ms since start)` in order; return the edit count of each Transaction.
     fn groups(steps: &[(Edit, EditKind, u64)], seal_before: &[usize]) -> Vec<usize> {
         let t0 = Instant::now();
         let mut h = History::default();
@@ -203,7 +203,7 @@ mod tests {
     fn typing_groups_by_word() {
         // "hello " | "world " | "foo"
         assert_eq!(groups(&typing("hello world foo", 50), &[]), vec![6, 6, 3]);
-        // 中文没有空白：整段连续输入为一组
+        // Chinese has no spaces: one continuous run of typing is a single group
         assert_eq!(groups(&typing("中文输入", 50), &[]), vec![4]);
     }
 
@@ -218,7 +218,7 @@ mod tests {
         let steps = [
             (edit(0, "", "a"), EditKind::Insert, 0),
             (edit(5, "", "b"), EditKind::Insert, 10),
-            (edit(6, "", "e\u{301}"), EditKind::Insert, 20), // 一个 grapheme
+            (edit(6, "", "e\u{301}"), EditKind::Insert, 20), // one grapheme
             (edit(8, "", "xy"), EditKind::Insert, 30),
         ];
         assert_eq!(groups(&steps, &[]), vec![1, 2, 1]);
@@ -230,7 +230,7 @@ mod tests {
         steps.push((edit(2, "", "\n"), EditKind::Other, 20));
         steps.push((edit(3, "", "c"), EditKind::Insert, 30));
         steps.push((edit(4, "", "d"), EditKind::Insert, 40));
-        // 第 4 步前移动过光标
+        // the cursor moved before step 4
         assert_eq!(groups(&steps, &[4]), vec![2, 1, 1, 1]);
     }
 
@@ -239,9 +239,9 @@ mod tests {
         let steps = [
             (edit(4, "d", ""), EditKind::DeleteBack, 0),
             (edit(3, "c", ""), EditKind::DeleteBack, 10),
-            (edit(3, "x", ""), EditKind::DeleteForward, 20), // 方向改变
+            (edit(3, "x", ""), EditKind::DeleteForward, 20), // direction changes
             (edit(3, "y", ""), EditKind::DeleteForward, 30),
-            (edit(1, "a", ""), EditKind::DeleteBack, 40), // 方向再次改变
+            (edit(1, "a", ""), EditKind::DeleteBack, 40), // direction changes again
         ];
         assert_eq!(groups(&steps, &[]), vec![2, 2, 1]);
     }
@@ -270,7 +270,7 @@ mod tests {
         assert_eq!(h.redo.len(), 1);
         h.record(edit(0, "", "z"), EditKind::Insert, snap(0), snap(1), t0);
         assert!(h.redo.is_empty());
-        // undo 之后的输入不并入更早的组
+        // input after an undo does not merge into an earlier group
         assert_eq!(h.undo.back().unwrap().edits.len(), 1);
     }
 }

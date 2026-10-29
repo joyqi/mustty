@@ -1,4 +1,4 @@
-//! 视口：scrolloff 滚动与 Typewriter 模式。
+//! Viewport: scrolloff scrolling and typewriter mode.
 
 use ropey::Rope;
 
@@ -7,7 +7,7 @@ use crate::text::wrap::{VisualPos, WrapCache};
 
 pub const SCROLLOFF: u16 = 3;
 
-/// 视口顶部：第 `line` 个逻辑行的第 `row` 个视觉行。
+/// Top of the viewport: visual row `row` of logical line `line`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ViewTop {
     pub line: usize,
@@ -17,7 +17,7 @@ pub struct ViewTop {
 #[derive(Debug)]
 pub struct Viewport {
     pub top: ViewTop,
-    /// Typewriter 模式在文档开头时，正文上方的留白行数（相当于「负」的 ViewTop）
+    /// Rows of padding above the body in typewriter mode at the start of the document (effectively a negative ViewTop)
     pub top_padding: u16,
     pub typewriter: bool,
     pub scrolloff: u16,
@@ -35,8 +35,9 @@ impl Default for Viewport {
 }
 
 impl Viewport {
-    /// 普通模式：最少量滚动，使光标与视口上下边保持 scrolloff 行距，不滚过文档末尾。
-    /// Typewriter 模式：光标视觉行恒在 `body_h / 2`，文档开头上方留白。
+    /// Normal mode: scroll as little as possible to keep the cursor scrolloff rows from the top and
+    /// bottom edges, never past the end of the document.
+    /// Typewriter mode: the cursor's visual row stays at `body_h / 2`, with padding above the start of the document.
     pub fn follow(&mut self, cursor: VisualPos, body_h: u16, wrap: &mut WrapCache, rope: &Rope) {
         let h = body_h.max(1) as isize;
         let cur = (cursor.line, cursor.row);
@@ -50,7 +51,7 @@ impl Viewport {
         }
         self.top_padding = 0;
         let so = self.margin(body_h) as isize;
-        // 编辑可能让原来的顶部行消失或变短
+        // An edit may have removed or shortened the old top line
         let last = rope.len_lines() - 1;
         let top_line = self.top.line.min(last);
         let top = (
@@ -71,7 +72,7 @@ impl Viewport {
         self.top = ViewTop { line, row };
     }
 
-    /// 实际生效的 scrolloff：正文高度 < 8 时为 `(body_h - 1) / 2`，否则为配置值且不超过它。
+    /// Effective scrolloff: `(body_h - 1) / 2` when the body is shorter than 8 rows, otherwise the configured value capped at that.
     pub fn margin(&self, body_h: u16) -> u16 {
         let half = body_h.saturating_sub(1) / 2;
         if body_h < 8 {
@@ -86,12 +87,12 @@ impl Viewport {
         self.top = ViewTop { line, row };
     }
 
-    /// 换行宽度变化前后，让视口顶部仍停在同一段文字上。
+    /// Keep the top of the viewport on the same text when the wrap width changes.
     pub fn rewrap(&mut self, width: u16, wrap: &mut WrapCache, rope: &Rope) {
         self.reflow(wrap, rope, |w| w.set_width(width));
     }
 
-    /// 改 Tab 宽度后重新换行，视口顶端同样锚定在原来的文字上。
+    /// Rewrap after a tab width change, likewise anchoring the top of the viewport to the same text.
     pub fn retab(&mut self, tab_width: u16, wrap: &mut WrapCache, rope: &Rope) {
         self.reflow(wrap, rope, |w| w.set_tab_width(tab_width));
     }
@@ -130,16 +131,16 @@ mod tests {
         let mut wrap = WrapCache::new(20, 4);
         let mut vp = Viewport::default();
         vp.follow(at(10), 10, &mut wrap, &rope);
-        assert_eq!(vp.top.line, 4); // 光标在第 6 行，距底边 3 行
+        assert_eq!(vp.top.line, 4); // cursor on row 6, 3 rows from the bottom edge
         vp.follow(at(7), 10, &mut wrap, &rope);
         assert_eq!(vp.top.line, 4);
         vp.follow(at(6), 10, &mut wrap, &rope);
-        assert_eq!(vp.top.line, 3); // 距顶边不足 3 行
+        assert_eq!(vp.top.line, 3); // fewer than 3 rows from the top edge
     }
 
     #[test]
     fn does_not_scroll_past_end() {
-        let rope = doc(20); // 21 个逻辑行（末尾空行）
+        let rope = doc(20); // 21 logical lines (with a trailing empty line)
         let mut wrap = WrapCache::new(20, 4);
         let mut vp = Viewport::default();
         vp.follow(at(20), 10, &mut wrap, &rope);
@@ -164,8 +165,11 @@ mod tests {
             ..Viewport::default()
         };
         vp.follow(at(9), 10, &mut wrap, &rope);
-        assert_eq!(vp.top.line, 0, "scrolloff 0：光标可以到最后一行");
-        vp.scrolloff = 100; // 过大时取 (body_h - 1) / 2 = 4
+        assert_eq!(
+            vp.top.line, 0,
+            "scrolloff 0: the cursor may reach the last row"
+        );
+        vp.scrolloff = 100; // too large: capped at (body_h - 1) / 2 = 4
         vp.follow(at(9), 10, &mut wrap, &rope);
         assert_eq!(vp.top.line, 4);
     }
@@ -178,7 +182,7 @@ mod tests {
             typewriter: true,
             ..Viewport::default()
         };
-        // 文档开头：上方留白，使第 0 行仍在中线（body_h = 10 → 第 5 行）
+        // Start of the document: pad above so line 0 still sits on the middle row (body_h = 10 → row 5)
         vp.follow(at(0), 10, &mut wrap, &rope);
         assert_eq!((vp.top.line, vp.top_padding), (0, 5));
         vp.follow(at(2), 10, &mut wrap, &rope);
@@ -189,9 +193,9 @@ mod tests {
                 + wrap.rows_between(&rope, (vp.top.line, vp.top.row), (line, 0));
             assert_eq!(screen_row, 5, "line {line}");
         }
-        // 文档末尾也不回弹：下方允许留白
+        // No bounce at the end of the document either: blank space below is allowed
         assert_eq!(vp.top.line, 95);
-        // 关闭后回到普通 scrolloff 行为，留白清零
+        // Turning it off restores normal scrolloff behavior and clears the padding
         vp.typewriter = false;
         vp.follow(at(0), 10, &mut wrap, &rope);
         assert_eq!((vp.top.line, vp.top_padding), (0, 0));
