@@ -86,13 +86,37 @@ fn editing_title_and_dirty_marker() {
 
 #[test]
 fn untitled_save_as_prompt() {
-    let mut events: Vec<_> = "hi a.md".chars().map(|c| key(KeyCode::Char(c))).collect();
-    events.insert(
-        2,
-        Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)),
+    mustty::i18n::init_for_test("zh-CN");
+    // 预填的名字取决于目录里有什么：用空的临时目录
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = App::new(
+        Document::parse("", FileMeta::new(None)),
+        Size::new(40, 10),
+        false,
     );
-    events.remove(3); // 去掉空格：输入的是 "a.md"
-    insta::assert_snapshot!(snapshot(draw(None, "", 40, 10, &events)));
+    app.save_dir = dir.path().to_path_buf();
+    let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+    let mut shot = |app: &mut App| {
+        terminal.draw(|f| view::render(f, app)).unwrap();
+        snapshot(terminal.backend().clone())
+    };
+    for c in "hi".chars() {
+        app.handle(key(KeyCode::Char(c)));
+    }
+    app.handle(Event::Key(KeyEvent::new(
+        KeyCode::Char('s'),
+        KeyModifiers::CONTROL,
+    )));
+    // 预填 untitled.md，光标在末尾
+    insta::assert_snapshot!("untitled_save_as_prompt_prefilled", shot(&mut app));
+    // 删掉预填、改输入 a.md
+    for _ in 0.."untitled.md".len() {
+        app.handle(key(KeyCode::Backspace));
+    }
+    for c in "a.md".chars() {
+        app.handle(key(KeyCode::Char(c)));
+    }
+    insta::assert_snapshot!(shot(&mut app));
 }
 
 /// 每行按样式分段：`"文本" 样式`，跳过无样式的空白，便于快照审阅高亮与选区。

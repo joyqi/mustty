@@ -106,6 +106,35 @@ pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, 
     disk_stamp(path).ok_or_else(|| std::io::Error::other(t("io-stat-after-save")).into())
 }
 
+/// `untitled-N` 扫到这个编号仍被占用时，改用时间戳兜底。
+pub const MAX_UNTITLED: u32 = 1000;
+
+/// 无路径文档保存时预填的文件名：`{base}.{ext}`，被占用就 `{base}-2.{ext}`、`{base}-3.{ext}`……
+/// 取第一个空闲的；到 `MAX_UNTITLED` 仍被占用时用 `{base}-{stamp}.{ext}`。
+/// `taken` 判断某个名字是否已被占用，所以本函数不碰文件系统。
+pub fn free_name(base: &str, ext: &str, taken: impl Fn(&str) -> bool, stamp: u64) -> String {
+    (1..=MAX_UNTITLED)
+        .map(|n| match n {
+            1 => format!("{base}.{ext}"),
+            n => format!("{base}-{n}.{ext}"),
+        })
+        .find(|name| !taken(name))
+        .unwrap_or_else(|| format!("{base}-{stamp}.{ext}"))
+}
+
+/// `dir` 里第一个空闲的 `untitled*.md`。悬空的符号链接也算占用（写入会顺着链接落到别处）。
+pub fn untitled_name(dir: &Path) -> String {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    free_name(
+        "untitled",
+        "md",
+        |name| fs::symlink_metadata(dir.join(name)).is_ok(),
+        stamp,
+    )
+}
+
 /// 同目录临时文件写入 → fsync → rename 原子替换；保留原文件权限（Unix）。文档与配置文件共用。
 /// `path` 若是符号链接，rename 会把链接换成普通文件：需要保留链接的调用方先 `canonicalize`。
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -137,6 +166,42 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn free_name_skips_taken_names() {
+        let free = |taken: &[&str]| free_name("untitled", "md", |n| taken.contains(&n), 42);
+        assert_eq!(free(&[]), "untitled.md");
+        assert_eq!(free(&["untitled.md"]), "untitled-2.md");
+        assert_eq!(free(&["untitled.md", "untitled-2.md"]), "untitled-3.md");
+        // 只要第一个空闲的：中间有空位就用空位
+        assert_eq!(free(&["untitled.md", "untitled-3.md"]), "untitled-2.md");
+        // 与别的文件名无关
+        assert_eq!(free(&["notes.md", "untitled.txt"]), "untitled.md");
+        // 1..=MAX_UNTITLED 全被占用：时间戳兜底
+        assert_eq!(
+            free_name("untitled", "md", |_| true, 1_761_700_000),
+            "untitled-1761700000.md"
+        );
+        let last = format!("untitled-{MAX_UNTITLED}.md");
+        assert_eq!(free_name("untitled", "md", |n| n != last, 7), last);
+    }
+
+    #[test]
+    fn untitled_name_checks_the_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(untitled_name(dir.path()), "untitled.md");
+        fs::write(dir.path().join("untitled.md"), "").unwrap();
+        assert_eq!(untitled_name(dir.path()), "untitled-2.md");
+        // 目录也算占用
+        fs::create_dir(dir.path().join("untitled-2.md")).unwrap();
+        assert_eq!(untitled_name(dir.path()), "untitled-3.md");
+        // 悬空的符号链接也算占用
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("nowhere", dir.path().join("untitled-3.md")).unwrap();
+            assert_eq!(untitled_name(dir.path()), "untitled-4.md");
+        }
+    }
     use proptest::prelude::*;
 
     fn round_trip(bytes: &[u8]) -> Vec<u8> {

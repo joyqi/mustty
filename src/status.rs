@@ -23,6 +23,15 @@ pub struct Prompt {
 }
 
 impl Prompt {
+    /// 预填 `input`，光标放在末尾。
+    pub fn with_input(input: String) -> Self {
+        Self {
+            cursor: input.chars().count(),
+            input,
+            confirm_overwrite: false,
+        }
+    }
+
     pub fn label(&self) -> &'static str {
         if self.confirm_overwrite {
             t("prompt-overwrite")

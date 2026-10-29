@@ -75,6 +75,8 @@ pub struct App {
     /// 终端支持 OSC 52（macOS Terminal 不支持）
     osc52_supported: bool,
     osc52_warned: bool,
+    /// 「保存为」的相对路径以它为基准，预填的 untitled 名也在这里避让重名；默认是启动时的工作目录
+    pub save_dir: PathBuf,
     pub should_quit: bool,
     pub needs_redraw: bool,
 }
@@ -131,6 +133,7 @@ impl App {
             output: Vec::new(),
             osc52_supported: std::env::var_os("TERM_PROGRAM").is_none_or(|t| t != "Apple_Terminal"),
             osc52_warned: false,
+            save_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             should_quit: false,
             needs_redraw: true,
         };
@@ -389,7 +392,10 @@ impl App {
                 Some(path) => {
                     self.save(path, false);
                 }
-                None => self.status.prompt = Some(Prompt::default()),
+                None => {
+                    let name = file::untitled_name(&self.save_dir);
+                    self.status.prompt = Some(Prompt::with_input(name));
+                }
             },
             Action::PromptInput(key) => self.prompt_input(key),
             Action::ScrollView(delta) => self.scroll_view(delta, now),
@@ -559,8 +565,8 @@ impl App {
         if !prompt.edit(key) || prompt.input.is_empty() {
             return;
         }
-        // 相对 cwd，不做 ~ 展开
-        let path = PathBuf::from(&prompt.input);
+        // 相对 save_dir（启动时的 cwd），不做 ~ 展开；绝对路径原样
+        let path = self.save_dir.join(&prompt.input);
         if path.exists() && !prompt.confirm_overwrite {
             prompt.confirm_overwrite = true;
             return;
@@ -1309,6 +1315,64 @@ mod tests {
         Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
     }
 
+    /// 删掉提示行里预填的文件名。
+    fn clear_prompt(app: &mut App) {
+        let n = app.status.prompt.as_ref().unwrap().input.chars().count();
+        for _ in 0..n {
+            app.handle(press(KeyCode::Backspace));
+        }
+        assert_eq!(app.status.prompt.as_ref().unwrap().input, "");
+    }
+
+    /// 无路径文档 Ctrl+S：预填 untitled.md、光标在末尾；回车即保存，下一次避开它。
+    #[test]
+    fn untitled_save_prefills_a_free_name() {
+        crate::i18n::init_for_test("en");
+        let dir = tempfile::tempdir().unwrap();
+        let untitled = || Document::parse("", crate::editor::document::FileMeta::new(None));
+        let mut app = App::new(untitled(), Size::new(80, 24), false);
+        app.save_dir = dir.path().to_path_buf();
+        typed(&mut app, "hello");
+        app.handle(ctrl('s'));
+        let prompt = app.status.prompt.as_ref().expect("提示行打开");
+        assert_eq!(prompt.input, "untitled.md");
+        assert_eq!(prompt.cursor, "untitled.md".len(), "光标在文件名末尾");
+        assert!(!prompt.confirm_overwrite);
+        app.handle(press(KeyCode::Enter));
+        assert!(app.status.prompt.is_none());
+        let saved = dir.path().join("untitled.md");
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "hello");
+        assert_eq!(app.editor.doc().meta.path.as_deref(), Some(saved.as_path()));
+        assert_eq!(
+            StatusModel::file_name(app.editor.doc().meta.path.as_deref()),
+            "untitled.md"
+        );
+        // 有路径之后 Ctrl+S 直接保存，不再弹提示行
+        typed(&mut app, "!");
+        app.handle(ctrl('s'));
+        assert!(app.status.prompt.is_none());
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "hello!");
+
+        // 第二个无路径文档：untitled.md 已被占用
+        let mut app = App::new(untitled(), Size::new(80, 24), false);
+        app.save_dir = dir.path().to_path_buf();
+        typed(&mut app, "two");
+        app.handle(ctrl('s'));
+        assert_eq!(app.status.prompt.as_ref().unwrap().input, "untitled-2.md");
+        // 改成已存在的名字仍要二次确认覆盖
+        clear_prompt(&mut app);
+        app.handle(press(KeyCode::Enter));
+        assert!(app.status.prompt.is_some(), "空输入回车不保存");
+        app.handle(Event::Paste("untitled.md".into()));
+        app.handle(press(KeyCode::Enter));
+        assert!(app.status.prompt.as_ref().unwrap().confirm_overwrite);
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "hello!");
+        app.handle(press(KeyCode::Enter));
+        assert!(app.status.prompt.is_none());
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "two");
+        assert!(!dir.path().join("untitled-2.md").exists());
+    }
+
     fn lf_doc(text: &str) -> Document {
         Document::parse(text, crate::editor::document::FileMeta::lf())
     }
@@ -1654,7 +1718,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // 保存失败：目标目录不存在
         let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
+        app.save_dir = dir.path().to_path_buf();
         app.handle(ctrl('s'));
+        clear_prompt(&mut app);
         let target = dir.path().join("no/such/dir/a.md");
         app.handle(Event::Paste(target.display().to_string()));
         app.handle(press(KeyCode::Enter));
