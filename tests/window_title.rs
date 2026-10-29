@@ -1,4 +1,4 @@
-//! 真实二进制在 pty 里运行：窗口标题经 OSC 2 跟随文档标题，退出时清空。
+//! 真实二进制在 pty 里运行：窗口标题经 OSC 2 跟随文档标题，未保存时带 `* `，退出时清空。
 
 #![cfg(unix)]
 
@@ -114,23 +114,28 @@ impl Drop for Pty {
 }
 
 #[test]
-fn window_title_follows_the_h1_and_is_cleared_on_exit() {
+fn window_title_follows_the_h1_marks_unsaved_and_is_cleared_on_exit() {
     let home = tempfile::tempdir().unwrap();
     let file = home.path().join("notes.md");
     std::fs::write(&file, "# Spring letter\n\nbody\n").unwrap();
     let mut pty = Pty::spawn(home.path(), &file);
 
+    // 干净的文件：标题没有星号
     pty.wait_for("\x1b]2;Spring letter\x07", 1);
-    // 正文里移动不改标题；进入标题（首行按 ↑）、到行尾，再打两个字
+    assert!(!pty.output().contains("\x1b]2;* "), "{:?}", pty.output());
+    // 正文里移动不改标题；进入标题（首行按 ↑）、到行尾，再打两个字：有未保存修改 → `* `
     pty.send(b"\x1b[B\x1b[A\x1b[A\x1b[F");
     pty.send(b"!");
-    pty.wait_for("\x1b]2;Spring letter!\x07", 1);
+    pty.wait_for("\x1b]2;* Spring letter!\x07", 1);
     pty.send(b"?");
-    pty.wait_for("\x1b]2;Spring letter!?\x07", 1);
+    pty.wait_for("\x1b]2;* Spring letter!?\x07", 1);
     let titles = pty.output().matches("\x1b]2;").count();
     assert_eq!(titles, 3, "只在标题变化时发送：{:?}", pty.output());
+    // 等自动保存（默认空闲 2 秒）：星号消失
+    pty.wait_for("\x1b]2;Spring letter!?\x07", 1);
+    assert_eq!(pty.output().matches("\x1b]2;").count(), 4);
 
-    // 退出（自动保存开着：一次 Ctrl+Q 即保存并退出）
+    // 退出：已保存，一次 Ctrl+Q 即退出
     pty.send(b"\x11");
     assert!(pty.wait_exit(), "Ctrl+Q 后没有退出");
     pty.wait_for(CLEAR, 1);

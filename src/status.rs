@@ -210,9 +210,14 @@ impl StatusModel {
         }
     }
 
-    /// basename；无路径时为 `Untitled`（按界面语言）。
     /// 终端窗口标题：非空的 H1 标题 > 文件名（含扩展名）> `Untitled`；控制字符已去掉。
-    pub fn window_title(title: &TitleField, path: Option<&Path>) -> String {
+    /// 有未保存修改时前面加 `* `（不翻译）。
+    pub fn window_title(title: &TitleField, path: Option<&Path>, dirty: bool) -> String {
+        let text = Self::window_title_text(title, path);
+        if dirty { format!("* {text}") } else { text }
+    }
+
+    fn window_title_text(title: &TitleField, path: Option<&Path>) -> String {
         match title {
             TitleField::Bound { text, .. } => {
                 let text = strip_controls(text);
@@ -226,6 +231,7 @@ impl StatusModel {
         }
     }
 
+    /// basename；无路径时为 `Untitled`（按界面语言）。
     pub fn file_name(path: Option<&Path>) -> String {
         match path {
             Some(p) => p.file_name().map_or_else(
@@ -259,7 +265,7 @@ mod tests {
             sep: "\n".into(),
         };
         let path = Path::new("/home/me/drafts/notes.md");
-        let wt = StatusModel::window_title;
+        let wt = |t: &TitleField, p| StatusModel::window_title(t, p, false);
         assert_eq!(wt(&h1("春天的信"), Some(path)), "春天的信");
         assert_eq!(wt(&h1("春天的信"), None), "春天的信");
         assert_eq!(wt(&TitleField::Unbound, Some(path)), "notes.md");
@@ -278,6 +284,31 @@ mod tests {
             wt(&TitleField::Unbound, Some(Path::new("evil\x1b[2J.md"))),
             "evil[2J.md"
         );
+    }
+
+    #[test]
+    fn window_title_marks_unsaved_changes() {
+        crate::i18n::init_for_test("en");
+        let h1 = TitleField::Bound {
+            text: "春天的信".into(),
+            sep: "\n".into(),
+        };
+        let path = Path::new("/home/me/notes.md");
+        let wt = StatusModel::window_title;
+        // 三种来源：H1 / 文件名 / Untitled，干净时无前缀，有修改时前缀 `* `
+        assert_eq!(wt(&h1, Some(path), false), "春天的信");
+        assert_eq!(wt(&h1, Some(path), true), "* 春天的信");
+        assert_eq!(wt(&TitleField::Unbound, Some(path), false), "notes.md");
+        assert_eq!(wt(&TitleField::Unbound, Some(path), true), "* notes.md");
+        assert_eq!(wt(&TitleField::Unbound, None, false), "Untitled");
+        assert_eq!(wt(&TitleField::Unbound, None, true), "* Untitled");
+        // 前缀不翻译；控制字符照样去掉
+        crate::i18n::init_for_test("zh-CN");
+        let evil = TitleField::Bound {
+            text: "\x1b]0;x\x07".into(),
+            sep: "\n".into(),
+        };
+        assert_eq!(wt(&evil, None, true), "* ]0;x");
     }
 
     #[test]

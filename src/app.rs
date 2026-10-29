@@ -573,10 +573,13 @@ impl App {
         }
     }
 
-    /// 窗口标题变了时返回要写的 OSC 2 序列（每轮事件循环查一次；没变就是 None）。
+    /// 窗口标题（含未保存标记）变了时返回要写的 OSC 2 序列（每轮事件循环查一次；没变就是 None）。
     pub fn take_window_title(&mut self) -> Option<String> {
         let doc = self.editor.doc();
-        let title = StatusModel::window_title(&doc.title, doc.meta.path.as_deref());
+        // 未保存标记与 status bar 的 SaveMark 同源：都直接取 Editor::is_dirty()。
+        // 去重比较的是最终字符串：标题文字没变、只有保存状态变了，也会推送
+        let title =
+            StatusModel::window_title(&doc.title, doc.meta.path.as_deref(), self.editor.is_dirty());
         self.window_title.update(&title)
     }
 
@@ -1469,7 +1472,7 @@ mod tests {
         Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
     }
 
-    /// 窗口标题：启动后一次；只在标题真的变化时再发（编辑、撤销、保存为）。
+    /// 窗口标题：启动后一次；只在最终字符串真的变化时再发（编辑、撤销、保存、未保存标记）。
     #[test]
     fn window_title_follows_the_document() {
         crate::i18n::init_for_test("en");
@@ -1477,8 +1480,10 @@ mod tests {
         let mut app = App::new(lf_doc("# Hello\n\nbody"), Size::new(80, 24), false);
         assert_eq!(app.take_window_title(), osc("Hello"));
         assert_eq!(app.take_window_title(), None, "没变就不发");
-        // 正文里打字、移动：标题不变
+        // 正文里打字：标题文字没变，但有了未保存修改 → `* `；之后移动不再发
         typed(&mut app, "x");
+        assert_eq!(app.take_window_title(), osc("* Hello"));
+        typed(&mut app, "y");
         app.handle(press(KeyCode::Down));
         assert_eq!(app.take_window_title(), None);
         // 进入标题、在末尾打字：每个字都是一次变化
@@ -1487,33 +1492,100 @@ mod tests {
         app.handle(press(KeyCode::End));
         assert_eq!(app.take_window_title(), None, "只是移到标题里");
         typed(&mut app, "!");
-        assert_eq!(app.take_window_title(), osc("Hello!"));
+        assert_eq!(app.take_window_title(), osc("* Hello!"));
         typed(&mut app, "?");
-        assert_eq!(app.take_window_title(), osc("Hello!?"));
-        // 撤销影响到标题
+        assert_eq!(app.take_window_title(), osc("* Hello!?"));
+        // 撤销影响到标题；正文的 xy 还没撤，仍有修改
         app.handle(ctrl('z'));
         assert_eq!(
             app.take_window_title(),
-            osc("Hello"),
+            osc("* Hello"),
             "连续输入合并为一步撤销"
         );
+        // 再撤销回到保存点：星号消失
+        app.handle(ctrl('z'));
+        assert!(!app.editor.is_dirty());
+        assert_eq!(app.take_window_title(), osc("Hello"));
         // 控制字符不会进序列
         app.handle(Event::Paste("\x1b]0;x\x07".into()));
         let pasted = app.take_window_title().unwrap_or_default();
         assert_eq!(pasted.matches('\x1b').count(), 1, "{pasted:?}");
         assert_eq!(pasted.matches('\x07').count(), 1, "{pasted:?}");
+        assert!(pasted.starts_with("\x1b]2;* "), "{pasted:?}");
 
-        // 没有 H1：Untitled → 保存为之后变成文件名
+        // 没有 H1：Untitled → 打字后 `* Untitled` → 保存为之后是文件名、没有星号
         let dir = tempfile::tempdir().unwrap();
         let untitled = Document::parse("", crate::editor::document::FileMeta::new(None));
         let mut app = App::new(untitled, Size::new(80, 24), false);
         app.save_dir = dir.path().to_path_buf();
         assert_eq!(app.take_window_title(), osc("Untitled"));
         typed(&mut app, "words");
-        assert_eq!(app.take_window_title(), None);
+        assert_eq!(app.take_window_title(), osc("* Untitled"));
         app.handle(ctrl('s'));
         app.handle(press(KeyCode::Enter));
         assert_eq!(app.take_window_title(), osc("untitled.md"));
+        // Ctrl+S 保存：星号出现又消失
+        typed(&mut app, "!");
+        assert_eq!(app.take_window_title(), osc("* untitled.md"));
+        app.handle(ctrl('s'));
+        assert_eq!(app.take_window_title(), osc("untitled.md"));
+    }
+
+    /// 标题的 `* ` 与 status bar 的保存标记出自同一个 `Editor::is_dirty()`：任何状态下两边一致。
+    #[test]
+    fn window_title_star_agrees_with_the_status_bar_mark() {
+        use crate::status::SaveMark;
+        crate::i18n::init_for_test("en");
+        fn check(app: &mut App, label: &str) {
+            let ed = &app.editor;
+            let mark = SaveMark::of(ed.is_dirty(), ed.doc().meta.stamp.is_some());
+            let doc = ed.doc();
+            let title =
+                StatusModel::window_title(&doc.title, doc.meta.path.as_deref(), ed.is_dirty());
+            assert_eq!(
+                mark == Some(SaveMark::Dirty),
+                title.starts_with("* "),
+                "{label}：标记 {mark:?}，标题 {title:?}"
+            );
+        }
+        let dir = tempfile::tempdir().unwrap();
+        // 空 Untitled：status bar 无标记，标题也没有星号
+        let untitled = Document::parse("", crate::editor::document::FileMeta::new(None));
+        let mut app = App::new(untitled, Size::new(80, 24), false);
+        app.save_dir = dir.path().to_path_buf();
+        check(&mut app, "空 Untitled");
+        assert_eq!(app.take_window_title(), Some("\x1b]2;Untitled\x07".into()));
+        typed(&mut app, "a");
+        check(&mut app, "Untitled 有修改");
+        app.handle(ctrl('z'));
+        check(&mut app, "Untitled 撤销回空");
+        typed(&mut app, "b");
+        app.handle(ctrl('s'));
+        app.handle(press(KeyCode::Enter));
+        check(&mut app, "保存为之后");
+        typed(&mut app, "c");
+        check(&mut app, "已保存的文件有修改");
+        app.handle(ctrl('z'));
+        check(&mut app, "撤销回保存点");
+        assert!(!app.editor.is_dirty());
+    }
+
+    /// 自动保存完成后星号消失。
+    #[test]
+    fn window_title_star_clears_after_autosave() {
+        crate::i18n::init_for_test("en");
+        let osc = |s: &str| Some(format!("\x1b]2;{s}\x07"));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.md");
+        std::fs::write(&path, "# Draft\n\nbody\n").unwrap();
+        let mut app = App::new(file::load(&path).unwrap(), Size::new(80, 24), true);
+        assert_eq!(app.take_window_title(), osc("Draft"));
+        let t0 = Instant::now();
+        app.handle_at(press(KeyCode::Char('x')), t0);
+        assert_eq!(app.take_window_title(), osc("* Draft"));
+        app.tick(t0 + AUTOSAVE_IDLE);
+        assert!(!app.editor.is_dirty(), "自动保存了");
+        assert_eq!(app.take_window_title(), osc("Draft"));
     }
 
     fn ctrl_key(code: KeyCode) -> Event {
