@@ -118,7 +118,7 @@ impl Widget for SettingsWidget<'_> {
                 area.x,
                 y,
                 value_x.saturating_sub(1),
-                field.label(),
+                field.label(self.config.vim),
                 patch(Style::default()),
             );
             let mut x = value_x;
@@ -140,7 +140,7 @@ impl Widget for SettingsWidget<'_> {
                 area.x,
                 y,
                 help_right,
-                field.help(),
+                field.help(self.config.vim),
                 Style::from(Modifier::DIM),
             );
             // 代码颜色：说明后面放一个着色的样例

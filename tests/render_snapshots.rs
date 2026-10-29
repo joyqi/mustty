@@ -407,6 +407,61 @@ fn settings_panel_scrolls_when_short() {
     insta::assert_snapshot!(settings_panel(72, 80, 12, 7));
 }
 
+/// 选中 `Cursor` 一项的设置面板，`vim` 决定光标两项的标签与说明。
+fn settings_cursor_rows(vim: bool, events: &[Event]) -> TestBackend {
+    let config = mustty::config::Config {
+        vim,
+        autosave: false,
+        ..mustty::config::Config::default()
+    };
+    draw_with(&config, "# 标题\n\n正文\n", 80, 24, events, false)
+}
+
+fn cursor_row_events() -> Vec<Event> {
+    let mut events = vec![ctrl('p')];
+    events.extend(std::iter::repeat_n(key(KeyCode::Down), 10));
+    events
+}
+
+#[test]
+fn settings_cursor_labels_without_vim() {
+    let b = settings_cursor_rows(false, &cursor_row_events());
+    let text = format!("{b}");
+    assert!(text.contains("光标闪烁") && !text.contains("插入模式"));
+    let help = text
+        .lines()
+        .find(|l| l.contains("写作时的光标形状"))
+        .unwrap();
+    assert!(
+        !help.contains("vim") && !help.contains("方块"),
+        "说明不提 vim: {help:?}"
+    );
+    insta::assert_snapshot!(snapshot(b));
+}
+
+#[test]
+fn settings_cursor_labels_with_vim() {
+    let b = settings_cursor_rows(true, &cursor_row_events());
+    let text = format!("{b}");
+    assert!(text.contains("插入模式光标 ") && text.contains("插入模式光标闪烁"));
+    assert!(text.contains("仅在插入模式生效；普通和可视模式固定为方块"));
+    insta::assert_snapshot!(snapshot(b));
+}
+
+#[test]
+fn settings_cursor_labels_follow_vim_toggle_live() {
+    // 面板开着，在 Vim 一行切换开关：光标两项的标签当场变，不用关面板重开
+    let mut events = vec![ctrl('p'), key(KeyCode::Down), key(KeyCode::Right)];
+    let on = format!("{}", settings_cursor_rows(false, &events));
+    assert!(on.contains("插入模式光标闪烁"), "{on}");
+    events.push(key(KeyCode::Right));
+    let off = format!("{}", settings_cursor_rows(false, &events));
+    assert!(
+        off.contains("光标闪烁") && !off.contains("插入模式"),
+        "{off}"
+    );
+}
+
 /// vim 开启：Esc 进 Normal，再 v 进 visual。
 fn vim_frame(events: &[Event]) -> TestBackend {
     let config = mustty::config::Config {

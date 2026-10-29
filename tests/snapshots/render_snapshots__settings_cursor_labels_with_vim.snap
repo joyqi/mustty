@@ -1,0 +1,30 @@
+---
+source: tests/render_snapshots.rs
+expression: snapshot(b)
+---
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                      设置                                      " Hidden by multi-width symbols: [(39, " "), (41, " ")]
+"                                                                                "
+"    正文宽度                                                       ‹ 72 › 列    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
+"    vim 键位                                                              开    " Hidden by multi-width symbols: [(9, " "), (11, " "), (75, " ")]
+"    鼠标                                                                  关    " Hidden by multi-width symbols: [(5, " "), (7, " "), (75, " ")]
+"    自动保存                                                              关    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
+"    自动保存延迟                                               ‹ 2000 › 毫秒    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (73, " "), (75, " ")]
+"    Typewriter 模式                                                       关    " Hidden by multi-width symbols: [(16, " "), (18, " "), (75, " ")]
+"    Focus 模式                                                            关    " Hidden by multi-width symbols: [(11, " "), (13, " "), (75, " ")]
+"    上下留白                                                        ‹ 3 › 行    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
+"    Tab 宽度                                                        ‹ 4 › 格    " Hidden by multi-width symbols: [(9, " "), (11, " "), (75, " ")]
+"    代码颜色                                                        ‹ ■ 青 ›    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (73, " ")]
+"    插入模式光标                                                    ‹ 竖线 ›    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (71, " "), (73, " ")]
+"    插入模式光标闪烁                                                      关    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " "), (19, " "), (75, " ")]
+"    语言                                                   ‹ 自动 ›  (zh-CN)    " Hidden by multi-width symbols: [(5, " "), (7, " "), (62, " "), (64, " ")]
+"    仅在插入模式生效；普通和可视模式固定为方块                                  " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " "), (19, " "), (21, " "), (23, " "), (25, " "), (27, " "), (29, " "), (31, " "), (33, " "), (35, " "), (37, " "), (39, " "), (41, " "), (43, " "), (45, " ")]
+"                                                                                "
+"    ↑↓ 选择  ←→ 调整  Enter 保存  Esc 取消                                      " Hidden by multi-width symbols: [(8, " "), (10, " "), (17, " "), (19, " "), (29, " "), (31, " "), (39, " "), (41, " ")]
+"                                                                                "
+"                                                                                "
+"                                                                                "
+
+cursor: Position { x: 74, y: 18 } visible: true

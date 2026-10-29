@@ -101,7 +101,9 @@ impl Field {
         }
     }
 
-    pub fn label(self) -> &'static str {
+    /// 面板里的标签。vim 开启时光标两项只影响 Insert 态，标签直接写明；
+    /// 渲染时按当前 `config.vim` 取，面板里切换 vim 当场生效。
+    pub fn label(self, vim: bool) -> &'static str {
         match self {
             Self::Width => t("settings-width"),
             Self::Vim => t("settings-vim"),
@@ -113,14 +115,16 @@ impl Field {
             Self::Scrolloff => t("settings-scrolloff"),
             Self::TabWidth => t("settings-tab-width"),
             Self::CodeColor => t("settings-code-color"),
+            Self::Cursor if vim => t("settings-cursor-vim"),
+            Self::CursorBlink if vim => t("settings-cursor-blink-vim"),
             Self::Cursor => t("settings-cursor"),
             Self::CursorBlink => t("settings-cursor-blink"),
             Self::Lang => t("settings-lang"),
         }
     }
 
-    /// 选中时说明行显示的一句话。
-    pub fn help(self) -> &'static str {
+    /// 选中时说明行显示的一句话；`vim` 同 [`Field::label`]。
+    pub fn help(self, vim: bool) -> &'static str {
         match self {
             Self::Width => t("settings-width-help"),
             Self::Vim => t("settings-vim-help"),
@@ -132,6 +136,8 @@ impl Field {
             Self::Scrolloff => t("settings-scrolloff-help"),
             Self::TabWidth => t("settings-tab-width-help"),
             Self::CodeColor => t("settings-code-color-help"),
+            Self::Cursor if vim => t("settings-cursor-help-vim"),
+            Self::CursorBlink if vim => t("settings-cursor-blink-help-vim"),
             Self::Cursor => t("settings-cursor-help"),
             Self::CursorBlink => t("settings-cursor-blink-help"),
             Self::Lang => t("settings-lang-help"),
@@ -455,6 +461,40 @@ mod tests {
             Value::Color(CodeColor::White),
             "向左从第一个绕到最后一个"
         );
+    }
+
+    #[test]
+    fn cursor_labels_follow_vim() {
+        crate::i18n::init_for_test("en");
+        assert_eq!(Field::Cursor.label(false), t("settings-cursor"));
+        assert_eq!(Field::Cursor.label(true), t("settings-cursor-vim"));
+        assert_eq!(Field::CursorBlink.label(false), t("settings-cursor-blink"));
+        assert_eq!(
+            Field::CursorBlink.label(true),
+            t("settings-cursor-blink-vim")
+        );
+        assert_eq!(Field::Cursor.help(false), t("settings-cursor-help"));
+        assert_eq!(Field::Cursor.help(true), t("settings-cursor-help-vim"));
+        assert_eq!(
+            Field::CursorBlink.help(false),
+            t("settings-cursor-blink-help")
+        );
+        assert_eq!(
+            Field::CursorBlink.help(true),
+            t("settings-cursor-blink-help-vim")
+        );
+        for f in [Field::Cursor, Field::CursorBlink] {
+            assert_ne!(f.label(false), f.label(true));
+            assert_ne!(f.help(false), f.help(true));
+            assert!(!f.help(false).contains("vim"), "未启用 vim 时说明不提 vim");
+        }
+        // 其他项与 vim 无关
+        for f in Field::ALL {
+            if !matches!(f, Field::Cursor | Field::CursorBlink) {
+                assert_eq!(f.label(false), f.label(true));
+                assert_eq!(f.help(false), f.help(true));
+            }
+        }
     }
 
     #[test]
