@@ -636,6 +636,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "insta",
+ "libc",
  "proptest",
  "ratatui",
  "ropey",

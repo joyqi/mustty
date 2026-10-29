@@ -75,6 +75,8 @@ pub struct App {
     /// 终端支持 OSC 52（macOS Terminal 不支持）
     osc52_supported: bool,
     osc52_warned: bool,
+    /// 已写给终端的窗口标题（去重）
+    window_title: crate::terminal::WindowTitle,
     /// 「保存为」的相对路径以它为基准，预填的 untitled 名也在这里避让重名；默认是启动时的工作目录
     pub save_dir: PathBuf,
     pub should_quit: bool,
@@ -133,6 +135,7 @@ impl App {
             output: Vec::new(),
             osc52_supported: std::env::var_os("TERM_PROGRAM").is_none_or(|t| t != "Apple_Terminal"),
             osc52_warned: false,
+            window_title: Default::default(),
             save_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             should_quit: false,
             needs_redraw: true,
@@ -553,6 +556,13 @@ impl App {
         }
     }
 
+    /// 窗口标题变了时返回要写的 OSC 2 序列（每轮事件循环查一次；没变就是 None）。
+    pub fn take_window_title(&mut self) -> Option<String> {
+        let doc = self.editor.doc();
+        let title = StatusModel::window_title(&doc.title, doc.meta.path.as_deref());
+        self.window_title.update(&title)
+    }
+
     /// 取出待写给终端的控制序列。
     pub fn take_terminal_output(&mut self) -> Vec<String> {
         std::mem::take(&mut self.output)
@@ -795,7 +805,9 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
         if let Some(on) = app.take_mouse_capture() {
             crate::terminal::set_mouse_capture(terminal.backend_mut(), on)?;
         }
-        let output = app.take_terminal_output();
+        let mut output = app.take_terminal_output();
+        // 窗口标题（OSC 2）同样直接写 stdout：不移动光标，不经过 ratatui 的 Buffer
+        output.extend(app.take_window_title());
         if !output.is_empty() {
             let backend = terminal.backend_mut();
             for seq in output {
@@ -1313,6 +1325,57 @@ mod tests {
 
     fn ctrl(c: char) -> Event {
         Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+    }
+
+    /// 窗口标题：启动后一次；只在标题真的变化时再发（编辑、撤销、保存为）。
+    #[test]
+    fn window_title_follows_the_document() {
+        crate::i18n::init_for_test("en");
+        let osc = |s: &str| Some(format!("\x1b]2;{s}\x07"));
+        let mut app = App::new(lf_doc("# Hello\n\nbody"), Size::new(80, 24), false);
+        assert_eq!(app.take_window_title(), osc("Hello"));
+        assert_eq!(app.take_window_title(), None, "没变就不发");
+        // 正文里打字、移动：标题不变
+        typed(&mut app, "x");
+        app.handle(press(KeyCode::Down));
+        assert_eq!(app.take_window_title(), None);
+        // 进入标题、在末尾打字：每个字都是一次变化
+        app.handle(ctrl_key(KeyCode::Home));
+        app.handle(press(KeyCode::Up));
+        app.handle(press(KeyCode::End));
+        assert_eq!(app.take_window_title(), None, "只是移到标题里");
+        typed(&mut app, "!");
+        assert_eq!(app.take_window_title(), osc("Hello!"));
+        typed(&mut app, "?");
+        assert_eq!(app.take_window_title(), osc("Hello!?"));
+        // 撤销影响到标题
+        app.handle(ctrl('z'));
+        assert_eq!(
+            app.take_window_title(),
+            osc("Hello"),
+            "连续输入合并为一步撤销"
+        );
+        // 控制字符不会进序列
+        app.handle(Event::Paste("\x1b]0;x\x07".into()));
+        let pasted = app.take_window_title().unwrap_or_default();
+        assert_eq!(pasted.matches('\x1b').count(), 1, "{pasted:?}");
+        assert_eq!(pasted.matches('\x07').count(), 1, "{pasted:?}");
+
+        // 没有 H1：Untitled → 保存为之后变成文件名
+        let dir = tempfile::tempdir().unwrap();
+        let untitled = Document::parse("", crate::editor::document::FileMeta::new(None));
+        let mut app = App::new(untitled, Size::new(80, 24), false);
+        app.save_dir = dir.path().to_path_buf();
+        assert_eq!(app.take_window_title(), osc("Untitled"));
+        typed(&mut app, "words");
+        assert_eq!(app.take_window_title(), None);
+        app.handle(ctrl('s'));
+        app.handle(press(KeyCode::Enter));
+        assert_eq!(app.take_window_title(), osc("untitled.md"));
+    }
+
+    fn ctrl_key(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::CONTROL))
     }
 
     /// 删掉提示行里预填的文件名。

@@ -7,9 +7,10 @@ use crossterm::event::{
     DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture,
 };
 use crossterm::execute;
+use crossterm::style::Print;
 use ratatui::DefaultTerminal;
 
-/// 持有终端；`Drop` 时恢复鼠标、粘贴、焦点事件、光标形状、raw mode 与 alternate screen，
+/// 持有终端；`Drop` 时恢复鼠标、粘贴、焦点事件、光标形状、窗口标题、raw mode 与 alternate screen，
 /// `?` 早退也不例外。panic 时由下面包装的 hook 先恢复终端再打印信息。
 ///
 /// 鼠标捕获可能在运行中由设置面板打开，所以退出时**无条件**关闭（对没开过的终端无副作用）。
@@ -33,7 +34,12 @@ impl TerminalGuard {
             let _ = execute!(out, DisableMouseCapture);
             #[cfg(not(windows))]
             let _ = execute!(out, crossterm::event::DisableBracketedPaste);
-            let _ = execute!(out, DisableFocusChange, SetCursorStyle::DefaultUserShape);
+            let _ = execute!(
+                out,
+                DisableFocusChange,
+                SetCursorStyle::DefaultUserShape,
+                Print(CLEAR_TITLE)
+            );
             ratatui_hook(info);
         }));
         // Windows 的 Console API 不产生 Event::Paste，改由 app::coalesce_paste 合并
@@ -52,7 +58,8 @@ impl Drop for TerminalGuard {
         let _ = execute!(
             io::stdout(),
             DisableFocusChange,
-            SetCursorStyle::DefaultUserShape
+            SetCursorStyle::DefaultUserShape,
+            Print(CLEAR_TITLE)
         );
         ratatui::restore();
     }
@@ -65,6 +72,37 @@ pub fn set_mouse_capture(out: &mut impl io::Write, on: bool) -> io::Result<()> {
         execute!(out, EnableMouseCapture)
     } else {
         execute!(out, DisableMouseCapture)
+    }
+}
+
+/// 退出时清空窗口标题（OSC 2 空标题），免得编辑器关掉后窗口还挂着文章标题。
+pub const CLEAR_TITLE: &str = "\x1b]2;\x07";
+
+/// OSC 2 设置窗口标题：`ESC ] 2 ; <title> BEL`。控制字符一律去掉（`BEL` / `ESC` 会提前结束序列或注入新的序列），
+/// 调用方已过滤时这里不改变任何东西。
+pub fn osc2(title: &str) -> String {
+    format!("\x1b]2;{}\x07", strip_controls(title))
+}
+
+/// 去掉 C0、DEL 与 C1 控制字符（C1 里的 0x9B / 0x9C 在 8 位终端上就是 CSI / ST）。
+pub fn strip_controls(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control()).collect()
+}
+
+/// 窗口标题去重：同一个标题只写一次序列。标题编辑时每敲一个字都会变，其余时候不发。
+#[derive(Debug, Default)]
+pub struct WindowTitle {
+    last: Option<String>,
+}
+
+impl WindowTitle {
+    /// 标题与上次写出的不同时返回要写的 OSC 2 序列，并记下它。
+    pub fn update(&mut self, title: &str) -> Option<String> {
+        if self.last.as_deref() == Some(title) {
+            return None;
+        }
+        self.last = Some(title.to_owned());
+        Some(osc2(title))
     }
 }
 
@@ -110,5 +148,30 @@ mod tests {
             assert_eq!(base64(input.as_bytes()), want);
         }
         assert_eq!(osc52("hi"), "\x1b]52;c;aGk=\x07");
+    }
+
+    #[test]
+    fn osc2_strips_control_characters() {
+        assert_eq!(osc2("春天"), "\x1b]2;春天\x07");
+        assert_eq!(osc2("a\x07b\x1b]2;evil\x07c"), "\x1b]2;ab]2;evilc\x07");
+        assert_eq!(
+            osc2("tab\there\r\n\u{7f}\u{9b}31m"),
+            "\x1b]2;tabhere31m\x07"
+        );
+        assert_eq!(CLEAR_TITLE, osc2(""));
+    }
+
+    #[test]
+    fn window_title_is_sent_only_when_it_changes() {
+        let mut w = WindowTitle::default();
+        assert_eq!(w.update("Notes").as_deref(), Some("\x1b]2;Notes\x07"));
+        assert_eq!(w.update("Notes"), None, "同一个标题不再发");
+        assert_eq!(w.update("Notes!").as_deref(), Some("\x1b]2;Notes!\x07"));
+        assert_eq!(w.update("Notes!"), None);
+        // 改回去也是变化
+        assert_eq!(w.update("Notes").as_deref(), Some("\x1b]2;Notes\x07"));
+        // 空标题（理论上不会出现）也照常去重
+        assert_eq!(w.update("").as_deref(), Some(CLEAR_TITLE));
+        assert_eq!(w.update(""), None);
     }
 }

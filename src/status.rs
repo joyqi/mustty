@@ -7,7 +7,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Style};
 use ropey::Rope;
 
+use crate::editor::document::TitleField;
 use crate::i18n::{t, t_args};
+use crate::terminal::strip_controls;
 use crate::text::count::thousands;
 use crate::text::grapheme::{graphemes, next_boundary, prev_boundary};
 use crate::text::wrap::line_text;
@@ -209,6 +211,21 @@ impl StatusModel {
     }
 
     /// basename；无路径时为 `Untitled`（按界面语言）。
+    /// 终端窗口标题：非空的 H1 标题 > 文件名（含扩展名）> `Untitled`；控制字符已去掉。
+    pub fn window_title(title: &TitleField, path: Option<&Path>) -> String {
+        match title {
+            TitleField::Bound { text, .. } => {
+                let text = strip_controls(text);
+                if text.trim().is_empty() {
+                    strip_controls(&Self::file_name(path))
+                } else {
+                    text
+                }
+            }
+            TitleField::Unbound => strip_controls(&Self::file_name(path)),
+        }
+    }
+
     pub fn file_name(path: Option<&Path>) -> String {
         match path {
             Some(p) => p.file_name().map_or_else(
@@ -233,6 +250,35 @@ impl StatusModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_title_prefers_h1_then_file_name() {
+        crate::i18n::init_for_test("en");
+        let h1 = |s: &str| TitleField::Bound {
+            text: s.into(),
+            sep: "\n".into(),
+        };
+        let path = Path::new("/home/me/drafts/notes.md");
+        let wt = StatusModel::window_title;
+        assert_eq!(wt(&h1("春天的信"), Some(path)), "春天的信");
+        assert_eq!(wt(&h1("春天的信"), None), "春天的信");
+        assert_eq!(wt(&TitleField::Unbound, Some(path)), "notes.md");
+        assert_eq!(wt(&h1(""), Some(path)), "notes.md", "空 H1 退回文件名");
+        assert_eq!(wt(&h1("  "), Some(path)), "notes.md");
+        assert_eq!(wt(&TitleField::Unbound, None), "Untitled");
+        assert_eq!(wt(&h1(""), None), "Untitled");
+        // 控制字符：BEL / ESC 会结束或注入序列，一律去掉
+        assert_eq!(wt(&h1("a\x07b\x1b]0;pwned\x07"), None), "ab]0;pwned");
+        assert_eq!(
+            wt(&h1("\x1b\x07"), Some(path)),
+            "notes.md",
+            "只剩控制字符等于空"
+        );
+        assert_eq!(
+            wt(&TitleField::Unbound, Some(Path::new("evil\x1b[2J.md"))),
+            "evil[2J.md"
+        );
+    }
 
     #[test]
     fn position_counts_graphemes() {

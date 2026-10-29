@@ -21,6 +21,7 @@ mustty is an old-fashioned place to write by hand, one word at a time, inside th
 - Autosave writes atomically after 2 seconds of idle time, on focus loss, and on quit, and pauses if another program modifies the file on disk.
 - Soft wrapping follows Unicode line-breaking rules (UAX #14), so mixed English and CJK text wraps cleanly and closing punctuation never starts a line.
 - Positioning the terminal's hardware cursor—rather than drawing a fake one—keeps IME candidate windows attached to the character you are typing.
+- The terminal window title follows the document title (or its file name) as you type.
 - Typewriter mode (`Ctrl+T`), Focus mode (`Ctrl+F`), optional vim keys, optional mouse support, OSC 52 clipboard over SSH, and an English / Simplified Chinese UI.
 
 ## Install
