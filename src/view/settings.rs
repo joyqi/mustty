@@ -9,7 +9,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::config::Config;
 use crate::i18n::{self, t};
-use crate::settings::{Field, Kind, Value, color_name};
+use crate::settings::{Field, Kind, Value, color_name, cursor_name};
 use crate::view::theme;
 
 /// 正文区高 `height` 行时列表可用的行数与说明行的位置（相对正文区顶端）。
@@ -47,6 +47,7 @@ fn value_spans(field: Field, config: &Config) -> Vec<(String, Style)> {
             (format!(" {} ›", color_name(c)), plain),
         ],
         // Auto 后面用 DIM 标出实际生效的语言；语言名用各自的母语写法，不翻译
+        (Value::Cursor(c), _) => vec![(format!("‹ {} ›", cursor_name(c)), plain)],
         (Value::Lang(i18n::AUTO), _) => vec![
             (format!("‹ {} ›", t("settings-lang-auto")), plain),
             (format!("  ({})", i18n::current()), dim),
@@ -54,6 +55,28 @@ fn value_spans(field: Field, config: &Config) -> Vec<(String, Style)> {
         (Value::Lang(tag), _) => vec![(format!("‹ {} ›", i18n::native_name(tag)), plain)],
         (Value::Int(i), _) => vec![(i.to_string(), plain)],
     }
+}
+
+/// 一项的值占几列。
+fn value_width(spans: &[(String, Style)]) -> u16 {
+    spans.iter().map(|(s, _)| s.width() as u16).sum()
+}
+
+/// 选中行的值末尾（`‹ bar ›` 的 `›` 之后）：面板打开时硬件光标停在这里，上下选、左右改时一直可见，
+/// 改光标形状能立刻看到效果。选中行不在可见范围内时为 None。
+pub fn cursor_position(
+    area: Rect,
+    config: &Config,
+    selected: usize,
+    scroll: usize,
+) -> Option<(u16, u16)> {
+    let (rows, _) = list_rows(area.height);
+    if selected < scroll || selected >= scroll + rows {
+        return None;
+    }
+    let w = value_width(&value_spans(Field::ALL[selected], config));
+    let x = area.right().saturating_sub(w).max(area.x) + w;
+    Some((x.min(area.right()), area.y + (selected - scroll) as u16))
 }
 
 fn put(buf: &mut Buffer, x: u16, y: u16, max_x: u16, text: &str, style: Style) -> u16 {
@@ -81,7 +104,7 @@ impl Widget for SettingsWidget<'_> {
                 }
             }
             let spans = value_spans(field, self.config);
-            let value_w: u16 = spans.iter().map(|(s, _)| s.width() as u16).sum();
+            let value_w = value_width(&spans);
             let value_x = right.saturating_sub(value_w).max(area.x);
             // 标签与值之间至少留一格
             put(
@@ -123,12 +146,33 @@ mod tests {
 
     #[test]
     fn rows_fit_or_scroll() {
-        // 11 项：放得下时列表、空一行、说明
-        assert_eq!(list_rows(20), (11, Some(12)));
-        assert_eq!(list_rows(13), (11, Some(12)));
-        assert_eq!(list_rows(12), (11, Some(11)));
-        assert_eq!(list_rows(11), (10, Some(10)));
+        // 13 项：放得下时列表、空一行、说明
+        assert_eq!(list_rows(20), (13, Some(14)));
+        assert_eq!(list_rows(15), (13, Some(14)));
+        assert_eq!(list_rows(14), (13, Some(13)));
+        assert_eq!(list_rows(13), (12, Some(12)));
         assert_eq!(list_rows(6), (5, Some(5)));
         assert_eq!(list_rows(1), (1, None));
+    }
+
+    #[test]
+    fn cursor_sits_after_the_selected_value() {
+        crate::i18n::init_for_test("en");
+        let area = Rect::new(4, 2, 72, 20);
+        let c = Config::default();
+        // cursor 一项：`‹ bar ›` 右对齐，光标在 `›` 之后（正文区右边界）
+        let at = Field::ALL.iter().position(|&f| f == Field::Cursor).unwrap();
+        assert_eq!(
+            cursor_position(area, &c, at, 0),
+            Some((area.right(), 2 + at as u16))
+        );
+        // 滚动后按可见行算；滚出去了就没有
+        assert_eq!(cursor_position(area, &c, 3, 2), Some((area.right(), 3)));
+        assert_eq!(cursor_position(area, &c, 1, 2), None);
+        let short = Rect::new(4, 2, 72, 4);
+        assert_eq!(cursor_position(short, &c, 3, 0), None, "只有 3 行列表");
+        // 值比正文区还宽时，光标停在被截断的末尾
+        let narrow = Rect::new(0, 0, 4, 20);
+        assert_eq!(cursor_position(narrow, &c, at, 0), Some((4, at as u16)));
     }
 }

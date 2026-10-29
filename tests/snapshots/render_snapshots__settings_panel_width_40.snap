@@ -13,7 +13,7 @@ expression: "settings_panel(40, 50, 20, 1)"
 11: "     上 下 留 白                         ‹ 3 ›" NONE | " 行" DIM
 12: "     Tab 宽 度                         ‹ 4 ›" NONE | " 格" DIM
 13: "     代 码 颜 色                         ‹" NONE | "■" NONE fg=Cyan | " 青  ›" NONE
-14: "     语 言                    ‹ 自 动  ›" NONE | "  (zh-CN)" DIM
+14: "     光 标                             ‹ 竖 线  ›" NONE
 15: "使" DIM | "用" DIM | " vim 风" DIM | "格" DIM | "的" DIM | " Normal / Insert 模" DIM | "式" DIM
 17: "↑↓ 选" DIM | "择" DIM | "  ←→ 调" DIM | "整" DIM | "  Enter 保" DIM | "存" DIM | "  Esc 取" DIM | "消" DIM
 
@@ -31,11 +31,11 @@ expression: "settings_panel(40, 50, 20, 1)"
 "     上下留白                        ‹ 3 › 行     " Hidden by multi-width symbols: [(6, " "), (8, " "), (10, " "), (12, " "), (44, " ")]
 "     Tab 宽度                        ‹ 4 › 格     " Hidden by multi-width symbols: [(10, " "), (12, " "), (44, " ")]
 "     代码颜色                        ‹ ■ 青 ›     " Hidden by multi-width symbols: [(6, " "), (8, " "), (10, " "), (12, " "), (42, " ")]
-"     语言                   ‹ 自动 ›  (zh-CN)     " Hidden by multi-width symbols: [(6, " "), (8, " "), (31, " "), (33, " ")]
+"     光标                            ‹ 竖线 ›     " Hidden by multi-width symbols: [(6, " "), (8, " "), (40, " "), (42, " ")]
 "     使用 vim 风格的 Normal / Insert 模式         " Hidden by multi-width symbols: [(6, " "), (8, " "), (15, " "), (17, " "), (19, " "), (38, " "), (40, " ")]
 "                                                  "
 "     ↑↓ 选择  ←→ 调整  Enter 保存  Esc 取消       " Hidden by multi-width symbols: [(9, " "), (11, " "), (18, " "), (20, " "), (30, " "), (32, " "), (40, " "), (42, " ")]
 "                                                  "
 "                                                  "
 
-cursor: Position { x: 0, y: 0 } visible: false
+cursor: Position { x: 45, y: 5 } visible: true

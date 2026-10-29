@@ -574,7 +574,7 @@ fn settings_language_switches_live() {
     let mut app = App::with_config(doc, Size::new(w, h), &config);
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     app.handle(ctrl('p'));
-    for _ in 0..10 {
+    for _ in 0..12 {
         app.handle(key(KeyCode::Down));
     }
     terminal.draw(|f| view::render(f, &mut app)).unwrap();

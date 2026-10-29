@@ -17,14 +17,14 @@ expression: snapshot(en.clone())
 "    Scroll margin                                                ‹ 3 › lines    "
 "    Tab width                                                   ‹ 4 › spaces    "
 "    Code color                                                    ‹ ■ cyan ›    "
+"    Cursor                                                           ‹ bar ›    "
+"    Cursor blink                                                         Off    "
 "    Language                                                     ‹ English ›    "
-"                                                                                "
 "    Interface language; Auto follows your locale settings                       "
-"                                                                                "
 "                                                                                "
 "    ↑↓ select  ←→ adjust  Enter save  Esc cancel                                "
 "                                                                                "
 "                                                                                "
 "                                                                                "
 
-cursor: Position { x: 0, y: 0 } visible: false
+cursor: Position { x: 76, y: 17 } visible: true

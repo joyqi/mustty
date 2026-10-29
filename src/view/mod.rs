@@ -164,7 +164,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 }
 
 /// 面板共用的外框：标题行显示面板名（BOLD），status bar 显示操作提示；错误消息优先于提示。
-/// 面板打开时不显示光标、不接受鼠标。
+/// 面板打开时不接受鼠标；光标只在设置面板里显示（停在选中值的末尾，用于预览光标形状）。
 fn render_panel_chrome(frame: &mut Frame, app: &mut App, layout: &Layout, title: &str, hint: &str) {
     app.screen = None;
     let tab = app.config.tab_width;
@@ -206,6 +206,11 @@ fn render_settings(frame: &mut Frame, app: &mut App, layout: &Layout) {
         scroll,
     };
     frame.render_widget(widget, layout.body);
+    // 硬件光标停在选中值的末尾：改 cursor / cursor_blink 时立刻能看到新形状
+    if let Some((x, y)) = settings::cursor_position(layout.body, &app.config, selected, scroll) {
+        let x = x.min(frame.area().right().saturating_sub(1));
+        frame.set_cursor_position((x, y));
+    }
 }
 
 /// 键位帮助：正文区换成键位表，内容超出时按 `Help::scroll` 滚动。

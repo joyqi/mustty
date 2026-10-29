@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crossterm::cursor::SetCursorStyle;
 use ratatui::style::Color;
 use serde::Deserialize;
 
@@ -27,6 +28,9 @@ pub struct Config {
     pub tab_width: u16,
     /// 存选项本身而不是 `Color`：`white` 与 `gray` 都映射到 `Color::Gray`，反推不回来
     pub code_color: CodeColor,
+    /// 编辑时的光标形状（vim Normal 态不受它影响，始终是方块）
+    pub cursor: CursorShape,
+    pub cursor_blink: bool,
     /// 界面语言：`i18n::AUTO` 或 `i18n::LOCALES` 里的标签
     pub lang: &'static str,
 }
@@ -44,7 +48,44 @@ impl Default for Config {
             scrolloff: 3,
             tab_width: 4,
             code_color: CodeColor::Cyan,
+            cursor: CursorShape::Bar,
+            cursor_blink: false,
             lang: i18n::AUTO,
+        }
+    }
+}
+
+/// 光标形状：`cursor = "bar" | "block" | "underline"`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CursorShape {
+    Bar,
+    Block,
+    Underline,
+}
+
+impl CursorShape {
+    /// 设置面板里的循环顺序。
+    pub const ALL: [CursorShape; 3] = [Self::Bar, Self::Block, Self::Underline];
+
+    /// 配置文件里的写法。
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Bar => "bar",
+            Self::Block => "block",
+            Self::Underline => "underline",
+        }
+    }
+
+    /// 对应的终端光标形状（DECSCUSR）。
+    pub fn style(self, blink: bool) -> SetCursorStyle {
+        match (self, blink) {
+            (Self::Bar, false) => SetCursorStyle::SteadyBar,
+            (Self::Bar, true) => SetCursorStyle::BlinkingBar,
+            (Self::Block, false) => SetCursorStyle::SteadyBlock,
+            (Self::Block, true) => SetCursorStyle::BlinkingBlock,
+            (Self::Underline, false) => SetCursorStyle::SteadyUnderScore,
+            (Self::Underline, true) => SetCursorStyle::BlinkingUnderScore,
         }
     }
 }
@@ -119,6 +160,8 @@ pub struct PartialConfig {
     pub scrolloff: Option<u16>,
     pub tab_width: Option<u16>,
     pub code_color: Option<CodeColor>,
+    pub cursor: Option<CursorShape>,
+    pub cursor_blink: Option<bool>,
     pub lang: Option<&'static str>,
 }
 
@@ -135,7 +178,7 @@ impl ConfigWarning {
     }
 }
 
-pub const KEYS: [&str; 11] = [
+pub const KEYS: [&str; 13] = [
     "width",
     "vim",
     "mouse",
@@ -146,6 +189,8 @@ pub const KEYS: [&str; 11] = [
     "scrolloff",
     "tab_width",
     "code_color",
+    "cursor",
+    "cursor_blink",
     "lang",
 ];
 
@@ -211,6 +256,19 @@ impl PartialConfig {
                 "autosave" => p.autosave = boolean(&mut warn),
                 "typewriter" => p.typewriter = boolean(&mut warn),
                 "focus_mode" => p.focus_mode = boolean(&mut warn),
+                "cursor_blink" => p.cursor_blink = boolean(&mut warn),
+                "cursor" => {
+                    // 大小写不敏感
+                    p.cursor = value.as_str().and_then(|s| {
+                        CursorShape::ALL
+                            .into_iter()
+                            .find(|c| c.name().eq_ignore_ascii_case(s))
+                    });
+                    if p.cursor.is_none() {
+                        let value = value.to_string();
+                        warn(t_args("config-invalid-cursor", &[("value", &value)]));
+                    }
+                }
                 "code_color" => {
                     // 大小写不敏感
                     let lowered = value
@@ -265,6 +323,8 @@ impl Config {
         self.scrolloff = p.scrolloff.unwrap_or(self.scrolloff);
         self.tab_width = p.tab_width.unwrap_or(self.tab_width);
         self.code_color = p.code_color.unwrap_or(self.code_color);
+        self.cursor = p.cursor.unwrap_or(self.cursor);
+        self.cursor_blink = p.cursor_blink.unwrap_or(self.cursor_blink);
         self.lang = p.lang.unwrap_or(self.lang);
         self
     }
@@ -315,6 +375,8 @@ impl Config {
             "scrolloff" => Scalar::Int(self.scrolloff.into()),
             "tab_width" => Scalar::Int(self.tab_width.into()),
             "code_color" => Scalar::Str(self.code_color.name()),
+            "cursor" => Scalar::Str(self.cursor.name()),
+            "cursor_blink" => Scalar::Bool(self.cursor_blink),
             "lang" => Scalar::Str(self.lang),
             _ => unreachable!("不在 KEYS 里的键 {key}"),
         }
@@ -426,6 +488,8 @@ mod tests {
             scrolloff = 5
             tab_width = 2
             code_color = "yellow"
+            cursor = "underline"
+            cursor_blink = true
             lang = "zh-CN"
         "#;
         let want = Config {
@@ -439,6 +503,8 @@ mod tests {
             scrolloff: 5,
             tab_width: 2,
             code_color: CodeColor::Yellow,
+            cursor: CursorShape::Underline,
+            cursor_blink: true,
             lang: "zh-CN",
         };
         assert_eq!(parse(text), (want, vec![]));
@@ -475,6 +541,95 @@ mod tests {
         }
         let (_, w) = parse("lang = \"xx\"\nwidth = 200");
         assert!(summarize(&w).unwrap().contains("lang="), "汇总进配置警告");
+    }
+
+    #[test]
+    fn cursor_accepts_three_shapes_and_falls_back_to_bar() {
+        crate::i18n::init_for_test("en");
+        assert_eq!(
+            (Config::default().cursor, Config::default().cursor_blink),
+            (CursorShape::Bar, false),
+            "默认与原来一样：常亮竖线"
+        );
+        for (text, want) in [
+            ("cursor = \"bar\"", CursorShape::Bar),
+            ("cursor = \"block\"", CursorShape::Block),
+            ("cursor = \"underline\"", CursorShape::Underline),
+            ("cursor = \"Block\"", CursorShape::Block),
+        ] {
+            let (c, w) = parse(text);
+            assert_eq!((c.cursor, w), (want, vec![]), "{text}");
+        }
+        // 非法值：回退 bar，警告列出该键与可选值，并汇总进配置警告
+        for bad in ["\"beam\"", "\"\"", "1", "true"] {
+            let (c, w) = parse(&format!("cursor = {bad}"));
+            assert_eq!(
+                (c.cursor, keys(&w)),
+                (CursorShape::Bar, vec![Some("cursor")]),
+                "{bad}"
+            );
+            assert!(
+                w[0].message.contains("bar block underline"),
+                "{}",
+                w[0].message
+            );
+        }
+        let (c, w) = parse("cursor_blink = \"yes\"");
+        assert_eq!(
+            (c.cursor_blink, keys(&w)),
+            (false, vec![Some("cursor_blink")])
+        );
+        let (_, w) = parse("cursor = \"beam\"\nwidth = 200");
+        assert!(summarize(&w).unwrap().contains("cursor="));
+    }
+
+    #[test]
+    fn cursor_shape_maps_to_decscusr() {
+        use SetCursorStyle::*;
+        let cases = [
+            (CursorShape::Bar, false, SteadyBar),
+            (CursorShape::Bar, true, BlinkingBar),
+            (CursorShape::Block, false, SteadyBlock),
+            (CursorShape::Block, true, BlinkingBlock),
+            (CursorShape::Underline, false, SteadyUnderScore),
+            (CursorShape::Underline, true, BlinkingUnderScore),
+        ];
+        let ansi = |s: SetCursorStyle| {
+            let mut out = String::new();
+            crossterm::Command::write_ansi(&s, &mut out).unwrap();
+            out
+        };
+        for (shape, blink, want) in cases {
+            assert_eq!(
+                ansi(shape.style(blink)),
+                ansi(want),
+                "{shape:?} blink={blink}"
+            );
+        }
+        // DECSCUSR 的编号：闪烁为奇数、常亮为偶数
+        assert_eq!(ansi(CursorShape::Bar.style(false)), "\x1b[6 q");
+        assert_eq!(ansi(CursorShape::Underline.style(true)), "\x1b[3 q");
+    }
+
+    #[test]
+    fn write_back_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        std::fs::write(&path, "# mine\ncursor = \"bar\" # comment\n").unwrap();
+        let old = loaded("cursor = \"bar\"\n");
+        let new = Config {
+            cursor: CursorShape::Block,
+            cursor_blink: true,
+            ..old.clone()
+        };
+        assert_eq!(changed_keys(&old, &new), vec!["cursor", "cursor_blink"]);
+        write_back(&path, &old, &new).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            written,
+            "# mine\ncursor = \"block\" # comment\ncursor_blink = true\n"
+        );
+        assert_eq!(loaded(&written), new);
     }
 
     #[test]

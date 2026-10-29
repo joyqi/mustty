@@ -1,4 +1,4 @@
-//! 设置面板：表驱动的 11 个配置项与面板状态机。渲染见 `view::settings`。
+//! 设置面板：表驱动的 13 个配置项与面板状态机。渲染见 `view::settings`。
 //!
 //! 面板只读写 `Config` 的副本；每次调整由 App 立刻 `apply_config`，关闭时决定保留还是回滚。
 
@@ -7,7 +7,8 @@ use std::time::Duration;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::config::{
-    AUTOSAVE_IDLE_RANGE, CodeColor, Config, SCROLLOFF_RANGE, TAB_WIDTH_RANGE, WIDTH_RANGE,
+    AUTOSAVE_IDLE_RANGE, CodeColor, Config, CursorShape, SCROLLOFF_RANGE, TAB_WIDTH_RANGE,
+    WIDTH_RANGE,
 };
 use crate::i18n::{self, t};
 
@@ -26,6 +27,8 @@ pub enum Field {
     Scrolloff,
     TabWidth,
     CodeColor,
+    Cursor,
+    CursorBlink,
     Lang,
 }
 
@@ -47,6 +50,7 @@ pub enum Value {
     Bool(bool),
     Int(i64),
     Color(CodeColor),
+    Cursor(CursorShape),
     /// `i18n::AUTO` 或语言标签
     Lang(&'static str),
 }
@@ -62,7 +66,7 @@ fn range<T: Into<i64>>((lo, hi): (T, T)) -> (i64, i64) {
 
 impl Field {
     /// 显示顺序。
-    pub const ALL: [Field; 11] = [
+    pub const ALL: [Field; 13] = [
         Self::Width,
         Self::Vim,
         Self::Mouse,
@@ -73,6 +77,8 @@ impl Field {
         Self::Scrolloff,
         Self::TabWidth,
         Self::CodeColor,
+        Self::Cursor,
+        Self::CursorBlink,
         Self::Lang,
     ];
 
@@ -89,6 +95,8 @@ impl Field {
             Self::Scrolloff => "scrolloff",
             Self::TabWidth => "tab_width",
             Self::CodeColor => "code_color",
+            Self::Cursor => "cursor",
+            Self::CursorBlink => "cursor_blink",
             Self::Lang => "lang",
         }
     }
@@ -105,6 +113,8 @@ impl Field {
             Self::Scrolloff => t("settings-scrolloff"),
             Self::TabWidth => t("settings-tab-width"),
             Self::CodeColor => t("settings-code-color"),
+            Self::Cursor => t("settings-cursor"),
+            Self::CursorBlink => t("settings-cursor-blink"),
             Self::Lang => t("settings-lang"),
         }
     }
@@ -122,6 +132,8 @@ impl Field {
             Self::Scrolloff => t("settings-scrolloff-help"),
             Self::TabWidth => t("settings-tab-width-help"),
             Self::CodeColor => t("settings-code-color-help"),
+            Self::Cursor => t("settings-cursor-help"),
+            Self::CursorBlink => t("settings-cursor-blink-help"),
             Self::Lang => t("settings-lang-help"),
         }
     }
@@ -139,10 +151,13 @@ impl Field {
             Self::AutosaveIdle => int(range(AUTOSAVE_IDLE_RANGE_I64), 500, t("settings-unit-ms")),
             Self::Scrolloff => int(range(SCROLLOFF_RANGE), 1, t("settings-unit-lines")),
             Self::TabWidth => int(range(TAB_WIDTH_RANGE), 1, t("settings-unit-spaces")),
-            Self::CodeColor | Self::Lang => Kind::Choice,
-            Self::Vim | Self::Mouse | Self::Autosave | Self::Typewriter | Self::FocusMode => {
-                Kind::Toggle
-            }
+            Self::CodeColor | Self::Cursor | Self::Lang => Kind::Choice,
+            Self::Vim
+            | Self::Mouse
+            | Self::Autosave
+            | Self::Typewriter
+            | Self::FocusMode
+            | Self::CursorBlink => Kind::Toggle,
         }
     }
 
@@ -158,6 +173,8 @@ impl Field {
             Self::Scrolloff => Value::Int(c.scrolloff.into()),
             Self::TabWidth => Value::Int(c.tab_width.into()),
             Self::CodeColor => Value::Color(c.code_color),
+            Self::Cursor => Value::Cursor(c.cursor),
+            Self::CursorBlink => Value::Bool(c.cursor_blink),
             Self::Lang => Value::Lang(c.lang),
         }
     }
@@ -181,6 +198,8 @@ impl Field {
             (Self::Scrolloff, Value::Int(i)) => c.scrolloff = clamp(i) as u16,
             (Self::TabWidth, Value::Int(i)) => c.tab_width = clamp(i) as u16,
             (Self::CodeColor, Value::Color(color)) => c.code_color = color,
+            (Self::Cursor, Value::Cursor(shape)) => c.cursor = shape,
+            (Self::CursorBlink, Value::Bool(b)) => c.cursor_blink = b,
             (Self::Lang, Value::Lang(lang)) => {
                 // 没有译文的标签不接受（类型对，只是不在选项里）
                 if lang_options().contains(&lang) {
@@ -199,6 +218,7 @@ impl Field {
                 Value::Int((i + steps * step).clamp(min, max))
             }
             (Value::Color(color), _) => Value::Color(cycle(&CodeColor::ALL, color, steps)),
+            (Value::Cursor(shape), _) => Value::Cursor(cycle(&CursorShape::ALL, shape, steps)),
             (Value::Lang(lang), _) => Value::Lang(cycle(&lang_options(), lang, steps)),
             (v, _) => v,
         }
@@ -226,6 +246,15 @@ pub fn color_name(c: CodeColor) -> &'static str {
         CodeColor::Magenta => t("color-magenta"),
         CodeColor::Cyan => t("color-cyan"),
         CodeColor::White => t("color-white"),
+    }
+}
+
+/// 光标形状名（已翻译）。
+pub fn cursor_name(c: CursorShape) -> &'static str {
+    match c {
+        CursorShape::Bar => t("cursor-bar"),
+        CursorShape::Block => t("cursor-block"),
+        CursorShape::Underline => t("cursor-underline"),
     }
 }
 
@@ -351,6 +380,8 @@ mod tests {
             Value::Int(7),
             Value::Int(8),
             Value::Color(CodeColor::Magenta),
+            Value::Cursor(CursorShape::Underline),
+            Value::Bool(true),
             Value::Lang("zh-CN"),
         ];
         assert_eq!(values.len(), Field::ALL.len());
@@ -424,6 +455,58 @@ mod tests {
             Value::Color(CodeColor::White),
             "向左从第一个绕到最后一个"
         );
+    }
+
+    #[test]
+    fn cursor_cycles_and_blink_toggles() {
+        assert_eq!(Field::Cursor.kind(), Kind::Choice);
+        assert_eq!(Field::CursorBlink.kind(), Kind::Toggle);
+        let mut c = Config::default();
+        let mut seen = vec![c.cursor];
+        for _ in 0..3 {
+            let v = Field::Cursor.adjust(&c, 1);
+            Field::Cursor.set(&mut c, v);
+            seen.push(c.cursor);
+        }
+        assert_eq!(
+            seen,
+            vec![
+                CursorShape::Bar,
+                CursorShape::Block,
+                CursorShape::Underline,
+                CursorShape::Bar
+            ],
+            "bar → block → underline → bar"
+        );
+        assert_eq!(
+            Field::Cursor.adjust(&c, -1),
+            Value::Cursor(CursorShape::Underline),
+            "向左从第一个绕到最后一个"
+        );
+        // 面板里：选到 cursor，→ 循环；选到 cursor_blink，Space 开关
+        let mut s = Settings::open(&c);
+        while s.field() != Field::Cursor {
+            s.handle_key(&press(KeyCode::Down), &c);
+        }
+        let Outcome::Changed(block) = s.handle_key(&press(KeyCode::Right), &c) else {
+            panic!()
+        };
+        assert_eq!(block.cursor, CursorShape::Block);
+        assert_eq!(
+            s.handle_key(&press(KeyCode::Char(' ')), &c),
+            Outcome::Ignored,
+            "Space 只切换开关"
+        );
+        s.handle_key(&press(KeyCode::Down), &c);
+        assert_eq!(s.field(), Field::CursorBlink);
+        let Outcome::Changed(blink) = s.handle_key(&press(KeyCode::Char(' ')), &c) else {
+            panic!()
+        };
+        assert!(blink.cursor_blink);
+        let Outcome::Changed(steady) = s.handle_key(&press(KeyCode::Right), &blink) else {
+            panic!()
+        };
+        assert!(!steady.cursor_blink);
     }
 
     #[test]

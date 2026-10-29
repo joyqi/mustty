@@ -75,6 +75,8 @@ pub struct App {
     /// 终端支持 OSC 52（macOS Terminal 不支持）
     osc52_supported: bool,
     osc52_warned: bool,
+    /// 最后一次写给终端的光标形状序列（去重）；启动时 TerminalGuard 已设成竖线
+    cursor_sent: String,
     /// 已写给终端的窗口标题（去重）
     window_title: crate::terminal::WindowTitle,
     /// 「保存为」的相对路径以它为基准，预填的 untitled 名也在这里避让重名；默认是启动时的工作目录
@@ -135,15 +137,19 @@ impl App {
             output: Vec::new(),
             osc52_supported: std::env::var_os("TERM_PROGRAM").is_none_or(|t| t != "Apple_Terminal"),
             osc52_warned: false,
+            cursor_sent: String::new(),
             window_title: Default::default(),
             save_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             should_quit: false,
             needs_redraw: true,
         };
         app.apply_config(config);
-        // 启动时的终端状态（鼠标捕获、竖线光标）已由 TerminalGuard 设好，不再重复输出
+        // 启动时的终端状态（鼠标捕获、竖线光标）已由 TerminalGuard 设好，不再重复输出；
+        // 配置的光标形状不是竖线时，再推一次
         app.output.clear();
         app.mouse_capture = None;
+        app.cursor_sent = ansi(SetCursorStyle::SteadyBar);
+        app.sync_cursor_style();
         app
     }
 
@@ -187,24 +193,37 @@ impl App {
         if new.autosave && !old.autosave && self.editor.is_dirty() {
             self.last_edit = Some(now);
         }
+        // cursor / cursor_blink 变了（面板里即时预览），或 vim 关掉后回到 Insert
+        self.sync_cursor_style();
     }
 
-    /// vim 被关掉：Normal 态强制回 Insert（换回竖线光标），清掉 pending / visual 与选区。
+    /// vim 被关掉：Normal 态强制回 Insert（光标换回配置的形状），清掉 pending / visual 与选区。
     fn leave_vim(&mut self, now: Instant) {
         if matches!(self.mode, Mode::Insert) {
             return;
         }
         self.mode = Mode::Insert;
-        self.push_cursor_style(SetCursorStyle::SteadyBar);
         if self.editor.selection().is_some() {
             self.editor.apply(&Action::Cancel, 1, now);
         }
     }
 
-    fn push_cursor_style(&mut self, style: SetCursorStyle) {
-        let mut seq = String::new();
-        if style.write_ansi(&mut seq).is_ok() {
-            self.output.push(seq);
+    /// 当前应有的光标形状。vim Normal 态（含 visual）始终是方块：那是「命令模式」的信号，不是偏好；
+    /// 设置面板打开时一律用配置的形状，好在面板里预览；其余用配置的形状。
+    pub(crate) fn cursor_style(&self) -> SetCursorStyle {
+        if self.settings.is_none() && matches!(self.mode, Mode::Normal(_)) {
+            SetCursorStyle::SteadyBlock
+        } else {
+            self.config.cursor.style(self.config.cursor_blink)
+        }
+    }
+
+    /// 光标形状的唯一推送点：与上次写出的不同时才推序列。每个事件处理完、每次应用配置后调用。
+    fn sync_cursor_style(&mut self) {
+        let seq = ansi(self.cursor_style());
+        if seq != self.cursor_sent {
+            self.output.push(seq.clone());
+            self.cursor_sent = seq;
         }
     }
 
@@ -285,6 +304,12 @@ impl App {
     }
 
     pub fn handle_at(&mut self, ev: Event, now: Instant) {
+        self.handle_event(ev, now);
+        // 模式切换、面板开关、配置变化都可能改变光标形状
+        self.sync_cursor_style();
+    }
+
+    fn handle_event(&mut self, ev: Event, now: Instant) {
         match ev {
             Event::Resize(w, h) => {
                 // 同一批里的多个 Resize 只记下尺寸，重排在下一次绘制时进行一次
@@ -349,14 +374,6 @@ impl App {
         let left_visual = was_visual && !is_visual;
         if before != after || self.mode_label().is_some() {
             self.needs_redraw = true;
-        }
-        if before != after {
-            // Normal 态块状光标，Insert 态竖线
-            self.push_cursor_style(if after {
-                SetCursorStyle::SteadyBlock
-            } else {
-                SetCursorStyle::SteadyBar
-            });
         }
         // 进入 visual：选区从光标所在的字开始
         if is_visual && !was_visual {
@@ -790,6 +807,13 @@ pub fn coalesce_paste(events: Vec<Event>) -> Vec<Event> {
 }
 
 /// 粘贴时终端逐键送来的字符（含回车）。
+/// 光标形状的转义序列（DECSCUSR）。
+fn ansi(style: SetCursorStyle) -> String {
+    let mut seq = String::new();
+    let _ = style.write_ansi(&mut seq);
+    seq
+}
+
 fn typed_char(k: &KeyEvent) -> Option<char> {
     let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
     let altgr = ctrl && k.modifiers.contains(KeyModifiers::ALT);
@@ -1064,6 +1088,124 @@ mod tests {
         typed(&mut plain, "\x1bab");
         assert!(plain.take_terminal_output().is_empty());
         assert_eq!(plain.mode_label(), None);
+    }
+
+    /// 选到设置面板里的某一项。
+    fn select_field(app: &mut App, field: crate::settings::Field) {
+        let all = crate::settings::Field::ALL;
+        let want = all.iter().position(|&f| f == field).unwrap();
+        loop {
+            let at = app.settings.as_ref().unwrap().selected;
+            match at.cmp(&want) {
+                std::cmp::Ordering::Less => app.handle(press(KeyCode::Down)),
+                std::cmp::Ordering::Greater => app.handle(press(KeyCode::Up)),
+                std::cmp::Ordering::Equal => return,
+            }
+        }
+    }
+
+    #[test]
+    fn configured_cursor_shape_and_vim_normal_block() {
+        use crate::config::CursorShape;
+        let doc = || Document::parse("x", crate::editor::document::FileMeta::new(None));
+        // 启动：配置不是竖线时推一次（竖线由 TerminalGuard 设好，不重复）
+        let plain = App::new(doc(), Size::new(80, 24), false);
+        assert!(plain.output.is_empty());
+        let config = Config {
+            vim: true,
+            autosave: false,
+            cursor: CursorShape::Underline,
+            ..Config::default()
+        };
+        let mut app = App::with_config(doc(), Size::new(80, 24), &config);
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[4 q".to_owned()]);
+        // Normal（含 visual）始终 SteadyBlock，不受配置影响
+        typed(&mut app, "\x1b");
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
+        typed(&mut app, "v");
+        assert!(app.take_terminal_output().is_empty(), "visual 同 Normal");
+        typed(&mut app, "\x1bi");
+        assert_eq!(
+            app.take_terminal_output(),
+            vec!["\x1b[4 q".to_owned()],
+            "回 Insert：配置的下划线"
+        );
+        // 闪烁
+        app.apply_config(&Config {
+            cursor_blink: true,
+            ..app.config.clone()
+        });
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[3 q".to_owned()]);
+        // 关掉 vim 时正在 Normal：回到配置的形状（不是写死的竖线）
+        typed(&mut app, "\x1b");
+        app.take_terminal_output();
+        app.apply_config(&Config {
+            vim: false,
+            ..app.config.clone()
+        });
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[3 q".to_owned()]);
+    }
+
+    #[test]
+    fn settings_panel_previews_cursor_shape() {
+        use crate::config::CursorShape;
+        use crate::settings::Field;
+        let mut app = vim_app("hello");
+        typed(&mut app, "\x1b");
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
+        // 在 Normal 里打开面板：预览配置的形状（竖线），而不是 Normal 的方块
+        app.handle(ctrl('p'));
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[6 q".to_owned()]);
+        select_field(&mut app, Field::Cursor);
+        assert!(app.take_terminal_output().is_empty(), "移动选中项不推");
+        // 每改一次立刻推新形状，不等关面板
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            app.handle(press(KeyCode::Right));
+            seen.push((app.config.cursor, app.take_terminal_output()));
+        }
+        assert_eq!(
+            seen,
+            vec![
+                (CursorShape::Block, vec!["\x1b[2 q".to_owned()]),
+                (CursorShape::Underline, vec!["\x1b[4 q".to_owned()]),
+                (CursorShape::Bar, vec!["\x1b[6 q".to_owned()]),
+            ]
+        );
+        app.handle(press(KeyCode::Right));
+        app.take_terminal_output();
+        select_field(&mut app, Field::CursorBlink);
+        app.handle(press(KeyCode::Char(' ')));
+        assert!(app.config.cursor_blink);
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[1 q".to_owned()]);
+        // 面板里关掉 vim（Normal 被强制回 Insert）：模式切换不覆盖预览形状
+        select_field(&mut app, Field::Vim);
+        app.handle(press(KeyCode::Char(' ')));
+        assert!(!app.config.vim);
+        assert_eq!(app.mode, Mode::Insert);
+        assert!(
+            app.take_terminal_output().is_empty(),
+            "仍是预览中的闪烁方块"
+        );
+        // Esc 回滚：形状回到快照里的常亮竖线（此时在 Insert）
+        app.handle(press(KeyCode::Esc));
+        assert!(app.settings.is_none());
+        assert!(app.config.vim);
+        assert_eq!(app.config.cursor, CursorShape::Bar);
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[6 q".to_owned()]);
+        // Normal 里再开面板改成 underline、Enter 保留：回到 Normal 后仍是方块，进 Insert 才是下划线
+        typed(&mut app, "\x1b");
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
+        app.handle(ctrl('p'));
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[6 q".to_owned()]);
+        select_field(&mut app, Field::Cursor);
+        app.handle(press(KeyCode::Left));
+        assert_eq!(app.config.cursor, CursorShape::Underline);
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[4 q".to_owned()]);
+        app.handle(press(KeyCode::Enter));
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
+        typed(&mut app, "i");
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[4 q".to_owned()]);
     }
 
     fn mouse(kind: MouseEventKind, column: u16, row: u16) -> Event {
@@ -1741,7 +1883,7 @@ mod tests {
         app.set_config_path(Some(path.clone()));
         assert_eq!(app.placeholder(), "Untitled");
         app.handle(ctrl('p'));
-        for _ in 0..10 {
+        for _ in 0..12 {
             app.handle(press(KeyCode::Down));
         }
         assert_eq!(
@@ -1762,7 +1904,7 @@ mod tests {
         );
         // Esc 回滚语言也立即生效
         app.handle(ctrl('p'));
-        for _ in 0..10 {
+        for _ in 0..12 {
             app.handle(press(KeyCode::Down));
         }
         app.handle(press(KeyCode::Left));

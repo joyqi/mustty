@@ -49,7 +49,8 @@ mustty [FILE]
 Pass a file to open or create it on first save, or omit `FILE` to start an Untitled document (`-h` / `--help` and `-V` / `--version` are the only flags).
 
 - Press `Ctrl+G` inside the app (or `?` in vim Normal mode) to see the shortcuts worth knowing.
-- Press `Ctrl+P` to open the live settings panel. Changes apply immediately and write back to `~/.mustty.toml` (`width`, `vim`, `mouse`, `autosave`, `autosave_idle_ms`, `typewriter`, `focus_mode`, `scrolloff`, `tab_width`, `code_color`, `lang`).
+- Press `Ctrl+P` to open the live settings panel. Changes apply immediately and write back to `~/.mustty.toml` (`width`, `vim`, `mouse`, `autosave`, `autosave_idle_ms`, `typewriter`, `focus_mode`, `scrolloff`, `tab_width`, `code_color`, `cursor`, `cursor_blink`, `lang`).
+  `cursor` is `bar`, `block`, or `underline` (vim Normal mode always uses a block), previewed live in the panel.
 
 ## License
 
