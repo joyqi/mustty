@@ -62,21 +62,27 @@ fn value_width(spans: &[(String, Style)]) -> u16 {
     spans.iter().map(|(s, _)| s.width() as u16).sum()
 }
 
-/// 选中行的值末尾（`‹ bar ›` 的 `›` 之后）：面板打开时硬件光标停在这里，上下选、左右改时一直可见，
-/// 改光标形状能立刻看到效果。选中行不在可见范围内时为 None。
-pub fn cursor_position(
-    area: Rect,
-    config: &Config,
-    selected: usize,
-    scroll: usize,
-) -> Option<(u16, u16)> {
-    let (rows, _) = list_rows(area.height);
-    if selected < scroll || selected >= scroll + rows {
+/// 设置面板打开时硬件光标的位置：说明行上离右边界两格的固定列。
+/// 选中行整行反显，光标压在反显区边缘时形状看不清；说明行是普通背景，
+/// 说明文字也在这一列之前截断，光标总是落在空白处，形状清晰可辨。
+/// 列固定不随选中项变，上下选时光标不会左右跳。正文区不到两列时退到最后一列；
+/// 没有说明行（只剩一行高）时为 None。
+pub fn cursor_position(area: Rect) -> Option<(u16, u16)> {
+    let (_, help_y) = list_rows(area.height);
+    let dy = help_y?;
+    if area.width == 0 {
         return None;
     }
-    let w = value_width(&value_spans(Field::ALL[selected], config));
-    let x = area.right().saturating_sub(w).max(area.x) + w;
-    Some((x.min(area.right()), area.y + (selected - scroll) as u16))
+    Some((cursor_column(area), area.y + dy))
+}
+
+/// 预览光标所在列：`area.right() - 2`，窄到放不下时退到 `area.right() - 1`。
+fn cursor_column(area: Rect) -> u16 {
+    if area.width >= 2 {
+        area.right() - 2
+    } else {
+        area.right().saturating_sub(1)
+    }
 }
 
 fn put(buf: &mut Buffer, x: u16, y: u16, max_x: u16, text: &str, style: Style) -> u16 {
@@ -123,18 +129,24 @@ impl Widget for SettingsWidget<'_> {
         if let Some(dy) = help_y {
             let y = area.y + dy;
             let field = Field::ALL[self.selected];
+            // 说明在预览光标那一列之前截断，光标格总是空白
+            let help_right = if area.width >= 2 {
+                cursor_column(area)
+            } else {
+                right
+            };
             let x = put(
                 buf,
                 area.x,
                 y,
-                right,
+                help_right,
                 field.help(),
                 Style::from(Modifier::DIM),
             );
             // 代码颜色：说明后面放一个着色的样例
             if field == Field::CodeColor {
                 let sample = Style::default().fg(self.config.code_color.color());
-                put(buf, x + 2, y, right, "`code`", sample);
+                put(buf, x + 2, y, help_right, "`code`", sample);
             }
         }
     }
@@ -155,24 +167,78 @@ mod tests {
         assert_eq!(list_rows(1), (1, None));
     }
 
+    /// 说明行那一行里，`x` 处及右边全是空白（没有被说明文字或样例占用）。
+    fn blank_from(buf: &Buffer, area: Rect, x: u16, y: u16) -> bool {
+        (x..area.right()).all(|x| buf[(x, y)].symbol() == " ")
+    }
+
     #[test]
-    fn cursor_sits_after_the_selected_value() {
+    fn cursor_sits_on_the_help_line_at_a_fixed_column() {
         crate::i18n::init_for_test("en");
         let area = Rect::new(4, 2, 72, 20);
         let c = Config::default();
-        // cursor 一项：`‹ bar ›` 右对齐，光标在 `›` 之后（正文区右边界）
-        let at = Field::ALL.iter().position(|&f| f == Field::Cursor).unwrap();
-        assert_eq!(
-            cursor_position(area, &c, at, 0),
-            Some((area.right(), 2 + at as u16))
-        );
-        // 滚动后按可见行算；滚出去了就没有
-        assert_eq!(cursor_position(area, &c, 3, 2), Some((area.right(), 3)));
-        assert_eq!(cursor_position(area, &c, 1, 2), None);
-        let short = Rect::new(4, 2, 72, 4);
-        assert_eq!(cursor_position(short, &c, 3, 0), None, "只有 3 行列表");
-        // 值比正文区还宽时，光标停在被截断的末尾
-        let narrow = Rect::new(0, 0, 4, 20);
-        assert_eq!(cursor_position(narrow, &c, at, 0), Some((4, at as u16)));
+        let (rows, help_y) = list_rows(area.height);
+        let help_y = area.y + help_y.unwrap();
+        let expected = Some((area.right() - 2, help_y));
+        assert_eq!(cursor_position(area), expected);
+        for selected in 0..Field::ALL.len() {
+            let mut buf = Buffer::empty(area);
+            SettingsWidget {
+                config: &c,
+                selected,
+                scroll: 0,
+            }
+            .render(area, &mut buf);
+            let (x, y) = cursor_position(area).unwrap();
+            // 在说明行上，不在列表行里；列表行的选中行整行反显
+            assert_eq!(y, help_y);
+            assert!(y >= area.y + rows as u16, "不在列表行里");
+            assert!(area.contains((x, y).into()));
+            let sel_y = area.y + selected as u16;
+            assert!(buf[(area.x, sel_y)].modifier.contains(Modifier::REVERSED));
+            assert!(
+                buf[(area.right() - 1, sel_y)]
+                    .modifier
+                    .contains(Modifier::REVERSED)
+            );
+            assert!(!buf[(x, y)].modifier.contains(Modifier::REVERSED));
+            assert!(blank_from(&buf, area, x, y), "光标格是空白: {selected}");
+        }
+        // 短终端：说明固定在最后一行，列表滚动，光标跟着说明行
+        let short = Rect::new(4, 2, 72, 6);
+        assert_eq!(cursor_position(short), Some((short.right() - 2, 2 + 5)));
+        // 只剩一行时没有说明行，也就不放光标（那一行是反显的选中行）
+        assert_eq!(cursor_position(Rect::new(4, 2, 72, 1)), None);
+    }
+
+    #[test]
+    fn cursor_stays_inside_narrow_areas() {
+        crate::i18n::init_for_test("en");
+        let c = Config::default();
+        for width in 0..=6u16 {
+            let area = Rect::new(3, 1, width, 20);
+            let Some((x, y)) = cursor_position(area) else {
+                assert_eq!(width, 0, "只有零宽时才没有光标");
+                continue;
+            };
+            assert!(area.contains((x, y).into()), "宽 {width} 越界: {x}");
+            let want = if width >= 2 {
+                area.right() - 2
+            } else {
+                area.right() - 1
+            };
+            assert_eq!(x, want, "宽 {width}");
+            // 说明文字占不满：光标那一格及右边都是空白（宽 1 时说明本身就放不下）
+            let mut buf = Buffer::empty(area);
+            SettingsWidget {
+                config: &c,
+                selected: 0,
+                scroll: 0,
+            }
+            .render(area, &mut buf);
+            if width >= 2 {
+                assert!(blank_from(&buf, area, x, y), "宽 {width}");
+            }
+        }
     }
 }

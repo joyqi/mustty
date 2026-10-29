@@ -38,4 +38,4 @@ expression: "settings_panel(40, 50, 20, 1)"
 "                                                  "
 "                                                  "
 
-cursor: Position { x: 45, y: 5 } visible: true
+cursor: Position { x: 43, y: 15 } visible: true

@@ -206,10 +206,9 @@ fn render_settings(frame: &mut Frame, app: &mut App, layout: &Layout) {
         scroll,
     };
     frame.render_widget(widget, layout.body);
-    // 硬件光标停在选中值的末尾：改 cursor / cursor_blink 时立刻能看到新形状
-    if let Some((x, y)) = settings::cursor_position(layout.body, &app.config, selected, scroll) {
-        let x = x.min(frame.area().right().saturating_sub(1));
-        frame.set_cursor_position((x, y));
+    // 硬件光标停在说明行的固定列（不在反显的选中行上）：改 cursor / cursor_blink 时立刻能看到新形状
+    if let Some(p) = settings::cursor_position(layout.body) {
+        frame.set_cursor_position(p);
     }
 }
 

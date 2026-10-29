@@ -24,4 +24,4 @@ expression: "settings_panel(72, 80, 12, 7)"
 "    ↑↓ 选择  ←→ 调整  Enter 保存  Esc 取消                                      " Hidden by multi-width symbols: [(8, " "), (10, " "), (17, " "), (19, " "), (29, " "), (31, " "), (39, " "), (41, " ")]
 "                                                                                "
 
-cursor: Position { x: 76, y: 7 } visible: true
+cursor: Position { x: 74, y: 8 } visible: true
