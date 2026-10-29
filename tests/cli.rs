@@ -60,31 +60,23 @@ fn config_lang_applies_to_help() {
     assert!(text.contains("终端里的极简 Markdown 写作器"), "{text}");
 }
 
-/// 日志已删除：设置 MUSTTY_LOG 不会创建文件，输出与退出码和不设置时完全一样。
-/// 测试进程没有终端，进入全屏那一步会失败，但原来的日志文件在那之前就会建好。
+/// 日志已删除：设置 MUSTTY_LOG 不会创建文件，`--help` 的输出与退出码和不设置时完全一样。
+/// 不带 `--help` 启动真实 TUI 的写法不能用：Windows 上 stdin 为 null 时 crossterm 不会报错退出，
+/// 进程停在事件循环里，`.output()` 永远等不到；Unix 上子进程读终端会触发 SIGTTIN 把进程组挂起。
 #[test]
 fn mustty_log_has_no_effect() {
     let home = tempfile::tempdir().unwrap();
     let file = home.path().join("file.md");
     std::fs::write(&file, "hello\n").unwrap();
     let log = home.path().join("x.log");
-    let run = |cmd: &mut Command| {
-        let out = cmd
-            .arg(&file)
-            .stdin(std::process::Stdio::null())
-            .output()
-            .unwrap();
+    let help = |cmd: &mut Command| {
+        let out = cmd.arg("--help").output().unwrap();
         (out.status.code(), out.stdout, out.stderr)
     };
-    let plain = run(&mut mustty(home.path()));
-    let with_log = run(mustty(home.path()).env("MUSTTY_LOG", &log));
-    assert!(!log.exists(), "MUSTTY_LOG 仍然创建了日志文件");
+    let plain = help(&mut mustty(home.path()));
+    let with_log = help(mustty(home.path()).env("MUSTTY_LOG", &log));
+    assert_eq!(plain.0, Some(0));
     assert_eq!(plain, with_log);
-    let help = |cmd: &mut Command| cmd.arg("--help").output().unwrap().stdout;
-    assert_eq!(
-        help(&mut mustty(home.path())),
-        help(mustty(home.path()).env("MUSTTY_LOG", &log))
-    );
-    assert!(!log.exists());
+    assert!(!log.exists(), "MUSTTY_LOG 仍然创建了日志文件");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n");
 }
