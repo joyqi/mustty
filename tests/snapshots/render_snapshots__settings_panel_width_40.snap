@@ -10,7 +10,7 @@ expression: "settings_panel(40, 50, 20, 1)"
  8: "     自 动 保 存 延 迟                ‹ 2000 ›" NONE | " 毫" DIM | "秒" DIM
  9: "     Typewriter 模 式" NONE | "关" DIM
 10: "     Focus 模 式" NONE | "关" DIM
-11: "     上 下 留 白                         ‹ 3 ›" NONE | " 行" DIM
+11: "     滚 动 边 距                         ‹ 3 ›" NONE | " 行" DIM
 12: "     Tab 宽 度                         ‹ 4 ›" NONE | " 格" DIM
 13: "     代 码 颜 色                         ‹" NONE | "■" NONE fg=Cyan | " 青  ›" NONE
 14: "     光 标                             ‹ 竖 线  ›" NONE
@@ -28,7 +28,7 @@ expression: "settings_panel(40, 50, 20, 1)"
 "     自动保存延迟               ‹ 2000 › 毫秒     " Hidden by multi-width symbols: [(6, " "), (8, " "), (10, " "), (12, " "), (14, " "), (16, " "), (42, " "), (44, " ")]
 "     Typewriter 模式                       关     " Hidden by multi-width symbols: [(17, " "), (19, " "), (44, " ")]
 "     Focus 模式                            关     " Hidden by multi-width symbols: [(12, " "), (14, " "), (44, " ")]
-"     上下留白                        ‹ 3 › 行     " Hidden by multi-width symbols: [(6, " "), (8, " "), (10, " "), (12, " "), (44, " ")]
+"     滚动边距                        ‹ 3 › 行     " Hidden by multi-width symbols: [(6, " "), (8, " "), (10, " "), (12, " "), (44, " ")]
 "     Tab 宽度                        ‹ 4 › 格     " Hidden by multi-width symbols: [(10, " "), (12, " "), (44, " ")]
 "     代码颜色                        ‹ ■ 青 ›     " Hidden by multi-width symbols: [(6, " "), (8, " "), (10, " "), (12, " "), (42, " ")]
 "     光标                            ‹ 竖线 ›     " Hidden by multi-width symbols: [(6, " "), (8, " "), (40, " "), (42, " ")]

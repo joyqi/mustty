@@ -10,7 +10,7 @@ expression: "settings_panel(72, 80, 24, 9)"
  9: "    自 动 保 存 延 迟                                                ‹ 2000 ›" NONE | " 毫" DIM | "秒" DIM
 10: "    Typewriter 模 式" NONE | "关" DIM
 11: "    Focus 模 式" NONE | "关" DIM
-12: "    上 下 留 白                                                         ‹ 3 ›" NONE | " 行" DIM
+12: "    滚 动 边 距                                                         ‹ 3 ›" NONE | " 行" DIM
 13: "    Tab 宽 度                                                         ‹ 4 ›" NONE | " 格" DIM
 14: "代" REVERSED | "码" REVERSED | "颜" REVERSED | "色" REVERSED | "                                                        ‹" REVERSED | "■" REVERSED fg=Cyan | " 青" REVERSED | " ›" REVERSED
 15: "    光 标                                                             ‹ 竖 线  ›" NONE
@@ -31,7 +31,7 @@ expression: "settings_panel(72, 80, 24, 9)"
 "    自动保存延迟                                               ‹ 2000 › 毫秒    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (73, " "), (75, " ")]
 "    Typewriter 模式                                                       关    " Hidden by multi-width symbols: [(16, " "), (18, " "), (75, " ")]
 "    Focus 模式                                                            关    " Hidden by multi-width symbols: [(11, " "), (13, " "), (75, " ")]
-"    上下留白                                                        ‹ 3 › 行    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
+"    滚动边距                                                        ‹ 3 › 行    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
 "    Tab 宽度                                                        ‹ 4 › 格    " Hidden by multi-width symbols: [(9, " "), (11, " "), (75, " ")]
 "    代码颜色                                                        ‹ ■ 青 ›    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (73, " ")]
 "    光标                                                            ‹ 竖线 ›    " Hidden by multi-width symbols: [(5, " "), (7, " "), (71, " "), (73, " ")]

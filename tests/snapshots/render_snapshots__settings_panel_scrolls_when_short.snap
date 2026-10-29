@@ -7,8 +7,8 @@ expression: "settings_panel(72, 80, 12, 7)"
  4: "    自 动 保 存 延 迟                                                ‹ 2000 ›" NONE | " 毫" DIM | "秒" DIM
  5: "    Typewriter 模 式" NONE | "关" DIM
  6: "    Focus 模 式" NONE | "关" DIM
- 7: "上" REVERSED | "下" REVERSED | "留" REVERSED | "白" REVERSED | "                                                        ‹ 3 ›" REVERSED | " 行" DIM | REVERSED
- 8: "光" DIM | "标" DIM | "上" DIM | "下" DIM | "至" DIM | "少" DIM | "留" DIM | "出" DIM | "几" DIM | "行" DIM | "可" DIM | "见" DIM
+ 7: "滚" REVERSED | "动" REVERSED | "边" REVERSED | "距" REVERSED | "                                                        ‹ 3 ›" REVERSED | " 行" DIM | REVERSED
+ 8: "光" DIM | "标" DIM | "与" DIM | "视" DIM | "口" DIM | "上" DIM | "下" DIM | "边" DIM | "缘" DIM | "保" DIM | "持" DIM | "的" DIM | "最" DIM | "小" DIM | "行" DIM | "数" DIM | "；" DIM | "Typewriter 模" DIM | "式" DIM | "下" DIM | "不" DIM | "生" DIM | "效" DIM
 10: "↑↓ 选" DIM | "择" DIM | "  ←→ 调" DIM | "整" DIM | "  Enter 保" DIM | "存" DIM | "  Esc 取" DIM | "消" DIM
 
 "                                                                                "
@@ -18,8 +18,8 @@ expression: "settings_panel(72, 80, 12, 7)"
 "    自动保存延迟                                               ‹ 2000 › 毫秒    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (73, " "), (75, " ")]
 "    Typewriter 模式                                                       关    " Hidden by multi-width symbols: [(16, " "), (18, " "), (75, " ")]
 "    Focus 模式                                                            关    " Hidden by multi-width symbols: [(11, " "), (13, " "), (75, " ")]
-"    上下留白                                                        ‹ 3 › 行    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
-"    光标上下至少留出几行可见                                                    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " "), (19, " "), (21, " "), (23, " "), (25, " "), (27, " ")]
+"    滚动边距                                                        ‹ 3 › 行    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
+"    光标与视口上下边缘保持的最小行数；Typewriter 模式下不生效                   " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " "), (19, " "), (21, " "), (23, " "), (25, " "), (27, " "), (29, " "), (31, " "), (33, " "), (35, " "), (37, " "), (50, " "), (52, " "), (54, " "), (56, " "), (58, " "), (60, " ")]
 "                                                                                "
 "    ↑↓ 选择  ←→ 调整  Enter 保存  Esc 取消                                      " Hidden by multi-width symbols: [(8, " "), (10, " "), (17, " "), (19, " "), (29, " "), (31, " "), (39, " "), (41, " ")]
 "                                                                                "

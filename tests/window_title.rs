@@ -34,7 +34,9 @@ impl Pty {
                 &mut slave,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                &mut size,
+                // termp / winp 在 macOS 上是 *mut，在 Linux 上是 *const：传 *mut 裸指针两边都收
+                // （*mut 自动转 *const），写 `&mut size` 在 Linux 上会触发 unnecessary_mut_passed
+                &raw mut size,
             )
         };
         assert_eq!(rc, 0, "openpty: {}", std::io::Error::last_os_error());

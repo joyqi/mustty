@@ -14,7 +14,7 @@ expression: snapshot(zh)
 "    自动保存延迟                                               ‹ 2000 › 毫秒    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (73, " "), (75, " ")]
 "    Typewriter 模式                                                       关    " Hidden by multi-width symbols: [(16, " "), (18, " "), (75, " ")]
 "    Focus 模式                                                            关    " Hidden by multi-width symbols: [(11, " "), (13, " "), (75, " ")]
-"    上下留白                                                        ‹ 3 › 行    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
+"    滚动边距                                                        ‹ 3 › 行    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (75, " ")]
 "    Tab 宽度                                                        ‹ 4 › 格    " Hidden by multi-width symbols: [(9, " "), (11, " "), (75, " ")]
 "    代码颜色                                                        ‹ ■ 青 ›    " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (73, " ")]
 "    光标                                                            ‹ 竖线 ›    " Hidden by multi-width symbols: [(5, " "), (7, " "), (71, " "), (73, " ")]
