@@ -375,14 +375,9 @@ mod tests {
     use std::collections::BTreeSet;
     use std::mem::discriminant;
 
-    const TAB: u16 = 4;
-
     /// 从 `mode` 开始依次按下 `keys`，返回最后一个键的 Action 与结束时的模式；之前的键必须没有 Action。
     fn press(vim: bool, mode: Mode, keys: &[KeyEvent]) -> (Option<Action>, Mode) {
-        let keymap = Keymap {
-            vim,
-            tab_width: TAB,
-        };
+        let keymap = Keymap { vim };
         let mut mode = mode;
         let mut last = None;
         for (i, k) in keys.iter().enumerate() {
@@ -509,9 +504,11 @@ mod tests {
     /// 新增 Action 变体时必须在这里表态——默认（false）就是要求它出现在帮助里。
     fn conventional(a: &Action) -> bool {
         match a {
-            Action::Insert(_) | Action::Newline | Action::DeleteBack | Action::DeleteForward => {
-                true
-            }
+            Action::Insert(_)
+            | Action::Tab
+            | Action::Newline
+            | Action::DeleteBack
+            | Action::DeleteForward => true,
             // 不由按键产生（粘贴事件、保存提示行、鼠标），出现在这里说明 keymap 变了，要写进帮助
             Action::Paste(_)
             | Action::PromptInput(_)

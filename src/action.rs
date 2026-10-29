@@ -1,5 +1,5 @@
 //! 与按键解耦的编辑语义。全部变体在 M1 定稿，M4 不再增删；
-//! 有意的修订只有两处：设置面板的 `OpenSettings` 与键位帮助的 `OpenHelp`。
+//! 有意的修订只有三处：设置面板的 `OpenSettings`、键位帮助的 `OpenHelp` 与 `Tab`。
 //! M1 未绑定按键或未实现的变体由 `Editor::apply` 忽略。
 
 use crossterm::event::KeyEvent;
@@ -7,6 +7,9 @@ use crossterm::event::KeyEvent;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     Insert(String),
+    /// Tab 键：正文插入 tab_width 个空格，标题区切到正文（同 Enter）。
+    /// 不在 keymap 里展开成 `Insert`，否则标题区分不出 Tab 与敲空格。
+    Tab,
     Paste(String),
     Newline,
     DeleteBack,

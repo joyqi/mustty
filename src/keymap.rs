@@ -20,8 +20,6 @@ pub struct NormalState {
 
 pub struct Keymap {
     pub vim: bool,
-    /// `Tab` 键插入的空格数（配置 tab_width）
-    pub tab_width: u16,
 }
 
 impl Keymap {
@@ -46,16 +44,16 @@ impl Keymap {
             });
         }
         if !self.vim {
-            return default_map(key, false, self.tab_width);
+            return default_map(key, false);
         }
         match *mode {
             Mode::Insert if key.code == KeyCode::Esc => {
                 *mode = Mode::Normal(NormalState::default());
                 Some(Action::Cancel)
             }
-            Mode::Insert => default_map(key, false, self.tab_width),
+            Mode::Insert => default_map(key, false),
             Mode::Normal(state) => {
-                let (action, next) = map_normal(key, state, self.tab_width);
+                let (action, next) = map_normal(key, state);
                 *mode = next;
                 action
             }
@@ -64,7 +62,7 @@ impl Keymap {
 }
 
 /// 默认（非 modal）键位，也是 vim Insert 态的键位。`extend` 为真时所有移动都扩展选区（visual）。
-fn default_map(key: &KeyEvent, extend: bool, tab_width: u16) -> Option<Action> {
+fn default_map(key: &KeyEvent, extend: bool) -> Option<Action> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let altgr = ctrl && key.modifiers.contains(KeyModifiers::ALT);
     let alt = key.modifiers.contains(KeyModifiers::ALT) && !altgr;
@@ -95,7 +93,7 @@ fn default_map(key: &KeyEvent, extend: bool, tab_width: u16) -> Option<Action> {
         KeyCode::Enter => Some(Action::Newline),
         KeyCode::Backspace => Some(Action::DeleteBack),
         KeyCode::Delete => Some(Action::DeleteForward),
-        KeyCode::Tab => Some(Action::Insert(" ".repeat(tab_width as usize))),
+        KeyCode::Tab => Some(Action::Tab),
         KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Left if ctrl => mv(Motion::WordLeft),
         KeyCode::Right if ctrl => mv(Motion::WordRight),
@@ -114,7 +112,7 @@ fn default_map(key: &KeyEvent, extend: bool, tab_width: u16) -> Option<Action> {
 }
 
 /// vim Normal 态。返回动作与新的 Mode；visual 与 g/d 前缀都是 NormalState 的子状态。
-fn map_normal(key: &KeyEvent, mut st: NormalState, tab_width: u16) -> (Option<Action>, Mode) {
+fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
     use Motion::*;
     let pending = st.pending.take();
     let visual = st.visual;
@@ -129,10 +127,14 @@ fn map_normal(key: &KeyEvent, mut st: NormalState, tab_width: u16) -> (Option<Ac
             return (Some(Action::Redo), normal);
         }
         // 但 Normal 态不插入文字：Ctrl+Tab、Ctrl+Enter 这类回落到普通编辑键的组合一律忽略
-        let action = default_map(key, visual, tab_width).filter(|a| {
+        let action = default_map(key, visual).filter(|a| {
             !matches!(
                 a,
-                Action::Insert(_) | Action::Newline | Action::DeleteBack | Action::DeleteForward
+                Action::Insert(_)
+                    | Action::Tab
+                    | Action::Newline
+                    | Action::DeleteBack
+                    | Action::DeleteForward
             )
         });
         return (action, normal);
@@ -148,7 +150,7 @@ fn map_normal(key: &KeyEvent, mut st: NormalState, tab_width: u16) -> (Option<Ac
             | KeyCode::Home
             | KeyCode::End
             | KeyCode::PageUp
-            | KeyCode::PageDown => (default_map(key, visual, tab_width), normal),
+            | KeyCode::PageDown => (default_map(key, visual), normal),
             _ => (None, normal),
         };
     };
@@ -251,7 +253,8 @@ mod tests {
             (key(Enter, none), Some(Action::Newline)),
             (key(Backspace, none), Some(Action::DeleteBack)),
             (key(Delete, none), Some(Action::DeleteForward)),
-            (key(Tab, none), ins("    ")),
+            (key(Tab, none), Some(Action::Tab)),
+            (key(BackTab, shift), None), // Shift+Tab 什么也不做，更不往标题里插空格
             (key(Esc, none), Some(Action::Cancel)),
             (key(Left, none), mv(Motion::Left)),
             (key(Right, none), mv(Motion::Right)),
@@ -278,10 +281,7 @@ mod tests {
             (key(F(1), none), None),
             (Event::FocusLost, None),
         ];
-        let keymap = Keymap {
-            vim: false,
-            tab_width: 4,
-        };
+        let keymap = Keymap { vim: false };
         for (ev, want) in cases {
             let mut mode = Mode::Insert;
             assert_eq!(keymap.map_event(&ev, &mut mode, false), want, "{ev:?}");
@@ -290,15 +290,31 @@ mod tests {
     }
 
     #[test]
-    fn tab_inserts_configured_spaces() {
+    fn tab_maps_to_its_own_action() {
+        // 空格数由 Editor 按 tab_width 决定（见 editor 的 tab 测试），keymap 只报告"按了 Tab"
         let tab = key(KeyCode::Tab, KeyModifiers::NONE);
-        for width in [1, 2, 8] {
-            let keymap = Keymap {
-                vim: false,
-                tab_width: width,
-            };
-            let want = Some(Action::Insert(" ".repeat(width as usize)));
-            assert_eq!(keymap.map_event(&tab, &mut Mode::Insert, false), want);
+        let keymap = Keymap { vim: false };
+        assert_eq!(
+            keymap.map_event(&tab, &mut Mode::Insert, false),
+            Some(Action::Tab)
+        );
+        let vim = Keymap { vim: true };
+        assert_eq!(
+            vim.map_event(&tab, &mut Mode::Insert, false),
+            Some(Action::Tab)
+        );
+        for code in [KeyCode::Tab, KeyCode::BackTab] {
+            for mods in [
+                KeyModifiers::NONE,
+                KeyModifiers::SHIFT,
+                KeyModifiers::CONTROL,
+            ] {
+                let ev = key(code, mods);
+                let got = keymap.map_event(&ev, &mut Mode::Insert, false);
+                assert!(!matches!(got, Some(Action::Insert(_))), "{ev:?} → {got:?}");
+                let got = vim.map_event(&ev, &mut NOR.clone(), false);
+                assert_eq!(got, None, "Normal 态 {ev:?}");
+            }
         }
     }
 
@@ -311,35 +327,21 @@ mod tests {
             KeyEventState::NONE,
         ));
         let mut mode = Mode::Insert;
-        assert_eq!(
-            Keymap {
-                vim: false,
-                tab_width: 4
-            }
-            .map_event(&ev, &mut mode, false),
-            None
-        );
+        assert_eq!(Keymap { vim: false }.map_event(&ev, &mut mode, false), None);
         let repeat = Event::Key(KeyEvent::new_with_kind(
             KeyCode::Left,
             KeyModifiers::NONE,
             KeyEventKind::Repeat,
         ));
         assert_eq!(
-            Keymap {
-                vim: false,
-                tab_width: 4
-            }
-            .map_event(&repeat, &mut mode, false),
+            Keymap { vim: false }.map_event(&repeat, &mut mode, false),
             Some(Action::Move(Motion::Left, false))
         );
     }
 
     #[test]
     fn prompt_bindings() {
-        let keymap = Keymap {
-            vim: false,
-            tab_width: 4,
-        };
+        let keymap = Keymap { vim: false };
         let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         let cases = [
             (key(KeyCode::Esc, KeyModifiers::NONE), Some(Action::Cancel)),
@@ -382,10 +384,7 @@ mod tests {
 
     /// 从 `mode` 出发依次喂入事件，返回每一步的 (动作, 新 Mode)。
     fn vim(mode: Mode, events: &[Event], prompt: bool) -> Vec<(Option<Action>, Mode)> {
-        let keymap = Keymap {
-            vim: true,
-            tab_width: 4,
-        };
+        let keymap = Keymap { vim: true };
         let mut mode = mode;
         events
             .iter()
@@ -668,7 +667,7 @@ mod tests {
         /// vim 关闭时，任何事件序列都不改变 Mode（恒为 Insert）。
         #[test]
         fn vim_off_never_changes_mode(events in prop::collection::vec(any_event(), 0..80), prompt: bool) {
-            let keymap = Keymap { vim: false, tab_width: 4 };
+            let keymap = Keymap { vim: false };
             let mut mode = Mode::Insert;
             for ev in &events {
                 keymap.map_event(ev, &mut mode, prompt);
@@ -679,13 +678,13 @@ mod tests {
         /// vim 开启时，任意序列不 panic；Normal 态从不产生插入；pending 只可能是 g / d。
         #[test]
         fn vim_on_is_total(events in prop::collection::vec(any_event(), 0..80)) {
-            let keymap = Keymap { vim: true, tab_width: 4 };
+            let keymap = Keymap { vim: true };
             let mut mode = Mode::Insert;
             for ev in &events {
                 let before = mode;
                 let action = keymap.map_event(ev, &mut mode, false);
                 if matches!(before, Mode::Normal(_)) {
-                    prop_assert!(!matches!(action, Some(Action::Insert(_))), "{:?}", ev);
+                    prop_assert!(!matches!(action, Some(Action::Insert(_) | Action::Tab)), "{:?}", ev);
                 }
                 if let Mode::Normal(s) = mode {
                     prop_assert!(matches!(s.pending, None | Some('g' | 'd')));

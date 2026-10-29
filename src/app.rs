@@ -49,8 +49,8 @@ pub struct App {
     pub(crate) viewport: Viewport,
     area: Rect,
     /// 当前生效的配置，唯一的真值来源；只经 `apply_config` 修改。
-    /// 它的一部分还复制在子对象里：Keymap（vim、tab_width）、Viewport（typewriter、scrolloff）、
-    /// Editor 的 WrapCache（tab_width），由 `apply_config` 同步
+    /// 它的一部分还复制在子对象里：Keymap（vim）、Viewport（typewriter、scrolloff）、
+    /// Editor 的 WrapCache（tab_width，Tab 键插入的空格数也从这里取），由 `apply_config` 同步
     pub(crate) config: Config,
     /// 设置面板写回的配置文件；None 时只在本次会话生效（测试默认如此，不会碰到真实的 ~/.mustty.toml）
     config_path: Option<PathBuf>,
@@ -112,10 +112,7 @@ impl App {
         status.words = editor.word_count();
         let mut app = Self {
             editor,
-            keymap: Keymap {
-                vim: base.vim,
-                tab_width: base.tab_width,
-            },
+            keymap: Keymap { vim: base.vim },
             mode: Mode::Insert,
             status,
             viewport: Viewport {
@@ -166,8 +163,7 @@ impl App {
         self.viewport.typewriter = new.typewriter;
         self.viewport.scrolloff = new.scrolloff;
         if new.tab_width != old.tab_width {
-            // tab_width 的另外两份副本：Tab 键插入的空格数、换行与渲染用的 Tab 宽度
-            self.keymap.tab_width = new.tab_width;
+            // tab_width 的另一份副本：换行、渲染与 Tab 键插入的空格数共用 WrapCache 里这一份
             let (doc, wrap, _) = self.editor.view();
             self.viewport.retab(new.tab_width, wrap, doc.body());
         }
@@ -957,6 +953,37 @@ mod tests {
         assert!(!dir.path().join("n.md").exists());
     }
 
+    #[test]
+    fn tab_key_follows_configured_tab_width() {
+        let doc = Document::parse("# T\n\nx", crate::editor::document::FileMeta::new(None));
+        let config = Config {
+            tab_width: 2,
+            autosave: false,
+            ..Config::default()
+        };
+        let mut app = App::with_config(doc, Size::new(80, 24), &config);
+        app.handle(press(KeyCode::Tab));
+        assert_eq!(body(&app), "  x", "tab_width = 2 插两个空格");
+        app.apply_config(&Config {
+            tab_width: 8,
+            ..app.config.clone()
+        });
+        app.handle(press(KeyCode::Tab));
+        assert_eq!(body(&app), format!("{}x", " ".repeat(10)));
+        // ↑ 进标题区，Tab 回到正文开头，标题不变；Shift+Tab 什么也不做
+        app.handle(press(KeyCode::Up));
+        app.handle(press(KeyCode::Up));
+        app.handle(Event::Key(KeyEvent::new(
+            KeyCode::BackTab,
+            KeyModifiers::SHIFT,
+        )));
+        app.handle(press(KeyCode::Tab));
+        assert_eq!(app.editor.doc().title_text(), "T");
+        assert_eq!(app.editor.focus, crate::editor::Focus::Body);
+        assert_eq!(app.editor.cursor.head, 0);
+        assert_eq!(body(&app), format!("{}x", " ".repeat(10)));
+    }
+
     fn vim_app(text: &str) -> App {
         let doc = Document::parse(text, crate::editor::document::FileMeta::new(None));
         let config = Config {
@@ -1654,10 +1681,14 @@ mod tests {
         Document::parse(text, crate::editor::document::FileMeta::lf())
     }
 
-    /// 让 WrapCache 把每一行都重新算一遍，并确认三份 tab_width 副本一致、缓存与重新换行的结果一致。
+    /// 让 WrapCache 把每一行都重新算一遍，并确认 tab_width 的各处取值一致、缓存与重新换行的结果一致。
     fn assert_tab_width_synced(app: &mut App, tab: u16) {
         assert_eq!(app.config.tab_width, tab, "App 的配置");
-        assert_eq!(app.keymap.tab_width, tab, "Keymap：Tab 键插入的空格数");
+        assert_eq!(
+            app.editor.tab_spaces(),
+            " ".repeat(tab as usize),
+            "Tab 键插入的空格数"
+        );
         let (doc, wrap, _) = app.editor.view();
         let rope = doc.body();
         assert_eq!(wrap.tab_width(), tab, "WrapCache：换行与渲染");
@@ -1851,11 +1882,11 @@ mod tests {
             app.handle(press(KeyCode::Down));
         }
         app.handle(press(KeyCode::Right));
-        assert_eq!(app.keymap.tab_width, 5);
+        assert_eq!(app.editor.tab_spaces(), "     ");
         app.handle(press(KeyCode::Esc));
         assert!(app.settings.is_none());
         assert_eq!(app.config, vim_app("").config, "回滚到快照");
-        assert_eq!(app.keymap.tab_width, 4);
+        assert_eq!(app.editor.tab_spaces(), "    ");
         assert_eq!(app.mode_label(), Some("NOR"), "Esc 只关面板，不切换模式");
         // Ctrl+P 再按一次同样是取消
         app.handle(ctrl('p'));

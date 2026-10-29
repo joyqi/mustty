@@ -140,6 +140,11 @@ impl Editor {
         effect
     }
 
+    /// 正文里 Tab 键插入的空格：个数取 WrapCache 的 tab_width，与换行、渲染用的是同一份。
+    pub fn tab_spaces(&self) -> String {
+        " ".repeat(self.wrap.tab_width() as usize)
+    }
+
     fn apply_body(&mut self, action: &Action, page: isize, now: Instant) -> Effect {
         let rope = self.doc.body();
         let head = self.cursor.head;
@@ -159,6 +164,7 @@ impl Editor {
                 let s = s.replace("\r\n", "\n").replace('\r', "\n");
                 self.change(Target::Body, at_cursor, &s, EditKind::Other, now);
             }
+            Action::Tab => return self.apply_body(&Action::Insert(self.tab_spaces()), page, now),
             Action::Newline => self.change(Target::Body, at_cursor, "\n", EditKind::Other, now),
             Action::DeleteBack | Action::DeleteForward | Action::DeleteWordBack
                 if sel.is_some() =>
@@ -346,7 +352,8 @@ impl Editor {
                 let start = Cursor::word_left(&Rope::from_str(text), at);
                 self.change(Target::Title, start..at, "", EditKind::Other, now);
             }
-            Action::Newline | Action::Move(Motion::Down | Motion::DocStart, _) => {
+            // 单行标题里 Tab 没有意义，和 Enter / ↓ 一样离开标题
+            Action::Newline | Action::Tab | Action::Move(Motion::Down | Motion::DocStart, _) => {
                 self.focus = Focus::Body;
                 self.cursor.set(0);
             }
@@ -579,6 +586,51 @@ mod tests {
         assert_eq!(body(&ed), "a\nb");
         run(&mut ed, &[Action::DeleteBack]);
         assert_eq!((body(&ed).as_str(), ed.cursor.head), ("ab", 1));
+    }
+
+    #[test]
+    fn tab_in_title_leaves_like_enter() {
+        // 光标停在标题中间、行尾两种情况：Tab 的结果与 Enter 逐项相同
+        for left in [0, 1] {
+            let mut by_tab = editor("# 标题\n\n正文");
+            let mut by_enter = editor("# 标题\n\n正文");
+            for ed in [&mut by_tab, &mut by_enter] {
+                run(ed, &[mv(Motion::Up)]);
+                run(ed, &vec![mv(Motion::Left); left]);
+                assert_eq!(ed.focus, Focus::Title);
+            }
+            run(&mut by_tab, &[Action::Tab]);
+            run(&mut by_enter, &[Action::Newline]);
+            assert_eq!((by_tab.focus, by_tab.cursor.head), (Focus::Body, 0));
+            assert_eq!(by_tab.doc().title_text(), "标题", "标题里没有多出空格");
+            assert_eq!(by_tab.doc().serialize(), "# 标题\n\n正文");
+            assert!(!by_tab.is_dirty());
+            assert_eq!(
+                (by_tab.focus, by_tab.cursor.head, by_tab.cursor.anchor),
+                (by_enter.focus, by_enter.cursor.head, by_enter.cursor.anchor)
+            );
+            assert_eq!(by_tab.doc().serialize(), by_enter.doc().serialize());
+            // 回到正文后再按 Tab 才插空格
+            run(&mut by_tab, &[Action::Tab]);
+            assert_eq!(body(&by_tab), "    正文");
+        }
+    }
+
+    #[test]
+    fn tab_in_body_inserts_tab_width_spaces() {
+        for width in [1, 2, 4, 8] {
+            let mut ed = Editor::new(Document::parse("ab", FileMeta::lf()), 20, width);
+            run(&mut ed, &[mv(Motion::Right), Action::Tab]);
+            let spaces = " ".repeat(width as usize);
+            assert_eq!(body(&ed), format!("a{spaces}b"), "tab_width {width}");
+            assert_eq!(ed.cursor.head, 1 + width as usize);
+            // 选区被替换成空格
+            run(&mut ed, &[Action::SelectAll, Action::Tab]);
+            assert_eq!(body(&ed), spaces);
+            // 一次撤销整段撤回
+            run(&mut ed, &[Action::Undo]);
+            assert_eq!(body(&ed), format!("a{spaces}b"));
+        }
     }
 
     #[test]
