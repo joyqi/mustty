@@ -26,19 +26,28 @@ mustty is an unhurried place to write by hand, one word at a time, inside the te
 
 ## Install
 
-With [Homebrew](https://brew.sh) on macOS or Linux:
+Install with one command:
 
 ```sh
-brew install joyqi/tap/mustty
+# macOS / Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.sh | sh
+# Windows (PowerShell)
+powershell -c "irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps1 | iex"
 ```
 
-Or download a prebuilt archive from [Releases](https://github.com/joyqi/mustty/releases) for macOS (Apple Silicon / Intel), Linux (x86_64 / arm64, static musl), or Windows (x86_64), unpack it, and run `mustty`.
+Or with [Homebrew](https://brew.sh) on macOS or Linux: `brew install joyqi/tap/mustty`
 
-Or build from source with Rust 1.88 or newer:
+Or download a prebuilt archive from [Releases](https://github.com/joyqi/mustty/releases), unpack it, and run `mustty`. In the file names, `aarch64` means 64-bit ARM, `x86_64` means 64-bit Intel/AMD, and `unknown` is the vendor slot of the Rust target triple, which you can ignore:
 
-```sh
-cargo install --git https://github.com/joyqi/mustty
-```
+| Your system | Download |
+| --- | --- |
+| macOS, Apple Silicon (M series) | `mustty-aarch64-apple-darwin.tar.gz` |
+| macOS, Intel | `mustty-x86_64-apple-darwin.tar.gz` |
+| Linux, x86_64 (static) | `mustty-x86_64-unknown-linux-musl.tar.gz` |
+| Linux, arm64 (static) | `mustty-aarch64-unknown-linux-musl.tar.gz` |
+| Windows, x86_64 | `mustty-x86_64-pc-windows-msvc.zip` |
+
+Or build from source with Rust 1.88 or newer: `cargo install --git https://github.com/joyqi/mustty`
 
 ## Usage
 
