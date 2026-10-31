@@ -26,28 +26,14 @@ mustty is an unhurried place to write by hand, one word at a time, inside the te
 
 ## Install
 
-Install with one command:
-
 ```sh
-# macOS / Linux
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.sh | sh
-# Windows (PowerShell)
+curl -LsSf https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.sh | sh
 powershell -c "irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps1 | iex"
+brew install joyqi/tap/mustty
+cargo install --git https://github.com/joyqi/mustty
 ```
 
-Or with [Homebrew](https://brew.sh) on macOS or Linux: `brew install joyqi/tap/mustty`
-
-Or download a prebuilt archive from [Releases](https://github.com/joyqi/mustty/releases), unpack it, and run `mustty`.
-
-| Your system | Download |
-| --- | --- |
-| macOS, Apple Silicon (M series) | `mustty-aarch64-apple-darwin.tar.gz` |
-| macOS, Intel | `mustty-x86_64-apple-darwin.tar.gz` |
-| Linux, x86_64 (static) | `mustty-x86_64-unknown-linux-musl.tar.gz` |
-| Linux, arm64 (static) | `mustty-aarch64-unknown-linux-musl.tar.gz` |
-| Windows, x86_64 | `mustty-x86_64-pc-windows-msvc.zip` |
-
-Or build from source with Rust 1.88 or newer: `cargo install --git https://github.com/joyqi/mustty`
+Or grab an archive from [Releases](https://github.com/joyqi/mustty/releases).
 
 ## Usage
 
