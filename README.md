@@ -37,7 +37,7 @@ powershell -c "irm https://github.com/joyqi/mustty/releases/latest/download/must
 
 Or with [Homebrew](https://brew.sh) on macOS or Linux: `brew install joyqi/tap/mustty`
 
-Or download a prebuilt archive from [Releases](https://github.com/joyqi/mustty/releases), unpack it, and run `mustty`. In the file names, `aarch64` means 64-bit ARM, `x86_64` means 64-bit Intel/AMD, and `unknown` is the vendor slot of the Rust target triple, which you can ignore:
+Or download a prebuilt archive from [Releases](https://github.com/joyqi/mustty/releases), unpack it, and run `mustty`.
 
 | Your system | Download |
 | --- | --- |
