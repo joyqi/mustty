@@ -1,6 +1,6 @@
 [package]
 name = "mustty"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 rust-version = "1.88"
 description = "A distraction-free Markdown writer for the terminal"

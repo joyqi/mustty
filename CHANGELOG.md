@@ -6,9 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-01
+
 ### Added
 
-- One-line installers: `mustty-installer.sh` for macOS and Linux and `mustty-installer.ps1` for Windows PowerShell pick the right archive for your platform.
+- One-line installers: `mustty-installer.sh` for macOS and Linux and `mustty-installer.ps1` for Windows PowerShell download the right archive for your platform. The shell installer also checks the archive's SHA-256 checksum.
+- Release archives include this changelog next to `LICENSE` and `README.md`.
+
+### Changed
+
+- Release notes on GitHub now lead with the changes from this changelog, followed by the install commands and downloads.
+- The README's Install section lists each way to install (installer script, PowerShell, Homebrew, from source) as its own short command.
 
 ## [0.1.2] - 2026-10-30
 
@@ -47,7 +55,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - An English and Simplified Chinese interface, chosen automatically or set with `lang`.
 - Prebuilt archives for macOS, Linux and Windows, and `brew install joyqi/tap/mustty`.
 
-[Unreleased]: https://github.com/joyqi/mustty/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/joyqi/mustty/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/joyqi/mustty/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/joyqi/mustty/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/joyqi/mustty/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/joyqi/mustty/releases/tag/v0.1.0
