@@ -2,7 +2,7 @@
 
 <h1 align="center">mustty</h1>
 
-<p align="center">A quiet Markdown writer for the terminal</p>
+<p align="center">An old-fashioned Markdown writer for the terminal</p>
 
 <p align="center">
   <a href="https://github.com/joyqi/mustty/actions/workflows/ci.yml"><img src="https://github.com/joyqi/mustty/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange.svg" alt="Rust 1.88+">
 </p>
 
-mustty is an old-fashioned place to write by hand, one word at a time, inside the terminal. It opens a single Markdown file on a centered 72-column sheet with nothing on screen but the title, the body, and a one-line status bar. Syntax markers stay visible but dimmed, so you always edit the source in front of you.
+mustty is an unhurried place to write by hand, one word at a time, inside the terminal. It opens a single Markdown file on a centered 72-column sheet with nothing on screen but the title, the body, and a one-line status bar. Syntax markers stay visible but dimmed, so you always edit the source in front of you.
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.svg"><img src="assets/screenshot-light.svg" alt="Screenshot of the mustty interface: a bold centered title, a 72-column body of Markdown with dimmed markers, and a status bar showing notes.md with a green saved dot, the word count and the cursor position" width="760"></picture></p>
 
