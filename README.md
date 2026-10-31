@@ -26,10 +26,27 @@ mustty is an unhurried place to write by hand, one word at a time, inside the te
 
 ## Install
 
+macOS and Linux:
+
 ```sh
 curl -LsSf https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.sh | sh
-powershell -c "irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps1 | iex"
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps1 | iex
+```
+
+Homebrew on macOS or Linux:
+
+```sh
 brew install joyqi/tap/mustty
+```
+
+From source with Rust 1.88 or newer:
+
+```sh
 cargo install --git https://github.com/joyqi/mustty
 ```
 
