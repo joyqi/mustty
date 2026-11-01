@@ -191,7 +191,10 @@ impl Editor {
             }
             Action::Cancel => self.cursor.anchor = None,
             Action::Copy | Action::Cut => {
+                // Nothing selected, but an anchor equal to the head may still be set: drop it so a
+                // later motion cannot grow it into a selection nobody made
                 let Some(range) = sel else {
+                    self.cursor.anchor = None;
                     return Effect::None;
                 };
                 let text = rope.slice(range.clone()).to_string();
@@ -781,6 +784,25 @@ mod tests {
             &[mv(Motion::Left), mv(Motion::Up), Action::PasteRegister],
         );
         assert_eq!(ed.doc().title_text(), "T中文 ");
+    }
+
+    #[test]
+    fn copy_and_cut_without_selection_drop_a_collapsed_anchor() {
+        for action in [Action::Copy, Action::Cut] {
+            let mut ed = editor("# T\n\nab");
+            run(&mut ed, &[mv(Motion::DocEnd)]);
+            // An anchor on the head: set, but selecting nothing
+            ed.apply(
+                &Action::MoveTo(MoveTarget::Body(2), true),
+                1,
+                Instant::now(),
+            );
+            assert_eq!((ed.cursor.anchor, ed.selection()), (Some(2), None));
+            assert_eq!(run(&mut ed, std::slice::from_ref(&action)), Effect::None);
+            assert_eq!(ed.cursor.anchor, None, "{action:?}");
+            run(&mut ed, &[mv(Motion::Left)]);
+            assert_eq!((body(&ed).as_str(), ed.selection()), ("ab", None));
+        }
     }
 
     #[test]

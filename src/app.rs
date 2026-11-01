@@ -387,12 +387,18 @@ impl App {
             self.edit(&Action::MoveTo(Target::Body(range.end), false), now);
             self.edit(&Action::MoveTo(Target::Body(range.start), true), now);
         }
+        let history = matches!(action, Some(Action::Undo | Action::Redo));
         if let Some(action) = action {
             self.dispatch(action, now);
         }
-        // Leaving Visual mode (e.g. after a y copy): drop the selection, as vim does
-        if left_visual && self.editor.selection().is_some() {
-            self.edit(&Action::Cancel, now);
+        // Outside Visual mode vim keeps no selection, so drop the anchor itself, not just a non-empty
+        // selection: when leaving Visual mode (after d / y / p, including an inclusive range that
+        // collapsed at the end of the document, or Esc / v / i), and after u / Ctrl+R in Normal mode,
+        // which would otherwise restore the selection a Visual d had cut. Set directly so it also
+        // holds when the window is too small for edit() to run.
+        let normal = matches!(self.mode, Mode::Normal(s) if !s.visual);
+        if left_visual || (history && normal) {
+            self.editor.cursor.anchor = None;
         }
     }
 
@@ -1034,6 +1040,83 @@ mod tests {
             KeyModifiers::CONTROL,
         )));
         assert_eq!(body(&app), "two\nthree");
+    }
+
+    #[test]
+    fn vim_visual_leaves_no_anchor_behind() {
+        // At the end of the document the inclusive range collapses to nothing: d / x / y / p
+        // find no selection, and the anchor must still go, or the next motion paints a selection
+        for (text, keys, after) in [
+            ("a", "\x1b$vd", "a"),
+            ("a", "\x1bGvx", "a"),
+            ("one\ntwo", "\x1bGvy", "one\ntwo"),
+            ("", "\x1bvd", ""),
+            ("", "\x1bvp", ""),
+        ] {
+            let mut app = vim_app(text);
+            typed(&mut app, keys);
+            assert_eq!(
+                (
+                    body(&app).as_str(),
+                    app.mode_label(),
+                    app.editor.cursor.anchor
+                ),
+                (after, Some("NOR"), None),
+                "{text:?} {keys:?}"
+            );
+            typed(&mut app, "h");
+            assert_eq!(app.visible_selection(), None, "{text:?} {keys:?} then h");
+        }
+        // u after a Visual d brings the text back but not the selection; Ctrl+R likewise
+        let mut app = vim_app("one\ntwo");
+        typed(&mut app, "\x1b$vjd");
+        assert_eq!(body(&app), "one");
+        typed(&mut app, "u");
+        assert_eq!(
+            (body(&app).as_str(), app.editor.cursor.anchor),
+            ("one\ntwo", None)
+        );
+        app.handle(Event::Key(KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::CONTROL,
+        )));
+        typed(&mut app, "u");
+        assert_eq!(app.editor.cursor.anchor, None);
+        typed(&mut app, "k");
+        assert_eq!(app.visible_selection(), None);
+    }
+
+    proptest::proptest! {
+        /// Any run of vim keys (entering and leaving Visual, d / x / y / p, u / Ctrl+R, Insert typing,
+        /// motions): whenever the mode is not Visual, the editing core holds no anchor at all.
+        #[test]
+        fn vim_outside_visual_has_no_anchor(
+            text in "[ab\n]{0,12}",
+            keys in proptest::collection::vec(
+                proptest::sample::select(vec![
+                    "v", "\x1b", "d", "x", "y", "p", "u", "\x12", "i", "a", "o", "h", "j", "k",
+                    "l", "w", "b", "e", "0", "$", "G", "g", "z", "\n",
+                ]),
+                1..40,
+            ),
+        ) {
+            let mut app = vim_app(&text);
+            typed(&mut app, "\x1b");
+            for k in &keys {
+                let ev = match *k {
+                    "\x12" => Event::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
+                    "\n" => press(KeyCode::Enter),
+                    _ => press(if *k == "\x1b" { KeyCode::Esc } else { KeyCode::Char(k.chars().next().unwrap()) }),
+                };
+                app.handle(ev);
+                if !matches!(app.mode, Mode::Normal(s) if s.visual) {
+                    proptest::prop_assert_eq!(
+                        app.editor.cursor.anchor, None,
+                        "after {:?} in {:?}", keys, text
+                    );
+                }
+            }
+        }
     }
 
     #[test]
