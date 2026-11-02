@@ -87,7 +87,13 @@
     </section>
 
     <section class="flex justify-center pt-14" aria-label="Live demo">
-      <div id="demo" class="relative h-[545px] w-full max-w-[980px] scroll-mt-6 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4">
+      <div id="demo" class="relative h-[545px] w-full max-w-[980px] scroll-mt-6 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4
+                            data-maximized:fixed data-maximized:inset-0 data-maximized:z-50 data-maximized:h-auto data-maximized:max-w-none data-maximized:rounded-none data-maximized:border-0">
+        <button id="maximize" type="button" aria-label="Maximize" title="Maximize"
+                class="group absolute right-3 top-3 z-10 grid size-8 place-items-center rounded-lg border border-[var(--border-strong)] bg-[var(--overlay)] text-[var(--muted)] hover:bg-[var(--overlay-solid)] hover:text-[var(--text)]">
+          <svg class="size-4 group-aria-pressed:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>
+          <svg class="hidden size-4 group-aria-pressed:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></svg>
+        </button>
         <p id="loading" class="absolute inset-0 grid place-items-center font-mono text-sm text-[var(--faint)]">Loading mustty…</p>
         <div id="terminal" class="size-full"></div>
       </div>

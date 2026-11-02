@@ -39,6 +39,9 @@
   --dot: #3fb950;
   --cta: #238636;
   --cta-hover: #2ea043;
+  /* The buttons laid over the terminal: see-through at rest, solid on hover */
+  --overlay: rgba(13, 17, 23, 0.7);
+  --overlay-solid: #0d1117;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -51,6 +54,8 @@
   --faint: #8c959f;
   --accent: #0969da;
   --dot: #1a7f37;
+  --overlay: rgba(255, 255, 255, 0.8);
+  --overlay-solid: #ffffff;
 }
 
 @media (prefers-reduced-motion: no-preference) {

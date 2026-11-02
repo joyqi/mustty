@@ -10,7 +10,8 @@ import { currentTheme, onThemeChange } from "./theme.js";
 
 const FONT = '"JetBrains Mono", "JetBrains Mono Fallback", ui-monospace, SFMono-Regular, Menlo, monospace';
 
-// Starts mustty in `host` (an empty element) and returns the Terminal
+// Starts mustty in `host` (an empty element). Returns the Terminal and `fit`, which resizes the grid to
+// `host`; a ResizeObserver already calls it whenever `host` changes size
 export async function mountTerminal(host) {
   // xterm measures its cell size once, at open: wait (briefly) for the web font so the grid uses it
   await Promise.race([
@@ -49,5 +50,5 @@ export async function mountTerminal(host) {
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
-  return term;
+  return { term, fit: () => fit.fit() };
 }
