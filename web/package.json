@@ -1,0 +1,23 @@
+{
+  "name": "mustty-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "build": "node scripts/build-wasm.mjs && vite build",
+    "dev": "node scripts/build-wasm.mjs --dev && vite",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-unicode11": "0.9.0",
+    "@xterm/xterm": "6.0.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.5",
+    "wasm-pack": "0.15.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["wasm-pack"]
+  }
+}

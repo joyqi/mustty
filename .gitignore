@@ -2,4 +2,7 @@
 *.log
 docs/
 .DS_Store
-/web/dist
+design/
+web/node_modules/
+web/dist/
+web/src/pkg/
