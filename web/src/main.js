@@ -52,16 +52,20 @@ observer.observe(demo);
 // Maximize: the demo box fills the window (data-maximized, see index.html) and the page behind it stops
 // scrolling. The button's aria-pressed picks the icon
 const maximize = document.getElementById("maximize");
+// When the last unpaired Esc came, for Esc Esc below
+const ESC_WINDOW = 350;
+let lastEsc = -Infinity;
 const setMaximized = (on) => {
   // Hold the box's place in the page: without it the page gets shorter, the browser clamps the scroll
   // position, and the restored box is no longer where the reader left it
   demo.parentElement.style.minHeight = on ? `${demo.parentElement.offsetHeight}px` : "";
   demo.toggleAttribute("data-maximized", on);
   document.body.classList.toggle("overflow-hidden", on);
-  const label = on ? "Restore" : "Maximize";
+  const label = on ? "Restore (Esc Esc)" : "Maximize";
   maximize.setAttribute("aria-pressed", String(on));
   maximize.setAttribute("aria-label", label);
   maximize.title = label;
+  lastEsc = -Infinity;
   // Refit once the new size is laid out; this resizes the Session through onResize
   requestAnimationFrame(() => {
     fit?.();
@@ -69,10 +73,21 @@ const setMaximized = (on) => {
   });
 };
 maximize.addEventListener("click", () => setMaximized(!demo.hasAttribute("data-maximized")));
-// Capture phase: xterm stops the keydown from bubbling. mustty still gets the Esc (it cancels there)
+// Esc means something in mustty (cancel a selection or prompt, vim's Normal mode), so while maximized a
+// single Esc still goes to it and only a second one within ESC_WINDOW restores, without reaching mustty.
+// Capture phase, so this runs before xterm.js sees the key. A held Esc (repeats) never counts
 addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && demo.hasAttribute("data-maximized")) setMaximized(false);
+  if (e.key !== "Escape" || e.repeat || !demo.hasAttribute("data-maximized")) return;
+  if (e.timeStamp - lastEsc <= ESC_WINDOW) {
+    e.preventDefault();
+    e.stopPropagation();
+    setMaximized(false);
+  } else {
+    lastEsc = e.timeStamp;
+  }
 }, true);
+// An Esc from before the window lost focus is not the first of a pair
+addEventListener("blur", () => { lastEsc = -Infinity; });
 
 // "try it in your browser": scroll smoothly to the demo and put the cursor in the terminal. Done here
 // rather than by following the #demo link, which would take the focus back to the page
