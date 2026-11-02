@@ -1,7 +1,7 @@
 //! KeyEvent → Action. With `vim` off, `mode` is always Insert; the vim state machine lives only in
 //! this file.
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crate::input::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::action::{Action, Motion};
 
@@ -214,7 +214,7 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::KeyEventState;
+    use crate::input::KeyEventState;
     use proptest::prelude::*;
 
     fn key(code: KeyCode, mods: KeyModifiers) -> Event {

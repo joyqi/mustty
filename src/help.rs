@@ -11,7 +11,7 @@
 //! "Ctrl+S saves" in the help is guaranteed true by the tests, and adding a shortcut without
 //! documenting it here fails them.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crate::input::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::action::{Action, Motion};
 use crate::keymap::{Mode, NormalState};
@@ -379,8 +379,8 @@ pub fn parse_keys(keys: &str) -> Vec<KeyEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::Event;
     use crate::keymap::Keymap;
-    use crossterm::event::Event;
     use std::collections::BTreeSet;
     use std::mem::discriminant;
 

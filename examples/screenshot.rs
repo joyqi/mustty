@@ -5,9 +5,9 @@
 
 use std::fmt::Write as _;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use mustty::app::App;
 use mustty::editor::document::{DiskStamp, Document, FileMeta};
+use mustty::input::{Event, KeyCode, KeyEvent, KeyModifiers};
 use mustty::view;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;

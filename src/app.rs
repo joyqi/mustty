@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::Command;
 use crossterm::cursor::SetCursorStyle;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
+use crossterm::event;
 use ratatui::DefaultTerminal;
 use ratatui::layout::{Rect, Size};
 
@@ -18,6 +18,7 @@ use crate::editor::document::Document;
 use crate::editor::{Editor, Effect};
 use crate::help::{self, Help};
 use crate::i18n::{t, t_args};
+use crate::input::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
 use crate::io::file::{self, IoError};
 use crate::keymap::{Keymap, Mode};
 use crate::settings::{Outcome, Settings};
@@ -857,10 +858,10 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
             None => true, // Nothing to wait for: block on read, so idle uses zero CPU
         };
         if ready {
-            batch.push(event::read()?);
+            batch.push(event::read()?.into());
             // Drain the whole batch before redrawing, so several characters committed by the IME at once cost one redraw
             while event::poll(Duration::ZERO)? {
-                batch.push(event::read()?);
+                batch.push(event::read()?.into());
             }
         }
         if cfg!(windows) {
@@ -879,7 +880,7 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyEventState, MouseButton, MouseEventKind};
+    use crate::input::{KeyEventState, MouseButton, MouseEventKind};
 
     fn press(c: KeyCode) -> Event {
         Event::Key(KeyEvent::new(c, KeyModifiers::NONE))

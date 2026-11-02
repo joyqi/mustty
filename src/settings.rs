@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crate::input::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::config::{
     AUTOSAVE_IDLE_RANGE, CodeColor, Config, CursorShape, SCROLLOFF_RANGE, TAB_WIDTH_RANGE,

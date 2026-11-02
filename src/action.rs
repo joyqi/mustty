@@ -2,7 +2,7 @@
 //! the only deliberate revisions are three: `OpenSettings` for the settings panel, `OpenHelp` for
 //! the help panel, and `Tab`. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
 
-use crossterm::event::KeyEvent;
+use crate::input::KeyEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {

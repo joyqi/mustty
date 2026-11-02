@@ -4,6 +4,7 @@ pub mod config;
 pub mod editor;
 pub mod help;
 pub mod i18n;
+pub mod input;
 pub mod io;
 pub mod keymap;
 pub mod markdown;

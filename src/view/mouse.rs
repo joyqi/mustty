@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crate::input::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 use ropey::Rope;
 
