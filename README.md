@@ -52,6 +52,8 @@ cargo install --git https://github.com/joyqi/mustty
 
 Or grab an archive from [Releases](https://github.com/joyqi/mustty/releases).
 
+Or try it in your browser at [mustty.com](https://mustty.com) — the editor runs there as WebAssembly.
+
 ## Usage
 
 ```text

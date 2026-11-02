@@ -47,7 +47,7 @@ Rust is looked up in this order, and the script logs which one it used (`build-w
 Releases deploy themselves: `.github/workflows/pages.yml` builds this directory on a GitHub runner
 (Rust, the wasm32 target, Node 22, pnpm) after each successful Release run, that is after a
 `vX.Y.Z` tag, and uploads `dist/` with `wrangler pages deploy` to the Cloudflare Pages project
-`mustty` (branch `main`, so production). It can also be started by hand from the Actions tab.
+`mustty` (branch `main`, so production, served at https://mustty.com). It can also be started by hand from the Actions tab.
 
 One-time setup, detailed at the top of the workflow:
 
