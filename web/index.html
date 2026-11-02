@@ -11,14 +11,66 @@
   <script src="vendor/addon-fit.js"></script>
   <script src="vendor/addon-unicode11.js"></script>
   <style>
-    html, body { height: 100%; margin: 0; background: #0d1117; }
-    #terminal { position: fixed; inset: 16px; }
+    /* Must match the terminal backgrounds below so the terminal blends into the page */
+    :root { color-scheme: dark; --bg: #0d1117; --fg: #e6edf3; --hover: #21262d; }
+    :root[data-theme="light"] { color-scheme: light; --bg: #ffffff; --fg: #1f2328; --hover: #f3f4f6; }
+    html, body { height: 100%; margin: 0; background: var(--bg); }
+    #terminal { position: fixed; inset: 48px 16px 16px; }
+    #theme-toggle {
+      position: fixed; top: 8px; right: 16px; width: 32px; height: 32px; padding: 6px;
+      border: 0; border-radius: 6px; background: transparent; color: var(--fg); cursor: pointer;
+    }
+    #theme-toggle:hover { background: var(--hover); }
+    #theme-toggle svg { width: 20px; height: 20px; display: block; }
+    /* Show the theme a click switches to */
+    :root[data-theme="dark"] #theme-toggle .moon, :root[data-theme="light"] #theme-toggle .sun { display: none; }
   </style>
 </head>
 <body>
+  <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme" title="Toggle light/dark theme">
+    <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+    </svg>
+    <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+    </svg>
+  </button>
   <div id="terminal"></div>
   <script type="module">
+    // mustty only emits the 16 ANSI colors (SGR 30–37/90–97, the code color, the saved dot, VIS), never
+    // RGB, so these palettes decide every color it draws. GitHub's dark and light terminal colors.
+    const THEMES = {
+      dark: {
+        background: "#0d1117", foreground: "#e6edf3", cursor: "#e6edf3", cursorAccent: "#0d1117",
+        selectionBackground: "#388bfd66",
+        black: "#484f58", red: "#ff7b72", green: "#3fb950", yellow: "#d29922",
+        blue: "#58a6ff", magenta: "#bc8cff", cyan: "#39c5cf", white: "#b1bac4",
+        brightBlack: "#6e7681", brightRed: "#ffa198", brightGreen: "#56d364", brightYellow: "#e3b341",
+        brightBlue: "#79c0ff", brightMagenta: "#d2a8ff", brightCyan: "#56d4dd", brightWhite: "#ffffff",
+      },
+      light: {
+        background: "#ffffff", foreground: "#1f2328", cursor: "#1f2328", cursorAccent: "#ffffff",
+        selectionBackground: "#0969da33",
+        black: "#24292f", red: "#cf222e", green: "#1a7f37", yellow: "#9a6700",
+        blue: "#0969da", magenta: "#8250df", cyan: "#1b7c83", white: "#6e7781",
+        brightBlack: "#57606a", brightRed: "#a40e26", brightGreen: "#116329", brightYellow: "#7d4e00",
+        brightBlue: "#218bff", brightMagenta: "#a475f9", brightCyan: "#3192aa", brightWhite: "#8c959f",
+      },
+    };
+
+    // A manual choice (one localStorage key) wins over the system setting until it is changed again
+    const KEY = "mustty-theme";
+    const stored = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
+    const dark = matchMedia("(prefers-color-scheme: dark)");
+    const current = () => {
+      const s = stored();
+      return s === "light" || s === "dark" ? s : dark.matches ? "dark" : "light";
+    };
+
     function start({ Session }) {
+      let theme = current();
+      document.documentElement.dataset.theme = theme;
       const term = new Terminal({
         allowProposedApi: true, // the unicode11 width table
         cursorStyle: "bar",
@@ -26,7 +78,7 @@
         fontSize: 15,
         lineHeight: 1.2,
         macOptionIsMeta: true, // Option+B / Option+F move by word, as in macOS terminals
-        theme: { background: "#0d1117", foreground: "#e6edf3", cursor: "#e6edf3" },
+        theme: THEMES[theme],
       });
       const fit = new FitAddon.FitAddon();
       term.loadAddon(fit);
@@ -34,6 +86,22 @@
       term.unicode.activeVersion = "11";
       term.open(document.getElementById("terminal"));
       fit.fit();
+
+      // Swaps the palette in place: the buffer, and so the document and the cursor, stay as they are
+      const apply = (next) => {
+        if (next === theme) return;
+        theme = next;
+        document.documentElement.dataset.theme = theme;
+        term.options.theme = THEMES[theme];
+        term.refresh(0, term.rows - 1);
+      };
+      dark.addEventListener("change", () => apply(current()));
+      document.getElementById("theme-toggle").addEventListener("click", () => {
+        const next = theme === "dark" ? "light" : "dark";
+        try { localStorage.setItem(KEY, next); } catch {}
+        apply(next);
+        term.focus();
+      });
 
       const session = new Session(term.cols, term.rows, (bytes) => term.write(bytes));
       term.onData((data) => session.feed(data));
