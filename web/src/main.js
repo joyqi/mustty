@@ -33,14 +33,15 @@ copy.addEventListener("click", async () => {
 const demo = document.getElementById("demo");
 const host = document.getElementById("terminal");
 let focusWhenReady = false;
-let term, fit;
+let term, session, fit;
 const observer = new IntersectionObserver(async (entries) => {
   if (!entries.some((e) => e.isIntersecting)) return;
   observer.disconnect();
   try {
     const { mountTerminal } = await import("./terminal.js");
-    ({ term, fit } = await mountTerminal(host));
+    ({ term, session, fit } = await mountTerminal(host));
     document.getElementById("loading").remove();
+    for (const button of [openButton, saveButton]) button.disabled = false;
     if (focusWhenReady) term.textarea?.focus({ preventScroll: true });
   } catch (e) {
     document.getElementById("loading").textContent = "mustty could not start in this browser.";
@@ -48,6 +49,32 @@ const observer = new IntersectionObserver(async (entries) => {
   }
 }, { rootMargin: "200px 0px" });
 observer.observe(demo);
+
+// Open and download: explicit file operations. The page keeps nothing itself (no localStorage drafts)
+const openButton = document.getElementById("open");
+const saveButton = document.getElementById("save");
+const openFile = document.getElementById("open-file");
+openButton.addEventListener("click", () => openFile.click());
+openFile.addEventListener("change", async () => {
+  const file = openFile.files[0];
+  openFile.value = ""; // so choosing the same file again fires change again
+  if (!file) return;
+  // The bytes, not file.text(): mustty decodes them as it does a file on disk, keeping the BOM and CRLF
+  // line endings for the download and refusing what is not UTF-8
+  try {
+    session.open(new Uint8Array(await file.arrayBuffer()), file.name);
+  } catch (e) {
+    alert(e.message);
+  }
+  term.textarea?.focus({ preventScroll: true });
+});
+saveButton.addEventListener("click", () => {
+  const url = URL.createObjectURL(new Blob([session.save_text()], { type: "text/markdown" }));
+  const link = Object.assign(document.createElement("a"), { href: url, download: session.file_name() });
+  link.click();
+  URL.revokeObjectURL(url);
+  term.textarea?.focus({ preventScroll: true });
+});
 
 // Maximize: the demo box fills the window (data-maximized, see index.html) and the page behind it stops
 // scrolling. The button's aria-pressed picks the icon

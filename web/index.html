@@ -100,6 +100,18 @@
     <section class="flex justify-center pt-14" aria-label="Live demo">
       <div id="demo" class="relative h-[545px] w-full max-w-[980px] scroll-mt-6 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4
                             data-maximized:fixed data-maximized:inset-0 data-maximized:z-50 data-maximized:h-auto data-maximized:max-w-none data-maximized:rounded-none data-maximized:border-0">
+        <!-- Disabled until the terminal has started -->
+        <div class="absolute left-3 top-3 z-10 flex gap-2">
+          <button id="open" type="button" aria-label="Open a file" title="Open a file" disabled
+                  class="grid size-8 place-items-center rounded-lg border border-[var(--border-strong)] bg-[var(--overlay)] text-[var(--muted)] hover:bg-[var(--overlay-solid)] hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-50">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+          <button id="save" type="button" aria-label="Download the file" title="Download the file" disabled
+                  class="grid size-8 place-items-center rounded-lg border border-[var(--border-strong)] bg-[var(--overlay)] text-[var(--muted)] hover:bg-[var(--overlay-solid)] hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-50">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
+          </button>
+          <input id="open-file" type="file" accept=".md,.markdown,.txt" hidden>
+        </div>
         <button id="maximize" type="button" aria-label="Maximize" title="Maximize"
                 class="group absolute right-3 top-3 z-10 grid size-8 place-items-center rounded-lg border border-[var(--border-strong)] bg-[var(--overlay)] text-[var(--muted)] hover:bg-[var(--overlay-solid)] hover:text-[var(--text)]">
           <svg class="size-4 group-aria-pressed:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>

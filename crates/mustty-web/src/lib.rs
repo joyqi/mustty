@@ -12,7 +12,7 @@ use mustty::config::Config;
 use mustty::editor::document::{DiskStamp, Document, FileMeta};
 use mustty::host::{DocStore, HostCaps, HostOp};
 use mustty::input::{Event, InputParser};
-use mustty::io::file::IoError;
+use mustty::io::file::{self, IoError};
 use ratatui::Terminal;
 use ratatui::layout::Size;
 use wasm_bindgen::prelude::*;
@@ -89,6 +89,38 @@ impl Session {
     pub fn resize(&mut self, cols: u16, rows: u16) {
         self.terminal.backend_mut().resize(Size::new(cols, rows));
         self.turn(vec![Event::Resize(cols, rows)]);
+    }
+
+    /// Replaces the document with the file `bytes`, as if the page had opened it: fresh cursor, no undo
+    /// history, no selection. `name` is the file name shown and offered for download (no path). Decoded
+    /// like a file on disk: the BOM and CRLF line endings are noted and given back by `save_text`, and
+    /// anything but UTF-8 is refused.
+    pub fn open(&mut self, bytes: &[u8], name: &str) -> Result<(), JsError> {
+        // The same message (in the UI language) the terminal shows for a file it can't open
+        let doc = file::decode(bytes, Some(name.into()))
+            .map_err(|e| JsError::new(&format!("{name}: {e}")))?;
+        self.app.open_document(doc);
+        self.frame();
+        Ok(())
+    }
+
+    /// The document as a file: the original BOM, line endings (CRLF stays CRLF) and final newline
+    pub fn save_text(&self) -> String {
+        self.app.document().serialize()
+    }
+
+    /// The name to download the document under: the opened file's, or untitled.md
+    pub fn file_name(&self) -> String {
+        self.app
+            .document()
+            .meta
+            .path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map_or_else(
+                || "untitled.md".into(),
+                |n| n.to_string_lossy().into_owned(),
+            )
     }
 
     /// Called from `requestAnimationFrame`: runs what is due (autosave, message expiry), draws if

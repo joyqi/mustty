@@ -277,6 +277,41 @@ impl App {
         self.config.width
     }
 
+    /// The document being edited, as it stands now (unsaved changes included).
+    pub fn document(&self) -> &Document {
+        self.editor.doc()
+    }
+
+    /// Replaces the document with `doc` as if the app had started with it: cursor at the start, no undo
+    /// history (it belongs to the old text) and no selection, Insert mode, panels, prompt and messages
+    /// closed. The config and the host stay; the window title follows on the next turn.
+    pub fn open_document(&mut self, doc: Document) {
+        self.large = doc.body().len_bytes() > LARGE_FILE;
+        self.editor = Editor::new(doc, self.layout().body.width, self.config.tab_width);
+        self.mode = Mode::Insert;
+        self.status = StatusModel {
+            words: self.editor.word_count(),
+            ..StatusModel::default()
+        };
+        if self.large {
+            self.status
+                .info(t("msg-large-file"), Instant::now(), INFO_TTL);
+        }
+        self.viewport = Viewport {
+            typewriter: self.config.typewriter,
+            scrolloff: self.config.scrolloff,
+            ..Viewport::default()
+        };
+        self.settings = None;
+        self.help = None;
+        self.drag = None;
+        self.screen = None;
+        self.last_edit = None;
+        self.quit_armed = false;
+        self.sync_cursor_style();
+        self.needs_redraw = true;
+    }
+
     /// Shows the key hint in the right part of the status bar for 5 s after startup.
     pub fn show_startup_hint(&mut self, now: Instant) {
         self.status.hint_until = Some(now + HINT_TTL);
@@ -906,6 +941,7 @@ fn typed_char(k: &KeyEvent) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::document::FileMeta;
     use crate::input::{KeyEventState, MouseButton, MouseEventKind};
     use crate::io::file;
 
@@ -920,6 +956,31 @@ mod tests {
             KeyEventKind::Release,
             KeyEventState::NONE,
         ))
+    }
+
+    #[test]
+    fn open_document_starts_fresh() {
+        let doc = Document::parse("# One\n\nfirst\n", FileMeta::new(Some("a.md".into())));
+        let mut app = App::new(doc, Size::new(80, 24), false);
+        app.handle(press(KeyCode::Char('x')));
+        app.handle(Event::Key(KeyEvent::new(
+            KeyCode::Right,
+            KeyModifiers::SHIFT,
+        )));
+        assert!(app.editor.selection().is_some());
+
+        let text = "# Two\r\n\r\nsecond\r\n";
+        app.open_document(Document::parse(text, FileMeta::new(Some("b.md".into()))));
+        assert_eq!(app.editor.doc().serialize(), text);
+        assert_eq!(app.editor.cursor, Cursor::default());
+        assert!(!app.editor.is_dirty());
+        assert_eq!(app.status.words, app.editor.word_count());
+        // The old document's history is gone: undo has nothing to take back
+        app.handle(Event::Key(KeyEvent::new(
+            KeyCode::Char('z'),
+            KeyModifiers::CONTROL,
+        )));
+        assert_eq!(app.editor.doc().serialize(), text);
     }
 
     #[test]
