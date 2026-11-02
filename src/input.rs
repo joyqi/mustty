@@ -7,6 +7,10 @@
 use std::hash::{Hash, Hasher};
 use std::ops::{BitAnd, BitOr, BitOrAssign};
 
+mod parse;
+
+pub use parse::InputParser;
+
 #[derive(Debug, PartialOrd, PartialEq, Eq, Clone, Hash)]
 pub enum Event {
     FocusGained,
