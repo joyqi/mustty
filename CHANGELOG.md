@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-02
+
+### Added
+
+- mustty runs in the browser: [mustty.com](https://mustty.com) embeds the full editor compiled to WebAssembly. Type, click to place the cursor, scroll with the wheel and maximize it to the whole window; mixed English, Chinese, Japanese and Korean text lines up and wraps as in a terminal. Nothing is saved there.
+- The mustty.com website: what mustty is, the install command for each platform with a copy button, and the live demo, in light and dark.
+
+### Changed
+
+- The terminal layer sits behind a platform-independent interface, with its own ANSI renderer and input parser, so the same editor core drives both the terminal and the browser. Nothing changes in the terminal: a byte-for-byte recording of a whole session guards it.
+- The crate's homepage is now https://mustty.com.
+
+### Fixed
+
+- With vim keys, undoing (`u`) after deleting across lines no longer leaves a reversed-video selection nobody made; nor does `d`, `x`, `y` or `p` in Visual mode at the end of the document.
+
 ## [0.1.3] - 2026-11-01
 
 ### Added
