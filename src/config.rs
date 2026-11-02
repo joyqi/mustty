@@ -9,6 +9,7 @@ use crossterm::cursor::SetCursorStyle;
 use ratatui::style::Color;
 use serde::Deserialize;
 
+use crate::host::ConfigStore;
 use crate::i18n::{self, t, t_args};
 
 pub const WIDTH_RANGE: (u16, u16) = (40, 120);
@@ -402,24 +403,21 @@ pub enum WriteBackError {
 ///
 /// The file is re-read at write time and only these keys change on top of its latest content: existing keys
 /// are updated in place (keeping comments and key order), new keys are appended to the end of the top level,
-/// and unknown keys and other tables are left alone. Symlinks are resolved to the real target before the
-/// atomic replace, so the link itself survives.
-pub fn write_back(path: &Path, old: &Config, new: &Config) -> Result<(), WriteBackError> {
+/// and unknown keys and other tables are left alone. Where the text lives (and, on disk, that a symlink
+/// survives) is up to the store.
+pub fn write_back(
+    store: &mut dyn ConfigStore,
+    old: &Config,
+    new: &Config,
+) -> Result<(), WriteBackError> {
     let keys = changed_keys(old, new);
     if keys.is_empty() {
         return Ok(());
     }
-    let not_found = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
-    let target = match std::fs::canonicalize(path) {
-        Ok(p) => p,
-        Err(e) if not_found(&e) => path.to_path_buf(),
-        Err(e) => return Err(WriteBackError::Io(e)),
-    };
-    let text = match std::fs::read_to_string(&target) {
-        Ok(text) => text,
-        Err(e) if not_found(&e) => String::new(),
-        Err(e) => return Err(WriteBackError::Io(e)),
-    };
+    let text = store
+        .read()
+        .map_err(WriteBackError::Io)?
+        .unwrap_or_default();
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|_| WriteBackError::Syntax)?;
     for key in keys {
         let value: toml_edit::Value = match new.scalar(key) {
@@ -439,7 +437,7 @@ pub fn write_back(path: &Path, old: &Config, new: &Config) -> Result<(), WriteBa
             }
         }
     }
-    crate::io::file::atomic_write(&target, doc.to_string().as_bytes()).map_err(WriteBackError::Io)
+    store.write(&doc.to_string()).map_err(WriteBackError::Io)
 }
 
 /// Joins all warnings into one line for the status bar and stderr.
@@ -459,6 +457,7 @@ pub fn summarize(warnings: &[ConfigWarning]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::native::FsConfigStore;
     use proptest::prelude::*;
 
     fn parse(text: &str) -> (Config, Vec<ConfigWarning>) {
@@ -629,7 +628,7 @@ mod tests {
             ..old.clone()
         };
         assert_eq!(changed_keys(&old, &new), vec!["cursor", "cursor_blink"]);
-        write_back(&path, &old, &new).unwrap();
+        write_back(&mut FsConfigStore::new(&path), &old, &new).unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         assert_eq!(
             written,
@@ -649,7 +648,7 @@ mod tests {
             ..old.clone()
         };
         assert_eq!(changed_keys(&old, &new), vec!["lang"]);
-        write_back(&path, &old, &new).unwrap();
+        write_back(&mut FsConfigStore::new(&path), &old, &new).unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         assert_eq!(written, "width = 80\nlang = \"zh-CN\"\n");
         assert_eq!(loaded(&written), new);
@@ -812,7 +811,7 @@ mod tests {
             code_color: CodeColor::White,
             ..old.clone()
         };
-        write_back(&path, &old, &new).unwrap();
+        write_back(&mut FsConfigStore::new(&path), &old, &new).unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         assert_eq!(
             written,
@@ -834,7 +833,7 @@ mod tests {
             ..old.clone()
         };
         assert_eq!(changed_keys(&old, &new), vec!["vim"]);
-        write_back(&path, &old, &new).unwrap();
+        write_back(&mut FsConfigStore::new(&path), &old, &new).unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "width = 64\nvim = true\n",
@@ -842,10 +841,10 @@ mod tests {
         );
         // No changes: write nothing, and don't create a missing file
         let missing = dir.path().join("none.toml");
-        write_back(&missing, &old, &old).unwrap();
+        write_back(&mut FsConfigStore::new(&missing), &old, &old).unwrap();
         assert!(!missing.exists());
         // Missing file with changes: create it with only the changed keys
-        write_back(&missing, &old, &new).unwrap();
+        write_back(&mut FsConfigStore::new(&missing), &old, &new).unwrap();
         assert_eq!(std::fs::read_to_string(&missing).unwrap(), "vim = true\n");
     }
 
@@ -861,7 +860,7 @@ mod tests {
             ..old.clone()
         };
         assert!(matches!(
-            write_back(&path, &old, &new),
+            write_back(&mut FsConfigStore::new(&path), &old, &new),
             Err(WriteBackError::Syntax)
         ));
         assert_eq!(
@@ -886,7 +885,7 @@ mod tests {
             vim: true,
             ..old.clone()
         };
-        write_back(&link, &old, &new).unwrap();
+        write_back(&mut FsConfigStore::new(&link), &old, &new).unwrap();
         assert!(
             std::fs::symlink_metadata(&link)
                 .unwrap()

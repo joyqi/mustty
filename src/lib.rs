@@ -3,6 +3,7 @@ pub mod app;
 pub mod config;
 pub mod editor;
 pub mod help;
+pub mod host;
 pub mod i18n;
 pub mod input;
 pub mod io;

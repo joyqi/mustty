@@ -1,15 +1,17 @@
 //! Status bar state: messages and the "Save as: " prompt.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use web_time::Instant;
 
 use crate::input::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Style};
 use ropey::Rope;
 
 use crate::editor::document::TitleField;
+use crate::host::strip_controls;
 use crate::i18n::{t, t_args};
-use crate::terminal::strip_controls;
 use crate::text::count::thousands;
 use crate::text::grapheme::{graphemes, next_boundary, prev_boundary};
 use crate::text::wrap::line_text;

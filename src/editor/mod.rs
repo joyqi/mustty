@@ -10,7 +10,7 @@ pub mod history;
 
 use std::ops::Range;
 use std::path::PathBuf;
-use std::time::Instant;
+use web_time::Instant;
 
 use ropey::Rope;
 use unicode_segmentation::UnicodeSegmentation;

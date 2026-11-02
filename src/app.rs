@@ -3,10 +3,10 @@
 use std::io::Write;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crossterm::Command;
-use crossterm::cursor::SetCursorStyle;
+use web_time::Instant;
+
 use crossterm::event;
 use ratatui::DefaultTerminal;
 use ratatui::layout::{Rect, Size};
@@ -17,9 +17,11 @@ use crate::editor::cursor::Cursor;
 use crate::editor::document::Document;
 use crate::editor::{Editor, Effect};
 use crate::help::{self, Help};
+use crate::host::native::{FsConfigStore, FsDocStore};
+use crate::host::{ConfigStore, CursorStyle, DocStore, HostCaps, HostOp, Pump, WindowTitle};
 use crate::i18n::{t, t_args};
 use crate::input::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
-use crate::io::file::{self, IoError};
+use crate::io::file::IoError;
 use crate::keymap::{Keymap, Mode};
 use crate::settings::{Outcome, Settings};
 use crate::status::{Prompt, StatusModel};
@@ -53,8 +55,11 @@ pub struct App {
     /// Parts of it are copied into sub-objects: Keymap (vim), Viewport (typewriter, scrolloff),
     /// and the Editor's WrapCache (tab_width, which also sets how many spaces Tab inserts). `apply_config` keeps them in sync
     pub(crate) config: Config,
+    /// Where documents are saved
+    docs: Box<dyn DocStore>,
     /// Config file the settings panel writes back to. With None, changes last only for this session (the test default, so tests never touch the real ~/.mustty.toml)
-    config_path: Option<PathBuf>,
+    config_store: Option<Box<dyn ConfigStore>>,
+    caps: HostCaps,
     /// Settings panel (Ctrl+P); swallows every key while open
     pub(crate) settings: Option<Settings>,
     /// Help panel (Ctrl+G, or `?` in vim Normal mode); also swallows every key
@@ -71,15 +76,13 @@ pub struct App {
     last_edit: Option<Instant>,
     /// Ctrl+Q was pressed once with unsaved changes
     quit_armed: bool,
-    /// Control sequences waiting to be written to the terminal (OSC 52, cursor shape); the event loop flushes them
-    output: Vec<String>,
-    /// Whether the terminal supports OSC 52 (macOS Terminal doesn't)
-    osc52_supported: bool,
+    /// Clipboard writes and cursor shapes waiting for the host, in order; the event loop takes them
+    output: Vec<HostOp>,
     osc52_warned: bool,
-    /// Last cursor shape sequence written to the terminal, for dedup. TerminalGuard sets a bar at startup
-    cursor_sent: String,
-    /// Window title already written to the terminal, for dedup
-    window_title: crate::terminal::WindowTitle,
+    /// Last cursor shape sent to the host, for dedup. TerminalGuard sets a bar at startup
+    cursor_sent: Option<CursorStyle>,
+    /// Window title already sent to the host, for dedup
+    window_title: WindowTitle,
     /// Base for relative "Save as" paths; the prefilled untitled name also avoids collisions here. Defaults to the working directory at startup
     pub save_dir: PathBuf,
     pub should_quit: bool,
@@ -96,8 +99,27 @@ impl App {
         Self::with_config(doc, size, &config)
     }
 
-    /// Builds with the default config, then applies `config` through `apply_config`, so startup and live changes share one code path.
+    /// A terminal app: documents on disk, terminal capabilities.
     pub fn with_config(doc: Document, size: Size, config: &Config) -> Self {
+        Self::with_host(
+            doc,
+            size,
+            config,
+            Box::new(FsDocStore),
+            None,
+            HostCaps::native(),
+        )
+    }
+
+    /// Builds with the default config, then applies `config` through `apply_config`, so startup and live changes share one code path.
+    pub fn with_host(
+        doc: Document,
+        size: Size,
+        config: &Config,
+        docs: Box<dyn DocStore>,
+        config_store: Option<Box<dyn ConfigStore>>,
+        caps: HostCaps,
+    ) -> Self {
         let area = Rect::new(0, 0, size.width, size.height);
         let large = doc.body().len_bytes() > LARGE_FILE;
         let base = Config::default();
@@ -123,7 +145,9 @@ impl App {
             },
             area,
             config: base,
-            config_path: None,
+            docs,
+            config_store,
+            caps,
             settings: None,
             help: None,
             mouse_capture: None,
@@ -133,9 +157,8 @@ impl App {
             last_edit: None,
             quit_armed: false,
             output: Vec::new(),
-            osc52_supported: std::env::var_os("TERM_PROGRAM").is_none_or(|t| t != "Apple_Terminal"),
             osc52_warned: false,
-            cursor_sent: String::new(),
+            cursor_sent: None,
             window_title: Default::default(),
             save_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             should_quit: false,
@@ -146,7 +169,10 @@ impl App {
         // Push the cursor shape once more only if the configured one isn't a bar
         app.output.clear();
         app.mouse_capture = None;
-        app.cursor_sent = ansi(SetCursorStyle::SteadyBar);
+        app.cursor_sent = Some(CursorStyle {
+            shape: config::CursorShape::Bar,
+            blink: false,
+        });
         app.sync_cursor_style();
         app
     }
@@ -207,26 +233,35 @@ impl App {
 
     /// The cursor shape to show right now. vim Normal mode (including Visual) is always a block: it signals command mode and isn't a preference.
     /// While the settings panel is open, always use the configured shape so the panel can preview it; otherwise use the configured shape too.
-    pub(crate) fn cursor_style(&self) -> SetCursorStyle {
+    pub(crate) fn cursor_style(&self) -> CursorStyle {
         if self.settings.is_none() && matches!(self.mode, Mode::Normal(_)) {
-            SetCursorStyle::SteadyBlock
+            CursorStyle::STEADY_BLOCK
         } else {
-            self.config.cursor.style(self.config.cursor_blink)
+            CursorStyle {
+                shape: self.config.cursor,
+                blink: self.config.cursor_blink,
+            }
         }
     }
 
     /// The only place that pushes the cursor shape, and only when it differs from the last one written. Called after every event and every config change.
     fn sync_cursor_style(&mut self) {
-        let seq = ansi(self.cursor_style());
-        if seq != self.cursor_sent {
-            self.output.push(seq.clone());
-            self.cursor_sent = seq;
+        let style = self.cursor_style();
+        if self.cursor_sent != Some(style) {
+            self.output.push(HostOp::Cursor(style));
+            self.cursor_sent = Some(style);
         }
     }
 
     /// Config file the settings panel writes back to on Enter.
     pub fn set_config_path(&mut self, path: Option<PathBuf>) {
-        self.config_path = path;
+        self.set_config_store(
+            path.map(|p| Box::new(FsConfigStore::new(p)) as Box<dyn ConfigStore>),
+        );
+    }
+
+    pub fn set_config_store(&mut self, store: Option<Box<dyn ConfigStore>>) {
+        self.config_store = store;
     }
 
     pub fn layout(&self) -> Layout {
@@ -416,7 +451,7 @@ impl App {
                     self.save(path, false);
                 }
                 None => {
-                    let name = file::untitled_name(&self.save_dir);
+                    let name = self.docs.untitled_name(&self.save_dir);
                     self.status.prompt = Some(Prompt::with_input(name));
                 }
             },
@@ -497,9 +532,8 @@ impl App {
             Outcome::Ignored | Outcome::Moved => {}
             Outcome::Changed(config) => self.apply_config_at(&config, now),
             Outcome::Save => {
-                let snapshot = self.settings.take().map(|s| s.snapshot);
-                if let (Some(snapshot), Some(path)) = (snapshot, self.config_path.clone()) {
-                    self.write_settings(&path, &snapshot);
+                if let Some(settings) = self.settings.take() {
+                    self.write_settings(&settings.snapshot);
                 }
             }
             Outcome::Cancel => self.close_settings(now),
@@ -518,8 +552,11 @@ impl App {
     }
 
     /// Enter: write only the keys that differ from the snapshot. On failure the changes still apply for this session.
-    fn write_settings(&mut self, path: &Path, snapshot: &Config) {
-        match config::write_back(path, snapshot, &self.config) {
+    fn write_settings(&mut self, snapshot: &Config) {
+        let Some(store) = self.config_store.as_deref_mut() else {
+            return;
+        };
+        match config::write_back(store, snapshot, &self.config) {
             Ok(()) => {}
             Err(config::WriteBackError::Syntax) => {
                 self.status.error(t("settings-syntax-error"));
@@ -539,6 +576,9 @@ impl App {
     }
 
     fn quit(&mut self, armed: bool) {
+        if !self.caps.can_quit {
+            return;
+        }
         if armed || !self.editor.is_dirty() || (self.can_autosave() && self.autosave_now()) {
             self.should_quit = true;
         } else {
@@ -569,26 +609,61 @@ impl App {
 
     /// The Editor has already filled the internal register; this also writes the system clipboard via OSC 52, which works through SSH / tmux.
     fn copy_to_clipboard(&mut self, text: &str, now: Instant) {
-        if self.osc52_supported {
-            self.output.push(crate::terminal::osc52(text));
+        if self.caps.clipboard {
+            self.output.push(HostOp::Clipboard(text.to_owned()));
         } else if !std::mem::replace(&mut self.osc52_warned, true) {
             self.status.info(t("msg-osc52-unsupported"), now, INFO_TTL);
         }
     }
 
-    /// Returns the OSC 2 sequence to write when the window title (including the unsaved mark) changed; checked once per event loop iteration, None when unchanged.
-    pub fn take_window_title(&mut self) -> Option<String> {
+    /// The window title (including the unsaved mark) when it changed; checked once per event loop iteration, None when unchanged.
+    fn take_title(&mut self) -> Option<String> {
         let doc = self.editor.doc();
         // The unsaved mark shares its source with the status bar's SaveMark: both read Editor::is_dirty() directly.
         // Dedup compares the final string, so a change in save state alone is pushed even when the title text is the same
         let title =
             StatusModel::window_title(&doc.title, doc.meta.path.as_deref(), self.editor.is_dirty());
-        self.window_title.update(&title)
+        self.window_title.update(&title).map(|_| title)
     }
 
-    /// Takes the control sequences waiting to be written to the terminal.
+    /// Returns the OSC 2 sequence to write when the window title changed (see `take_title`).
+    pub fn take_window_title(&mut self) -> Option<String> {
+        self.take_title().map(|t| HostOp::Title(t).to_ansi())
+    }
+
+    /// Takes the control sequences waiting to be written to the terminal (OSC 52, cursor shape).
     pub fn take_terminal_output(&mut self) -> Vec<String> {
         std::mem::take(&mut self.output)
+            .iter()
+            .map(HostOp::to_ansi)
+            .collect()
+    }
+
+    /// Everything waiting for the host, in the order a terminal applies it: mouse capture, then the
+    /// clipboard and cursor shapes as they were pushed, then the window title.
+    pub fn take_ops(&mut self) -> Vec<HostOp> {
+        let mut ops: Vec<HostOp> = self
+            .take_mouse_capture()
+            .map(HostOp::MouseCapture)
+            .into_iter()
+            .collect();
+        ops.append(&mut self.output);
+        ops.extend(self.take_title().map(HostOp::Title));
+        ops
+    }
+
+    /// One turn of the event loop: handles a batch of events, then whatever is due at `now`.
+    /// `batch` may be empty, which only checks the timers (and is how a host starts).
+    pub fn pump(&mut self, batch: Vec<Event>, now: Instant) -> Pump {
+        for ev in batch {
+            self.handle_at(ev, now);
+        }
+        self.tick(now);
+        Pump {
+            ops: self.take_ops(),
+            redraw: self.needs_redraw,
+            next: self.next_deadline(),
+        }
     }
 
     fn prompt_input(&mut self, key: KeyEvent) {
@@ -600,7 +675,7 @@ impl App {
         }
         // Relative to save_dir (the cwd at startup), with no ~ expansion; absolute paths are used as is
         let path = self.save_dir.join(&prompt.input);
-        if path.exists() && !prompt.confirm_overwrite {
+        if self.docs.exists(&path) && !prompt.confirm_overwrite {
             prompt.confirm_overwrite = true;
             return;
         }
@@ -625,7 +700,7 @@ impl App {
 
     fn save(&mut self, path: PathBuf, auto: bool) -> bool {
         self.needs_redraw = true;
-        match file::save(self.editor.doc(), &path, auto) {
+        match self.docs.save(self.editor.doc(), &path, auto) {
             Ok(mtime) => {
                 self.editor.mark_saved(path, mtime);
                 // The mark after the file name shows the save state, so no "Saved" message is shown
@@ -813,13 +888,6 @@ pub fn coalesce_paste(events: Vec<Event>) -> Vec<Event> {
 }
 
 /// Characters the terminal sends key by key during a paste (including Enter).
-/// Escape sequence for a cursor shape (DECSCUSR).
-fn ansi(style: SetCursorStyle) -> String {
-    let mut seq = String::new();
-    let _ = style.write_ansi(&mut seq);
-    seq
-}
-
 fn typed_char(k: &KeyEvent) -> Option<char> {
     let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
     let altgr = ctrl && k.modifiers.contains(KeyModifiers::ALT);
@@ -831,26 +899,31 @@ fn typed_char(k: &KeyEvent) -> Option<char> {
 }
 
 pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> {
+    // No event yet: the first turn only collects what startup left for the terminal
+    let mut turn = app.pump(Vec::new(), Instant::now());
     loop {
-        if let Some(on) = app.take_mouse_capture() {
-            crate::terminal::set_mouse_capture(terminal.backend_mut(), on)?;
-        }
-        let mut output = app.take_terminal_output();
-        // The window title (OSC 2) also goes straight to stdout: it doesn't move the cursor and bypasses ratatui's Buffer
-        output.extend(app.take_window_title());
-        if !output.is_empty() {
+        let mut written = false;
+        for op in turn.ops {
             let backend = terminal.backend_mut();
-            for seq in output {
-                backend.write_all(seq.as_bytes())?;
+            match op {
+                // Through crossterm: on Windows, mouse capture is a console mode, not an escape sequence
+                HostOp::MouseCapture(on) => crate::terminal::set_mouse_capture(backend, on)?,
+                // The window title (OSC 2) also goes straight to stdout: it doesn't move the cursor and bypasses ratatui's Buffer
+                op => {
+                    backend.write_all(op.to_ansi().as_bytes())?;
+                    written = true;
+                }
             }
-            backend.flush()?;
         }
-        if app.needs_redraw {
+        if written {
+            terminal.backend_mut().flush()?;
+        }
+        if turn.redraw {
             terminal.draw(|frame| view::render(frame, app))?;
             app.needs_redraw = false;
         }
-        let timeout = app
-            .next_deadline()
+        let timeout = turn
+            .next
             .map(|d| d.saturating_duration_since(Instant::now()));
         let mut batch = Vec::new();
         let ready = match timeout {
@@ -867,10 +940,7 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
         if cfg!(windows) {
             batch = coalesce_paste(batch);
         }
-        for ev in batch {
-            app.handle(ev);
-        }
-        app.tick(Instant::now());
+        turn = app.pump(batch, Instant::now());
         if app.should_quit {
             return Ok(());
         }
@@ -881,6 +951,7 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
 mod tests {
     use super::*;
     use crate::input::{KeyEventState, MouseButton, MouseEventKind};
+    use crate::io::file;
 
     fn press(c: KeyCode) -> Event {
         Event::Key(KeyEvent::new(c, KeyModifiers::NONE))

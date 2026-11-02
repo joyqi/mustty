@@ -2,7 +2,9 @@
 //! Coordinates are looked up in the `ScreenMap` produced by rendering, never recomputed from the
 //! layout here. The mouse reuses the keyboard's Actions rather than opening a separate editing path.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use web_time::Instant;
 
 use crate::input::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;

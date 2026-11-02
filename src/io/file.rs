@@ -122,19 +122,6 @@ pub fn free_name(base: &str, ext: &str, taken: impl Fn(&str) -> bool, stamp: u64
         .unwrap_or_else(|| format!("{base}-{stamp}.{ext}"))
 }
 
-/// The first free `untitled*.md` in `dir`. A dangling symlink counts as taken (a write would follow it somewhere else).
-pub fn untitled_name(dir: &Path) -> String {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    free_name(
-        "untitled",
-        "md",
-        |name| fs::symlink_metadata(dir.join(name)).is_ok(),
-        stamp,
-    )
-}
-
 /// Write a temp file in the same directory → fsync → rename to replace atomically, keeping the original
 /// file's permissions (Unix). Shared by documents and the config file.
 /// If `path` is a symlink, rename replaces the link with a regular file: callers that need to keep the link `canonicalize` first.
@@ -187,22 +174,6 @@ mod tests {
         assert_eq!(free_name("untitled", "md", |n| n != last, 7), last);
     }
 
-    #[test]
-    fn untitled_name_checks_the_directory() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(untitled_name(dir.path()), "untitled.md");
-        fs::write(dir.path().join("untitled.md"), "").unwrap();
-        assert_eq!(untitled_name(dir.path()), "untitled-2.md");
-        // A directory counts as taken
-        fs::create_dir(dir.path().join("untitled-2.md")).unwrap();
-        assert_eq!(untitled_name(dir.path()), "untitled-3.md");
-        // So does a dangling symlink
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink("nowhere", dir.path().join("untitled-3.md")).unwrap();
-            assert_eq!(untitled_name(dir.path()), "untitled-4.md");
-        }
-    }
     use proptest::prelude::*;
 
     fn round_trip(bytes: &[u8]) -> Vec<u8> {

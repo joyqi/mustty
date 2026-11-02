@@ -2,7 +2,9 @@
 //! History only records edits; on undo, the Editor replays them through the body's single write path.
 
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use web_time::Instant;
 
 use unicode_segmentation::UnicodeSegmentation;
 
