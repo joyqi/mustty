@@ -54,6 +54,7 @@ required-features = ["native"]
 [dev-dependencies]
 insta = "1.49.0"
 proptest = "1.12.0"
+vt100 = "0.18"
 
 # tests/window_title.rs: runs the real binary in a pty
 [target.'cfg(unix)'.dev-dependencies]

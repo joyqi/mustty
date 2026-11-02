@@ -1,4 +1,5 @@
 pub mod action;
+pub mod ansi;
 pub mod app;
 pub mod config;
 pub mod editor;
