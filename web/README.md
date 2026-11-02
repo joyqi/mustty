@@ -33,10 +33,32 @@ matches `wasm-bindgen` in `Cargo.lock` (0.2.130 now), so the two can never drift
 `cargo install`. Compiling `wasm-bindgen-cli` from source instead takes about 1.5 minutes on a fast
 machine, more on a build server.
 
-When rustup is present the script adds the `wasm32-unknown-unknown` target and puts rustup's
-toolchain first on PATH (a Homebrew `rustc` has no wasm32 standard library).
+Rust is looked up in this order, and the script logs which one it used (`build-wasm: …`):
 
-## Cloudflare Pages
+1. `cargo` on PATH whose `rustc` already has the `wasm32-unknown-unknown` target: used as is
+   (GitHub Actions, most machines).
+2. rustup: its toolchain goes first on PATH (a Homebrew `rustc` has no wasm32 standard library),
+   and the target is added if missing.
+3. On Cloudflare Pages (`CF_PAGES=1`), whose image has no Rust: a minimal rustup toolchain is
+   installed first.
+
+## Deploy
+
+Releases deploy themselves: `.github/workflows/pages.yml` builds this directory on a GitHub runner
+(Rust, the wasm32 target, Node 22, pnpm) after each successful Release run, that is after a
+`vX.Y.Z` tag, and uploads `dist/` with `wrangler pages deploy` to the Cloudflare Pages project
+`mustty` (branch `main`, so production). It can also be started by hand from the Actions tab.
+
+One-time setup, detailed at the top of the workflow:
+
+- a Pages project named `mustty` with production branch `main`, created for direct upload
+  (`npx wrangler pages project create mustty --production-branch=main`);
+- repository secrets `CLOUDFLARE_API_TOKEN` (a token with Account · Cloudflare Pages · Edit) and
+  `CLOUDFLARE_ACCOUNT_ID`.
+
+### Building on Cloudflare instead
+
+To let Cloudflare build from the repository rather than upload from Actions:
 
 | Setting | Value |
 | --- | --- |
