@@ -20,32 +20,37 @@ export const THEMES = {
   },
 };
 
-// A manual choice (one localStorage key) wins over the system setting until it is changed again
+// A manual choice (one localStorage key) wins over the system setting until it is changed again.
+// The inline script in index.html applies the same rule before first paint.
 const KEY = "mustty-theme";
 const stored = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
 const dark = matchMedia("(prefers-color-scheme: dark)");
-const current = () => {
+const pick = () => {
   const s = stored();
   return s === "light" || s === "dark" ? s : dark.matches ? "dark" : "light";
 };
 
-// Themes the page now and returns the xterm theme to start with. Later `apply` gets the new xterm
-// theme whenever it changes: the system setting flips (unless a manual choice is stored) or `toggle`
-// is clicked.
-export function followTheme(toggle, apply) {
-  let theme = current();
-  document.documentElement.dataset.theme = theme;
+const listeners = [];
+const root = document.documentElement;
+
+export const currentTheme = () => THEMES[root.dataset.theme === "light" ? "light" : "dark"];
+
+// Calls `listener` with the new xterm theme whenever the page theme changes
+export const onThemeChange = (listener) => listeners.push(listener);
+
+// Keeps the page theme in sync with the system setting (unless a manual choice is stored) and lets
+// `toggle` switch it by hand
+export function followTheme(toggle) {
   const set = (next) => {
-    if (next === theme) return;
-    theme = next;
-    document.documentElement.dataset.theme = theme;
-    apply(THEMES[theme]);
+    if (next === root.dataset.theme) return;
+    root.dataset.theme = next;
+    for (const listener of listeners) listener(THEMES[next]);
   };
-  dark.addEventListener("change", () => set(current()));
+  set(pick());
+  dark.addEventListener("change", () => set(pick()));
   toggle.addEventListener("click", () => {
-    const next = theme === "dark" ? "light" : "dark";
+    const next = root.dataset.theme === "dark" ? "light" : "dark";
     try { localStorage.setItem(KEY, next); } catch {}
     set(next);
   });
-  return THEMES[theme];
 }

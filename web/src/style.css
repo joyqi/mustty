@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/* Stand-ins with the web fonts' metrics, so text keeps its size and line breaks while JetBrains Mono and
+   Inter load (font-display: swap) and nothing shifts when they arrive. JetBrains Mono: advance 0.6em
+   like Menlo/Courier New, ascent 1.02, descent 0.30. Inter against Arial: the overrides next/font uses. */
+@font-face {
+  font-family: "JetBrains Mono Fallback";
+  src: local("Menlo"), local("Courier New");
+  size-adjust: 100%;
+  ascent-override: 102%;
+  descent-override: 30%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "Inter Fallback";
+  src: local("Arial"), local("Helvetica");
+  size-adjust: 107.12%;
+  ascent-override: 90.44%;
+  descent-override: 22.52%;
+  line-gap-override: 0%;
+}
+
+@theme {
+  --font-mono: "JetBrains Mono", "JetBrains Mono Fallback", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "Inter", "Inter Fallback", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* The page colors; utilities read them as bg-[var(--bg)] etc. The terminal palette is in theme.js */
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --card: #161b22;
+  --border: #21262d;
+  --border-strong: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --accent: #39c5cf;
+  --dot: #3fb950;
+  --cta: #238636;
+  --cta-hover: #2ea043;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --card: #f6f8fa;
+  --border: #d0d7de;
+  --border-strong: #d0d7de;
+  --text: #1f2328;
+  --muted: #57606a;
+  --faint: #8c959f;
+  --accent: #0969da;
+  --dot: #1a7f37;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Show the theme a click switches to */
+:root[data-theme="dark"] #theme-toggle .moon,
+:root[data-theme="light"] #theme-toggle .sun {
+  display: none;
+}

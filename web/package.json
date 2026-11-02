@@ -14,10 +14,14 @@
     "@xterm/xterm": "6.0.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "tailwindcss": "4.3.3",
     "vite": "8.3.5",
     "wasm-pack": "0.15.1"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["wasm-pack"]
+    "onlyBuiltDependencies": [
+      "wasm-pack"
+    ]
   }
 }

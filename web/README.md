@@ -1,7 +1,15 @@
 # mustty web demo
 
-mustty in the browser: the Rust crate in `../crates/mustty-web` compiled to wasm, drawing through
-xterm.js. A Vite + pnpm project; `dist/` is a static site.
+The mustty landing page, with mustty itself running in it: the Rust crate in `../crates/mustty-web`
+compiled to wasm, drawing through xterm.js. A Vite + pnpm project with Tailwind CSS v4 (through
+`@tailwindcss/vite`); `dist/` is a static site.
+
+- `index.html` is the page; colors are CSS variables in `src/style.css` (`--bg`, `--text`, …),
+  switched by `data-theme` on `<html>`, and `src/theme.js` holds the matching xterm palettes.
+- `src/terminal.js` (xterm.js and the wasm) is imported only when the demo comes within 200px of
+  the viewport, so the first paint is the HTML, one stylesheet and about 5 KB of script.
+- Inter and JetBrains Mono come from Google Fonts without blocking render; metric-matched local
+  fallbacks keep the layout identical until they arrive.
 
 ## Run locally
 
