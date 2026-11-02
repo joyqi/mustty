@@ -11,6 +11,7 @@ pub mod keymap;
 pub mod markdown;
 pub mod settings;
 pub mod status;
+#[cfg(feature = "native")]
 pub mod terminal;
 pub mod text;
 pub mod view;

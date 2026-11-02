@@ -2,9 +2,11 @@
 //! A bad config never blocks startup: a syntax error discards the whole file, a bad key falls back on its own,
 //! out-of-range values are clamped. Each case only produces a warning.
 
+#[cfg(feature = "native")]
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[cfg(feature = "native")]
 use crossterm::cursor::SetCursorStyle;
 use ratatui::style::Color;
 use serde::Deserialize;
@@ -80,6 +82,7 @@ impl CursorShape {
     }
 
     /// The matching terminal cursor style (DECSCUSR).
+    #[cfg(feature = "native")]
     pub fn style(self, blink: bool) -> SetCursorStyle {
         match (self, blink) {
             (Self::Bar, false) => SetCursorStyle::SteadyBar,
@@ -332,11 +335,13 @@ impl Config {
     }
 }
 
+#[cfg(feature = "native")]
 pub fn path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".mustty.toml"))
 }
 
 /// Reads `~/.mustty.toml` and merges it as defaults ← file.
+#[cfg(feature = "native")]
 pub fn load() -> (Config, Vec<ConfigWarning>) {
     let (file, warnings) = match path() {
         Some(p) => read_file(&p),
@@ -345,6 +350,7 @@ pub fn load() -> (Config, Vec<ConfigWarning>) {
     (Config::default().merge(&file), warnings)
 }
 
+#[cfg(feature = "native")]
 fn read_file(path: &Path) -> (PartialConfig, Vec<ConfigWarning>) {
     match std::fs::read_to_string(path) {
         Ok(text) => PartialConfig::from_toml_str(&text),

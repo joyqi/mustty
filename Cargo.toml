@@ -12,8 +12,8 @@ keywords = ["markdown", "tui", "editor", "writing", "terminal"]
 categories = ["command-line-utilities", "text-editors"]
 
 [dependencies]
-ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
-crossterm = "0.29.0"
+ratatui = { version = "0.30.2", default-features = false }
+crossterm = { version = "0.29.0", optional = true }
 # Only \n is a line break: a lone \r stays an ordinary character
 ropey = { version = "1.6.1", default-features = false, features = ["simd"] }
 unicode-segmentation = "1.13.3"
@@ -23,15 +23,33 @@ unicode-linebreak = "0.1.5"
 anyhow = "1.0.104"
 # std::time::Instant on native; on wasm, where std's Instant::now() panics, performance.now()
 web-time = "1.1.0"
-tempfile = "3.27.0"
-clap = { version = "4.6.7", features = ["derive"] }
+tempfile = { version = "3.27.0", optional = true }
+clap = { version = "4.6.7", features = ["derive"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"
-dirs = "7.0.0"
+dirs = { version = "7.0.0", optional = true }
 # System locale (works on Windows even without LANG); env vars take precedence, see src/i18n.rs
-sys-locale = "0.3.2"
+sys-locale = { version = "0.3.2", optional = true }
 # The settings panel writes back to ~/.mustty.toml: keeps comments and key order, touches only changed keys
 toml_edit = "0.25.17"
+
+[features]
+default = ["native"]
+# The terminal host: the event loop, terminal modes, files and ~/.mustty.toml on disk, the CLI.
+# Without it the library is only the platform-independent core
+native = [
+    "dep:crossterm",
+    "ratatui/crossterm",
+    "dep:clap",
+    "dep:tempfile",
+    "dep:dirs",
+    "dep:sys-locale",
+]
+
+[[bin]]
+name = "mustty"
+path = "src/main.rs"
+required-features = ["native"]
 
 [dev-dependencies]
 insta = "1.49.0"
@@ -43,6 +61,7 @@ libc = "0.2.191"
 
 [[example]]
 name = "screenshot"
+required-features = ["native"]
 # cargo test runs its tests too, so a layout change can't silently turn the screenshot blank
 test = true
 

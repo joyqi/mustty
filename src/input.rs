@@ -241,6 +241,7 @@ pub enum MouseButton {
     Middle,
 }
 
+#[cfg(feature = "native")]
 mod from_crossterm {
     use super::*;
     use crossterm::event as ct;

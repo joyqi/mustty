@@ -1,14 +1,11 @@
-//! App state and the synchronous event loop.
+//! App state: one turn of the event loop at a time (`App::pump`), whoever drives it.
 
-use std::io::Write;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use web_time::Instant;
 
-use crossterm::event;
-use ratatui::DefaultTerminal;
 use ratatui::layout::{Rect, Size};
 
 use crate::action::{Action, Motion, Target};
@@ -17,6 +14,7 @@ use crate::editor::cursor::Cursor;
 use crate::editor::document::Document;
 use crate::editor::{Editor, Effect};
 use crate::help::{self, Help};
+#[cfg(feature = "native")]
 use crate::host::native::{FsConfigStore, FsDocStore};
 use crate::host::{ConfigStore, CursorStyle, DocStore, HostCaps, HostOp, Pump, WindowTitle};
 use crate::i18n::{t, t_args};
@@ -30,6 +28,10 @@ use crate::view::layout::{Layout, compute_layout};
 use crate::view::mouse::{DRAG_SCROLL_INTERVAL, DragState, map_mouse};
 use crate::view::screen::ScreenMap;
 use crate::view::viewport::Viewport;
+
+/// The terminal event loop lives in the native host; this path stays for the binary
+#[cfg(feature = "native")]
+pub use crate::host::native::run;
 
 /// Default idle time after the last edit before autosave (config key `autosave_idle_ms`).
 pub const AUTOSAVE_IDLE: Duration = Duration::from_secs(2);
@@ -91,6 +93,7 @@ pub struct App {
 
 impl App {
     /// Default config; only autosave is specified.
+    #[cfg(feature = "native")]
     pub fn new(doc: Document, size: Size, autosave: bool) -> Self {
         let config = Config {
             autosave,
@@ -100,6 +103,7 @@ impl App {
     }
 
     /// A terminal app: documents on disk, terminal capabilities.
+    #[cfg(feature = "native")]
     pub fn with_config(doc: Document, size: Size, config: &Config) -> Self {
         Self::with_host(
             doc,
@@ -254,6 +258,7 @@ impl App {
     }
 
     /// Config file the settings panel writes back to on Enter.
+    #[cfg(feature = "native")]
     pub fn set_config_path(&mut self, path: Option<PathBuf>) {
         self.set_config_store(
             path.map(|p| Box::new(FsConfigStore::new(p)) as Box<dyn ConfigStore>),
@@ -895,55 +900,6 @@ fn typed_char(k: &KeyEvent) -> Option<char> {
         KeyCode::Char(c) if !ctrl || altgr => Some(c),
         KeyCode::Enter => Some('\n'),
         _ => None,
-    }
-}
-
-pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> {
-    // No event yet: the first turn only collects what startup left for the terminal
-    let mut turn = app.pump(Vec::new(), Instant::now());
-    loop {
-        let mut written = false;
-        for op in turn.ops {
-            let backend = terminal.backend_mut();
-            match op {
-                // Through crossterm: on Windows, mouse capture is a console mode, not an escape sequence
-                HostOp::MouseCapture(on) => crate::terminal::set_mouse_capture(backend, on)?,
-                // The window title (OSC 2) also goes straight to stdout: it doesn't move the cursor and bypasses ratatui's Buffer
-                op => {
-                    backend.write_all(op.to_ansi().as_bytes())?;
-                    written = true;
-                }
-            }
-        }
-        if written {
-            terminal.backend_mut().flush()?;
-        }
-        if turn.redraw {
-            terminal.draw(|frame| view::render(frame, app))?;
-            app.needs_redraw = false;
-        }
-        let timeout = turn
-            .next
-            .map(|d| d.saturating_duration_since(Instant::now()));
-        let mut batch = Vec::new();
-        let ready = match timeout {
-            Some(t) => event::poll(t)?,
-            None => true, // Nothing to wait for: block on read, so idle uses zero CPU
-        };
-        if ready {
-            batch.push(event::read()?.into());
-            // Drain the whole batch before redrawing, so several characters committed by the IME at once cost one redraw
-            while event::poll(Duration::ZERO)? {
-                batch.push(event::read()?.into());
-            }
-        }
-        if cfg!(windows) {
-            batch = coalesce_paste(batch);
-        }
-        turn = app.pump(batch, Instant::now());
-        if app.should_quit {
-            return Ok(());
-        }
     }
 }
 

@@ -14,6 +14,7 @@ use crate::config::CursorShape;
 use crate::editor::document::{DiskStamp, Document};
 use crate::io::file::IoError;
 
+#[cfg(feature = "native")]
 pub mod native;
 
 /// A side effect the App asks the host to carry out, in the order it should happen.
@@ -209,6 +210,7 @@ mod tests {
         assert_eq!(w.update(""), None);
     }
 
+    #[cfg(feature = "native")]
     #[test]
     fn ops_encode_like_crossterm() {
         fn ansi(c: impl crossterm::Command) -> String {

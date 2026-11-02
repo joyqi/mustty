@@ -44,7 +44,12 @@ pub fn init() {
 
 /// Renegotiates and switches based on the `lang` option (`auto` or a locale tag); returns the locale in effect.
 pub fn use_config(lang: &str) -> &'static str {
-    let tag = negotiate_with(lang, |k| std::env::var(k).ok(), sys_locale::get_locale());
+    #[cfg(feature = "native")]
+    let system = sys_locale::get_locale();
+    // Without the native host there is no system locale to ask; a host that knows one passes `lang`
+    #[cfg(not(feature = "native"))]
+    let system = None;
+    let tag = negotiate_with(lang, |k| std::env::var(k).ok(), system);
     set_language(tag);
     tag
 }

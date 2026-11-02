@@ -1,11 +1,17 @@
 //! Loading and atomic saving: UTF-8 validation, BOM, line endings.
 
 use std::fmt;
+#[cfg(feature = "native")]
 use std::fs;
+#[cfg(feature = "native")]
 use std::io::Write;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "native")]
+use std::path::Path;
+use std::path::PathBuf;
 
-use crate::editor::document::{DiskStamp, Document, FileMeta, LineEnding};
+#[cfg(feature = "native")]
+use crate::editor::document::DiskStamp;
+use crate::editor::document::{Document, FileMeta, LineEnding};
 use crate::i18n::{t, t_args};
 
 #[derive(Debug)]
@@ -46,6 +52,7 @@ impl From<std::io::Error> for IoError {
 }
 
 /// Open a file; if it doesn't exist, return an empty document that remembers the path.
+#[cfg(feature = "native")]
 pub fn load(path: &Path) -> Result<Document, IoError> {
     match fs::metadata(path) {
         Ok(m) if m.is_dir() => Err(IoError::IsDirectory),
@@ -82,6 +89,7 @@ pub fn decode(bytes: &[u8], path: Option<PathBuf>) -> Result<Document, IoError> 
     Ok(Document::parse(&raw.replace("\r\n", "\n"), meta))
 }
 
+#[cfg(feature = "native")]
 fn stamp_of(m: &fs::Metadata) -> Option<DiskStamp> {
     Some(DiskStamp {
         mtime: m.modified().ok()?,
@@ -90,11 +98,13 @@ fn stamp_of(m: &fs::Metadata) -> Option<DiskStamp> {
 }
 
 /// Current mtime and size on disk; None if the file doesn't exist.
+#[cfg(feature = "native")]
 fn disk_stamp(path: &Path) -> Option<DiskStamp> {
     stamp_of(&fs::metadata(path).ok()?)
 }
 
 /// Save atomically. With `check_disk`, give up if the mtime or size on disk differs from `doc.meta.stamp`. Returns the stamp after saving.
+#[cfg(feature = "native")]
 pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, IoError> {
     if path.is_dir() {
         return Err(IoError::IsDirectory);
@@ -125,6 +135,7 @@ pub fn free_name(base: &str, ext: &str, taken: impl Fn(&str) -> bool, stamp: u64
 /// Write a temp file in the same directory → fsync → rename to replace atomically, keeping the original
 /// file's permissions (Unix). Shared by documents and the config file.
 /// If `path` is a symlink, rename replaces the link with a regular file: callers that need to keep the link `canonicalize` first.
+#[cfg(feature = "native")]
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = match path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
