@@ -520,12 +520,12 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use document::FileMeta;
+    use document::lf_meta;
     use proptest::prelude::*;
     use std::time::{Duration, SystemTime};
 
     fn editor(raw: &str) -> Editor {
-        Editor::new(Document::parse(raw, FileMeta::lf()), 20, 4)
+        Editor::new(Document::parse(raw, lf_meta(None)), 20, 4)
     }
 
     fn run(ed: &mut Editor, actions: &[Action]) -> Effect {
@@ -622,7 +622,7 @@ mod tests {
     #[test]
     fn tab_in_body_inserts_tab_width_spaces() {
         for width in [1, 2, 4, 8] {
-            let mut ed = Editor::new(Document::parse("ab", FileMeta::lf()), 20, width);
+            let mut ed = Editor::new(Document::parse("ab", lf_meta(None)), 20, width);
             run(&mut ed, &[mv(Motion::Right), Action::Tab]);
             let spaces = " ".repeat(width as usize);
             assert_eq!(body(&ed), format!("a{spaces}b"), "tab_width {width}");

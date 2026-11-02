@@ -1,10 +1,13 @@
 use mustty::app::App;
 use mustty::editor::document::{Document, FileMeta};
+
+mod support;
 use mustty::input::{Event, KeyCode, KeyEvent, KeyModifiers};
 use mustty::view;
 use ratatui::Terminal;
 use ratatui::backend::{Backend, TestBackend};
 use ratatui::layout::{Position, Size};
+use support::lf_meta;
 
 fn key(code: KeyCode) -> Event {
     Event::Key(KeyEvent::from(code))
@@ -14,7 +17,7 @@ fn draw(path: Option<&str>, raw: &str, w: u16, h: u16, events: &[Event]) -> Test
     // Snapshots are recorded with the Chinese UI
     mustty::i18n::init_for_test("zh-CN");
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
-    let meta = FileMeta::new(path.map(Into::into));
+    let meta = lf_meta(path);
     let mut app = App::new(Document::parse(raw, meta), Size::new(w, h), false);
     for ev in events {
         app.handle(ev.clone());
@@ -89,11 +92,7 @@ fn untitled_save_as_prompt() {
     mustty::i18n::init_for_test("zh-CN");
     // The prefilled name depends on what the directory holds, so use an empty temp dir
     let dir = tempfile::tempdir().unwrap();
-    let mut app = App::new(
-        Document::parse("", FileMeta::new(None)),
-        Size::new(40, 10),
-        false,
-    );
+    let mut app = App::new(Document::parse("", lf_meta(None)), Size::new(40, 10), false);
     app.save_dir = dir.path().to_path_buf();
     let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
     let mut shot = |app: &mut App| {
@@ -184,7 +183,7 @@ fn draw_with(
 ) -> TestBackend {
     mustty::i18n::init_for_test("zh-CN");
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
-    let meta = FileMeta::new(Some("notes.md".into()));
+    let meta = lf_meta(Some("notes.md"));
     let mut app = App::with_config(Document::parse(raw, meta), Size::new(w, h), config);
     if hint {
         app.show_startup_hint(std::time::Instant::now());
@@ -251,7 +250,7 @@ fn on_disk(path: &str) -> FileMeta {
             mtime: std::time::SystemTime::UNIX_EPOCH,
             len: 0,
         }),
-        ..FileMeta::new(Some(path.into()))
+        ..lf_meta(Some(path))
     }
 }
 
@@ -276,17 +275,14 @@ fn save_mark_states() {
             "有未保存修改",
             draw_meta(on_disk("notes.md"), "正文\n", 40, 10, &typed),
         ),
-        (
-            "空 Untitled",
-            draw_meta(FileMeta::new(None), "", 40, 10, &[]),
-        ),
+        ("空 Untitled", draw_meta(lf_meta(None), "", 40, 10, &[])),
         (
             "Untitled 有修改",
-            draw_meta(FileMeta::new(None), "", 40, 10, &typed),
+            draw_meta(lf_meta(None), "", 40, 10, &typed),
         ),
         (
             "尚未创建的新文件",
-            draw_meta(FileMeta::new(Some("new.md".into())), "", 40, 10, &[]),
+            draw_meta(lf_meta(Some("new.md")), "", 40, 10, &[]),
         ),
         // 24 columns: body is 20 wide, the file name is truncated from the left, and the mark
         // stays to the right of the truncated name
@@ -331,7 +327,7 @@ fn save_mark_states() {
 fn prompt_hides_save_mark() {
     let ctrl_s = Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     let b = draw_meta(
-        FileMeta::new(None),
+        lf_meta(None),
         "",
         40,
         10,
@@ -340,7 +336,7 @@ fn prompt_hides_save_mark() {
     assert!(!status_line(&b, 9).contains('*'), "{}", status_line(&b, 9));
     // Restored once Esc closes the prompt
     let b = draw_meta(
-        FileMeta::new(None),
+        lf_meta(None),
         "",
         40,
         10,
@@ -354,11 +350,7 @@ fn english_status_bar() {
     mustty::i18n::init_for_test("en");
     let text = |events: &[Event]| {
         let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
-        let mut app = App::new(
-            Document::parse("", FileMeta::new(None)),
-            Size::new(60, 10),
-            false,
-        );
+        let mut app = App::new(Document::parse("", lf_meta(None)), Size::new(60, 10), false);
         for ev in events {
             app.handle(ev.clone());
         }
@@ -547,7 +539,7 @@ fn vim_mode_indicator_sgr() {
         };
         let (w, h) = (40, 10);
         let mut app = App::with_config(
-            Document::parse("hello world\n", FileMeta::new(Some("notes.md".into()))),
+            Document::parse("hello world\n", lf_meta(Some("notes.md"))),
             Size::new(w, h),
             &config,
         );
@@ -632,7 +624,7 @@ fn settings_language_switches_live() {
     };
     mustty::i18n::init_for_test("zh-CN");
     let (w, h) = (80, 24);
-    let doc = Document::parse("# 标题\n\n正文\n", FileMeta::new(Some("notes.md".into())));
+    let doc = Document::parse("# 标题\n\n正文\n", lf_meta(Some("notes.md")));
     let mut app = App::with_config(doc, Size::new(w, h), &config);
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     app.handle(ctrl('p'));
@@ -695,7 +687,7 @@ fn help_panel(vim: bool, w: u16, h: u16, keys: &[Event]) -> (TestBackend, App) {
         autosave: false,
         ..mustty::config::Config::default()
     };
-    let doc = Document::parse("hello\n", FileMeta::new(Some("notes.md".into())));
+    let doc = Document::parse("hello\n", lf_meta(Some("notes.md")));
     let mut app = App::with_config(doc, Size::new(w, h), &config);
     app.handle(ctrl('g'));
     for k in keys {

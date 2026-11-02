@@ -170,11 +170,9 @@ struct MemoryDocStore {
 
 impl DocStore for MemoryDocStore {
     fn load(&self, path: &Path) -> Result<Document, IoError> {
-        let text = self.files.get(path).map_or("", String::as_str);
-        Ok(Document::parse(
-            text,
-            FileMeta::new(Some(path.to_path_buf())),
-        ))
+        // What save stored is a serialized file (CRLF, BOM): read it back the way a disk file is read
+        let bytes = self.files.get(path).map_or(&[][..], |text| text.as_bytes());
+        file::decode(bytes, Some(path.to_path_buf()))
     }
 
     fn save(

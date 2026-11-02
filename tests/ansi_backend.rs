@@ -14,10 +14,12 @@ use std::rc::Rc;
 
 use mustty::ansi::AnsiBackend;
 use mustty::app::App;
-use mustty::editor::document::{Document, FileMeta};
+use mustty::editor::document::Document;
 use mustty::input::{Event, KeyCode, KeyEvent, KeyModifiers};
 use mustty::view;
 use proptest::prelude::*;
+
+mod support;
 use ratatui::Terminal;
 use ratatui::backend::{Backend, CrosstermBackend, TestBackend};
 use ratatui::buffer::Buffer;
@@ -115,7 +117,7 @@ fn app_frames(raw: &str, w: u16, h: u16, events: &[Event]) -> Vec<(Buffer, Optio
     mustty::i18n::init_for_test("zh-CN");
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     // No path: Ctrl+S opens the save-as prompt instead of writing a file into the working directory
-    let meta = FileMeta::new(None);
+    let meta = support::lf_meta(None);
     let mut app = App::new(Document::parse(raw, meta), Size::new(w, h), false);
     let mut frames = Vec::new();
     let mut snap = |terminal: &mut Terminal<TestBackend>, app: &mut App| {

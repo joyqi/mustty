@@ -44,15 +44,6 @@ impl FileMeta {
             stamp: None,
         }
     }
-
-    /// For tests: pin LF so assertions don't depend on the platform default (a dedicated test covers that).
-    #[cfg(test)]
-    pub(crate) fn lf() -> Self {
-        Self {
-            line_ending: LineEnding::Lf,
-            ..Self::new(None)
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,8 +67,13 @@ pub struct Document {
 }
 
 impl Document {
-    /// `raw` has its BOM stripped and line endings normalized to `\n`.
+    /// `raw` has its BOM stripped and line endings normalized to `\n` (what `io::file::decode` does);
+    /// `meta.line_ending` says what `serialize` turns them back into.
     pub fn parse(raw: &str, meta: FileMeta) -> Self {
+        debug_assert!(
+            !raw.contains("\r\n"),
+            "Document::parse takes \\n-normalized text; decode CRLF input with io::file::decode"
+        );
         let (first, rest) = raw.split_once('\n').unwrap_or((raw, ""));
         // Don't bind an empty title: saving would drop it, breaking the byte-exact round trip
         let title = first
@@ -176,12 +172,26 @@ impl Document {
     }
 }
 
+/// For tests: metadata with LF line endings, so no assertion depends on the platform default (CRLF
+/// on Windows). Tests use this rather than `FileMeta::new`, which `test_meta_pins_line_endings`
+/// checks; tests/support/mod.rs has the same helper for the integration tests.
+#[cfg(test)]
+pub(crate) fn lf_meta(path: Option<&str>) -> FileMeta {
+    FileMeta {
+        path: path.map(PathBuf::from),
+        line_ending: LineEnding::Lf,
+        has_bom: false,
+        stamp: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn parse(raw: &str) -> Document {
-        Document::parse(raw, FileMeta::lf())
+        Document::parse(raw, lf_meta(None))
     }
 
     fn bound(text: &str, sep: &str) -> TitleField {
@@ -245,14 +255,76 @@ mod tests {
         assert_eq!(doc.revision(), 1);
     }
 
+    /// `FileMeta::new` picks the platform line ending (CRLF on Windows), so a test that builds its
+    /// metadata that way passes on macOS and Linux and fails only on Windows CI. Test code (a file's
+    /// part after `#[cfg(test)]` in src/, everything in tests/ but the support helpers) builds it with
+    /// `lf_meta` instead. A line that wants the platform default says so with the marker below.
+    #[test]
+    fn test_meta_pins_line_endings() {
+        fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    sources(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        // Spelled in two parts so this file's own scan doesn't find it here
+        let needle = concat!("FileMeta", "::new(");
+        let marker = "platform default on purpose";
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let (mut src, mut tests) = (Vec::new(), Vec::new());
+        sources(&root.join("src"), &mut src);
+        sources(&root.join("tests"), &mut tests);
+        assert!(
+            src.len() > 20 && tests.len() > 5,
+            "found only {src:?} {tests:?}"
+        );
+        let support = root.join("tests/support");
+        let test_code = src
+            .iter()
+            .filter_map(|f| {
+                let text = std::fs::read_to_string(f).unwrap();
+                let (_, tests) = text.split_once("#[cfg(test)]")?;
+                Some((f, tests.to_owned()))
+            })
+            .chain(
+                tests
+                    .iter()
+                    .filter(|f| !f.starts_with(&support))
+                    .map(|f| (f, std::fs::read_to_string(f).unwrap())),
+            );
+        let mut found = Vec::new();
+        for (file, code) in test_code {
+            for line in code.lines() {
+                if line.contains(needle) && !line.contains(marker) {
+                    found.push(format!("{}: {}", file.display(), line.trim()));
+                }
+            }
+        }
+        assert!(
+            found.is_empty(),
+            "use lf_meta in tests:\n{}",
+            found.join("\n")
+        );
+    }
+
+    /// The other half of the guard: CRLF text handed straight to parse (not through decode) is caught
+    /// on every platform, not just where serialize would double the \r
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "normalized")]
+    fn parse_rejects_crlf_text() {
+        Document::parse("# T\r\n\r\na\r\n", lf_meta(None));
+    }
+
     #[test]
     fn new_documents_use_platform_line_ending() {
         // New files use the platform line ending (CRLF on Windows, LF elsewhere)
-        assert_eq!(FileMeta::new(None).line_ending, LineEnding::platform());
-        let meta = FileMeta {
-            line_ending: LineEnding::platform(),
-            ..FileMeta::new(None)
-        };
+        let meta = FileMeta::new(None); // platform default on purpose
+        assert_eq!(meta.line_ending, LineEnding::platform());
         let doc = Document::parse("# T\n\na\n", meta);
         let want = if cfg!(windows) {
             "# T\r\n\r\na\r\n"

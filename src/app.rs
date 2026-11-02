@@ -941,7 +941,7 @@ fn typed_char(k: &KeyEvent) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editor::document::FileMeta;
+    use crate::editor::document::{LineEnding, lf_meta};
     use crate::input::{KeyEventState, MouseButton, MouseEventKind};
     use crate::io::file;
 
@@ -960,7 +960,7 @@ mod tests {
 
     #[test]
     fn open_document_starts_fresh() {
-        let doc = Document::parse("# One\n\nfirst\n", FileMeta::new(Some("a.md".into())));
+        let doc = Document::parse("# One\n\nfirst\n", lf_meta(Some("a.md")));
         let mut app = App::new(doc, Size::new(80, 24), false);
         app.handle(press(KeyCode::Char('x')));
         app.handle(Event::Key(KeyEvent::new(
@@ -969,9 +969,11 @@ mod tests {
         )));
         assert!(app.editor.selection().is_some());
 
-        let text = "# Two\r\n\r\nsecond\r\n";
-        app.open_document(Document::parse(text, FileMeta::new(Some("b.md".into()))));
-        assert_eq!(app.editor.doc().serialize(), text);
+        // A CRLF file, decoded the way a real open does: normalized to \n, CRLF remembered for saving
+        let bytes = b"# Two\r\n\r\nsecond\r\n";
+        app.open_document(file::decode(bytes, Some("b.md".into())).unwrap());
+        assert_eq!(app.document().meta.line_ending, LineEnding::CrLf);
+        assert_eq!(app.document().serialize().as_bytes(), bytes);
         assert_eq!(app.editor.cursor, Cursor::default());
         assert!(!app.editor.is_dirty());
         assert_eq!(app.status.words, app.editor.word_count());
@@ -980,7 +982,7 @@ mod tests {
             KeyCode::Char('z'),
             KeyModifiers::CONTROL,
         )));
-        assert_eq!(app.editor.doc().serialize(), text);
+        assert_eq!(app.document().serialize().as_bytes(), bytes);
     }
 
     #[test]
@@ -1034,7 +1036,7 @@ mod tests {
     #[test]
     fn untitled_and_no_autosave_never_autosave() {
         let t0 = Instant::now();
-        let untitled = Document::parse("", crate::editor::document::FileMeta::new(None));
+        let untitled = Document::parse("", lf_meta(None));
         let mut app = App::new(untitled, Size::new(80, 24), true);
         app.handle_at(press(KeyCode::Char('x')), t0);
         assert_eq!(app.next_deadline(), None);
@@ -1050,7 +1052,7 @@ mod tests {
 
     #[test]
     fn tab_key_follows_configured_tab_width() {
-        let doc = Document::parse("# T\n\nx", crate::editor::document::FileMeta::new(None));
+        let doc = Document::parse("# T\n\nx", lf_meta(None));
         let config = Config {
             tab_width: 2,
             autosave: false,
@@ -1080,7 +1082,7 @@ mod tests {
     }
 
     fn vim_app(text: &str) -> App {
-        let doc = Document::parse(text, crate::editor::document::FileMeta::new(None));
+        let doc = Document::parse(text, lf_meta(None));
         let config = Config {
             vim: true,
             autosave: false,
@@ -1283,7 +1285,7 @@ mod tests {
         );
         // The default (non-vim) mode never changes the cursor shape or shows a mode
         let mut plain = App::new(
-            Document::parse("x", crate::editor::document::FileMeta::new(None)),
+            Document::parse("x", lf_meta(None)),
             Size::new(80, 24),
             false,
         );
@@ -1309,7 +1311,7 @@ mod tests {
     #[test]
     fn configured_cursor_shape_and_vim_normal_block() {
         use crate::config::CursorShape;
-        let doc = || Document::parse("x", crate::editor::document::FileMeta::new(None));
+        let doc = || Document::parse("x", lf_meta(None));
         // Startup: push once when the configured shape isn't a bar (TerminalGuard already set the bar, so no repeat)
         let plain = App::new(doc(), Size::new(80, 24), false);
         assert!(plain.output.is_empty());
@@ -1436,7 +1438,7 @@ mod tests {
     }
 
     fn mouse_app(text: &str, enabled: bool) -> App {
-        let doc = Document::parse(text, crate::editor::document::FileMeta::new(None));
+        let doc = Document::parse(text, lf_meta(None));
         let config = Config {
             mouse: enabled,
             autosave: false,
@@ -1527,10 +1529,7 @@ mod tests {
 
     #[test]
     fn vim_normal_drag_enters_visual() {
-        let doc = Document::parse(
-            "hello world\nsecond",
-            crate::editor::document::FileMeta::new(None),
-        );
+        let doc = Document::parse("hello world\nsecond", lf_meta(None));
         let config = Config {
             vim: true,
             mouse: true,
@@ -1597,7 +1596,7 @@ mod tests {
     #[test]
     fn typewriter_toggle_and_config() {
         let text: String = (0..100).map(|i| format!("{i}\n")).collect();
-        let doc = Document::parse(&text, crate::editor::document::FileMeta::new(None));
+        let doc = Document::parse(&text, lf_meta(None));
         let config = Config {
             typewriter: true,
             autosave: false,
@@ -1630,7 +1629,7 @@ mod tests {
 
     #[test]
     fn config_width_idle_and_startup_hint() {
-        let doc = Document::parse("", crate::editor::document::FileMeta::new(None));
+        let doc = Document::parse("", lf_meta(None));
         let config = Config {
             width: 50,
             autosave_idle: Duration::from_millis(500),
@@ -1724,7 +1723,7 @@ mod tests {
 
         // No H1: Untitled → `* Untitled` after typing → the file name without an asterisk after Save as
         let dir = tempfile::tempdir().unwrap();
-        let untitled = Document::parse("", crate::editor::document::FileMeta::new(None));
+        let untitled = Document::parse("", lf_meta(None));
         let mut app = App::new(untitled, Size::new(80, 24), false);
         app.save_dir = dir.path().to_path_buf();
         assert_eq!(app.take_window_title(), osc("Untitled"));
@@ -1759,7 +1758,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         // Empty Untitled: no status bar mark and no asterisk in the title
-        let untitled = Document::parse("", crate::editor::document::FileMeta::new(None));
+        let untitled = Document::parse("", lf_meta(None));
         let mut app = App::new(untitled, Size::new(80, 24), false);
         app.save_dir = dir.path().to_path_buf();
         check(&mut app, "empty Untitled");
@@ -1815,7 +1814,7 @@ mod tests {
     fn untitled_save_prefills_a_free_name() {
         crate::i18n::init_for_test("en");
         let dir = tempfile::tempdir().unwrap();
-        let untitled = || Document::parse("", crate::editor::document::FileMeta::new(None));
+        let untitled = || Document::parse("", lf_meta(None));
         let mut app = App::new(untitled(), Size::new(80, 24), false);
         app.save_dir = dir.path().to_path_buf();
         typed(&mut app, "hello");
@@ -1867,7 +1866,7 @@ mod tests {
     }
 
     fn lf_doc(text: &str) -> Document {
-        Document::parse(text, crate::editor::document::FileMeta::lf())
+        Document::parse(text, lf_meta(None))
     }
 
     /// Makes WrapCache recompute every line, then checks that every copy of tab_width agrees and the cache matches a fresh wrap.
