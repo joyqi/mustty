@@ -3,8 +3,12 @@
 //! capture and quitting. Refactors of the terminal layer must leave this file unchanged.
 //!
 //! `MUSTTY_BLESS=1 cargo test --test golden_session` rewrites `tests/golden/session.bin`.
+//!
+//! Recorded on macOS. Other platforms can write a different byte stream (Windows sets mouse capture
+//! through the Console API instead of escape sequences, and Linux was never recorded), so the
+//! byte-for-byte comparison only holds on the platform the golden came from.
 
-#![cfg(unix)]
+#![cfg(target_os = "macos")]
 
 mod support;
 
