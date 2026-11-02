@@ -1,29 +1,28 @@
-# 雨后的笔记 Field Notes
+# Field Notes
 
-The rain stopped a little after four. 雨在四点过后停了，我把窗开着，想到什么就写下什么：湿石头的气味、邻居的收音机，还有那句追了一整周的句子。☕
+The rain stopped a little after four. I left the window open and wrote down whatever came to mind: the smell of wet stone, the neighbour's radio, a sentence I had been chasing all week. ☕
 
-## 这里能做什么
+Most days the hard part is not the words but the noise around them. A terminal at night is about as quiet as a screen gets, and that is where this page lives.
 
-mustty is a quiet place to write Markdown. 标记会变暗但不会消失，所以你始终在编辑眼前的源文本：**粗体**、*斜体*、`行内代码` 和 [链接](https://github.com/joyqi/mustty) 都照原样留着。📝
+## What a quiet page keeps
 
-- 直接打字，`Ctrl+Z` 撤销，`Ctrl+G` 看快捷键
-- `PageUp` / `PageDown` 或方向键滚动
-- Mixed 中英混排 text wraps by Unicode rules，句末的「标点」不会跑到行首
-- A long link stays in one piece: https://github.com/joyqi/mustty/blob/main/docs/a/very/long/path/that/keeps/going/until/it/has/to/wrap.md
+mustty is a place to write Markdown and nothing else. The markers dim but never disappear, so **bold**, *italic*, `inline code` and [the repository](https://github.com/joyqi/mustty) read as prose while the source stays in front of you.
+
+- Type anywhere; `Ctrl+Z` undoes and `Ctrl+G` lists the keys
+- `PageUp` and `PageDown` turn the page, the arrows walk it line by line
+- Long lines wrap at word boundaries, never in the middle of a word
+- Nothing here is saved: reload and you are back to these notes
 
 ```rust
 fn main() {
-    println!("写作，一次一个字。");
+    println!("one word at a time");
 }
 ```
 
-> 这一页什么都不会保存：刷新就回到这段示例。
-> Nothing on this page is saved yet: reload and you are back to this sample.
+> Write the sentence badly first. You can only fix a sentence that exists.
 
-## 再往下
+## Further down
 
-Scroll down to check that the page follows the cursor. 下面再放几段，让文档比屏幕长一些。
+The rest is here so there is something to scroll past. Keep typing and the page follows the cursor, the line you are on always somewhere near the middle.
 
-春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。The lines keep coming so there is something to scroll past.
-
-床前明月光，疑是地上霜。举头望明月，低头思故乡。One more paragraph, and then the end of the sample.
+When the draft feels done, leave it overnight. The mistakes will still be there in the morning, and you will see them.
