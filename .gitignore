@@ -2,3 +2,4 @@
 *.log
 docs/
 .DS_Store
+/web/dist

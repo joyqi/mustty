@@ -1,0 +1,13 @@
+# xterm.js files copied from the npm packages below (tarball integrity checked against the registry).
+# Upgrade by replacing the files and these lines; nothing else references the versions.
+@xterm/xterm 6.0.0: lib/xterm.js, css/xterm.css
+  https://registry.npmjs.org/@xterm/xterm/-/xterm-6.0.0.tgz
+@xterm/addon-fit 0.11.0: lib/addon-fit.js
+  https://registry.npmjs.org/@xterm/addon-fit/-/addon-fit-0.11.0.tgz
+@xterm/addon-unicode11 0.9.0: lib/addon-unicode11.js
+  https://registry.npmjs.org/@xterm/addon-unicode11/-/addon-unicode11-0.9.0.tgz
+
+14903579ff54664cd72f8e8699e6961a6272c21863ec1c3b118cdc8af5d4a972  xterm.js
+854a7c0fb70e8b1a083c16797ab827299fb18744f5ad34f227b48337e33293c6  xterm.css
+ba3ea256ce0620a0992a197d6c9baea64823fc93d8da07a9e366ca9943c18527  addon-fit.js
+72353b5178e1a7382716df1cfedf8ab070eea655d38995bb9f4f284fe56e2f2b  addon-unicode11.js

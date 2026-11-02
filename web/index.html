@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mustty</title>
+  <link data-trunk rel="rust" data-wasm-opt="z">
+  <link data-trunk rel="copy-dir" href="vendor">
+  <link rel="stylesheet" href="vendor/xterm.css">
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="vendor/addon-unicode11.js"></script>
+  <style>
+    html, body { height: 100%; margin: 0; background: #0d1117; }
+    #terminal { position: fixed; inset: 16px; }
+  </style>
+</head>
+<body>
+  <div id="terminal"></div>
+  <script type="module">
+    function start({ Session }) {
+      const term = new Terminal({
+        allowProposedApi: true, // the unicode11 width table
+        cursorStyle: "bar",
+        fontFamily: '"JetBrains Mono", "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace',
+        fontSize: 15,
+        lineHeight: 1.2,
+        macOptionIsMeta: true, // Option+B / Option+F move by word, as in macOS terminals
+        theme: { background: "#0d1117", foreground: "#e6edf3", cursor: "#e6edf3" },
+      });
+      const fit = new FitAddon.FitAddon();
+      term.loadAddon(fit);
+      term.loadAddon(new Unicode11Addon.Unicode11Addon());
+      term.unicode.activeVersion = "11";
+      term.open(document.getElementById("terminal"));
+      fit.fit();
+
+      const session = new Session(term.cols, term.rows, (bytes) => term.write(bytes));
+      term.onData((data) => session.feed(data));
+      term.onResize(({ cols, rows }) => session.resize(cols, rows));
+      term.onTitleChange((title) => { document.title = title || "mustty"; });
+      addEventListener("resize", () => fit.fit());
+      const loop = () => {
+        session.frame();
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+      term.focus();
+    }
+    // trunk's loader sets window.wasmBindings and then fires this event; it may already have happened
+    if (window.wasmBindings) start(window.wasmBindings);
+    else addEventListener("TrunkApplicationStarted", () => start(window.wasmBindings), { once: true });
+  </script>
+</body>
+</html>

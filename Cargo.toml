@@ -33,6 +33,10 @@ sys-locale = { version = "0.3.2", optional = true }
 # The settings panel writes back to ~/.mustty.toml: keeps comments and key order, touches only changed keys
 toml_edit = "0.25.17"
 
+# The browser build (trunk) lives in web/; `cargo` commands at the root still build only mustty
+[workspace]
+members = ["web"]
+
 [features]
 default = ["native"]
 # The terminal host: the event loop, terminal modes, files and ~/.mustty.toml on disk, the CLI.
