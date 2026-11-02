@@ -69,3 +69,10 @@
 :root[data-theme="light"] #theme-toggle .sun {
   display: none;
 }
+
+/* Chrome trims the spacing of full-width punctuation (text-spacing-trim: normal). xterm.js measures each
+   character's width to pad it to its cells, and with the trimming on it measures 。，、 too narrow and
+   pads them past two cells, pushing the rest of the line right. Terminal cells need the full width */
+.xterm {
+  text-spacing-trim: space-all;
+}
