@@ -15,6 +15,8 @@ const T: Token = Token::Type;
 const S: Token = Token::Str;
 const C: Token = Token::Comment;
 const N: Token = Token::Number;
+const ADD: Token = Token::DiffAdd;
+const DEL: Token = Token::DiffDel;
 
 type Want = &'static [(&'static str, Token)];
 
@@ -962,13 +964,12 @@ fn diff() {
     check(
         Lang::Diff,
         &[(
-            "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n ctx",
+            "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n ctx",
             &[
-                ("--- a/x", C),
-                ("+++ b/x", C),
-                ("@@ -1 +1 @@", T),
-                ("-old", K),
-                ("+new", S),
+                ("--- a/x", DEL),
+                ("+++ b/x", ADD),
+                ("-old", DEL),
+                ("+new", ADD),
             ],
         )],
     );

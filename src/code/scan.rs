@@ -867,23 +867,13 @@ impl Scan<'_> {
     fn prose(&mut self) {
         let line: String = self.c.iter().collect();
         let whole = match self.lang {
-            Lang::Diff => {
-                let header = ["+++ ", "--- ", "diff ", "index "]
-                    .iter()
-                    .any(|p| line.starts_with(p));
-                if header {
-                    Some(Token::Comment)
-                } else if line.starts_with("@@") {
-                    Some(Token::Type)
-                } else if line.starts_with('+') {
-                    Some(Token::Str)
-                } else if line.starts_with('-') {
-                    // Until there's a token for deleted lines (docs/syntax-highlighting.md §7.3)
-                    Some(Token::Keyword)
-                } else {
-                    None
-                }
-            }
+            // Added and removed lines (`+++`/`---` file headers included); hunk headers and
+            // context stay plain
+            Lang::Diff => match line.chars().next() {
+                Some('+') => Some(Token::DiffAdd),
+                Some('-') => Some(Token::DiffDel),
+                _ => None,
+            },
             _ => {
                 let indent = line.len() - line.trim_start_matches(' ').len();
                 let rest = &line[indent..];

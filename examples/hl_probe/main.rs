@@ -61,6 +61,8 @@ fn short(tok: Tok) -> &'static str {
         Tok::Str => "S",
         Tok::Comment => "C",
         Tok::Number => "N",
+        Tok::DiffAdd => "+",
+        Tok::DiffDel => "-",
     }
 }
 
@@ -167,6 +169,8 @@ const SCHEMES: [Scheme; 2] = [
             Tok::Str => Style::new().fg(Color::Green),
             Tok::Comment => Style::new().add_modifier(Modifier::DIM),
             Tok::Number => Style::new().fg(Color::Blue),
+            Tok::DiffAdd => Style::new().fg(Color::Green),
+            Tok::DiffDel => Style::new().fg(Color::Red),
         },
     },
     Scheme {
@@ -177,6 +181,8 @@ const SCHEMES: [Scheme; 2] = [
             Tok::Str => Style::new().fg(Color::Green),
             Tok::Comment => Style::new().add_modifier(Modifier::DIM),
             Tok::Type | Tok::Number => Style::new().fg(Color::Cyan),
+            Tok::DiffAdd => Style::new().fg(Color::Green),
+            Tok::DiffDel => Style::new().fg(Color::Red),
         },
     },
 ];

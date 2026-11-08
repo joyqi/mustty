@@ -20,6 +20,10 @@ pub enum Token {
     Str,
     Comment,
     Number,
+    /// A diff's added line (`+`)
+    DiffAdd,
+    /// A diff's removed line (`-`)
+    DiffDel,
 }
 
 /// Char offsets `[start, end)` within the line. Unlike Markdown's, code ranges never nest.
