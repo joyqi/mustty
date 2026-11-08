@@ -6,3 +6,4 @@ design/
 web/node_modules/
 web/dist/
 web/src/pkg/
+tools/lexer-tables/node_modules/

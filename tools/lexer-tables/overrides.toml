@@ -1,0 +1,91 @@
+# Corrections on top of highlight.js, applied by gen.mjs. Per language (the lowercase name of its
+# constant in src/code/tables.rs): `add` / `remove` keywords, `add_types` / `remove_types`.
+# gen.mjs fails when an entry is already true upstream, so this file only holds live corrections.
+
+[rust]
+# Weak keywords that are ordinary names almost everywhere, and prelude variants, which aren't
+# keywords at all
+remove = ["raw", "union", "Some", "None", "Ok", "Err"]
+# Reserved since the 2024 edition
+add = ["gen"]
+
+[javascript]
+# Host globals and ordinary names, not language keywords
+remove = ["arguments", "console", "window", "document", "localStorage", "sessionStorage", "module",
+          "self", "global"]
+
+[typescript]
+remove = ["arguments", "console", "window", "document", "localStorage", "sessionStorage", "module",
+          "self", "global"]
+add_types = ["any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "unknown"]
+
+[python]
+# highlight.js's `type` holds typing names (capitalized, so types anyway); add the builtin types
+add_types = ["bool", "bytearray", "bytes", "complex", "dict", "float", "frozenset", "int", "list",
+             "object", "set", "str", "tuple"]
+
+[c]
+# Qualifiers, filed under `type` upstream
+remove_types = ["const", "static", "constexpr"]
+add = ["const", "static", "constexpr"]
+
+[java]
+# Declarations and statements highlight.js matches with separate rules
+add = ["class", "extends", "implements", "interface", "new", "record", "return", "throw"]
+
+[csharp]
+# Filed under `built_in`, which gen.mjs reads as types for C#
+remove_types = ["delegate", "enum"]
+add = ["delegate", "enum"]
+
+[php]
+# Matched by separate rules upstream
+add = ["fn", "function", "namespace"]
+
+[ruby]
+add = ["def"]
+
+[kotlin]
+add = ["return", "this"]
+
+[swift]
+add = ["self"]
+
+[lua]
+add = ["function"]
+
+[powershell]
+add = ["function"]
+
+[cpp]
+remove_types = ["const", "static"]
+add = ["const", "static"]
+
+[css]
+# At-rules: the lexer colors `@word` when the word is here
+add = ["charset", "container", "counter-style", "font-face", "font-feature-values", "import",
+       "keyframes", "layer", "media", "namespace", "page", "property", "scope", "starting-style",
+       "supports", "view-transition"]
+
+[scss]
+add = ["charset", "container", "counter-style", "font-face", "font-feature-values", "import",
+       "keyframes", "layer", "media", "namespace", "page", "property", "scope", "starting-style",
+       "supports", "view-transition", "at-root", "content", "debug", "each", "else", "error",
+       "extend", "for", "forward", "function", "if", "include", "mixin", "return", "use", "warn",
+       "while"]
+
+[yaml]
+add = ["true", "false", "null", "yes", "no"]
+
+[toml]
+add = ["true", "false"]
+
+[dockerfile]
+# highlight.js matches these instructions with a separate rule, not its keyword list
+add = ["add", "cmd", "copy", "entrypoint", "healthcheck", "label", "run", "shell", "volume",
+       "workdir"]
+
+[protobuf]
+# Declarations highlight.js matches with separate rules
+add = ["enum", "extend", "extensions", "message", "reserved", "returns", "rpc", "service", "stream",
+       "syntax"]

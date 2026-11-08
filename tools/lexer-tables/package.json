@@ -1,0 +1,12 @@
+{
+  "name": "mustty-lexer-tables",
+  "private": true,
+  "description": "Generates src/code/tables.rs from highlight.js language modules",
+  "type": "module",
+  "scripts": {
+    "gen": "node gen.mjs"
+  },
+  "dependencies": {
+    "highlight.js": "11.12.0"
+  }
+}
