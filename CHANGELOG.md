@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-08
+
+### Added
+
+- Code blocks are syntax highlighted by language. A fence that names one of 30 languages (Rust, JavaScript, TypeScript, Python, Go, Bash, PowerShell, JSON, YAML, TOML, SQL, HTML, CSS, C, C++, Java, C#, PHP, Kotlin, Lua, Ruby, Dart, Swift, Markdown, Diff, XML, SCSS, Dockerfile, Makefile and Protobuf) keeps your `code_color`, with keywords in bold, comments dimmed and strings in green; in a `diff` block, added lines are green and removed lines red. The usual names and aliases work (` ```js `, ` ```ts `, ` ```cs `, ` ```sh `, ` ```cpp `, ` ```Rust,no_run `, ` ```{.python} `); other blocks stay one color, as before.
+- A `code_highlight` setting, on by default. Turn it off in `~/.mustty.toml` or with the `Ctrl+P` settings panel (the row under Code color) to get one-color code blocks back.
+- On mustty.com, the embedded editor has Open and Download buttons for loading a local Markdown file and saving what you wrote, and the site has a favicon.
+
+### Changed
+
+- Highlighting is done by mustty's own small line-by-line lexer, with no new dependencies: each keystroke rescans at most to the end of the code block it is in. Its keyword and type lists are generated from highlight.js and corrected against each language's official specification; the generator lives in `tools/lexer-tables/`, and `LICENSE` now includes highlight.js's BSD-3-Clause notice.
+
 ## [0.1.4] - 2026-11-02
 
 ### Added
