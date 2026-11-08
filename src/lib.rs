@@ -1,6 +1,7 @@
 pub mod action;
 pub mod ansi;
 pub mod app;
+pub mod code;
 pub mod config;
 pub mod editor;
 pub mod help;
