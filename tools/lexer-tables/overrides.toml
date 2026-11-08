@@ -8,35 +8,46 @@
 remove = ["raw", "union", "Some", "None", "Ok", "Err"]
 # Reserved since the 2024 edition
 add = ["gen"]
+# Standard library types, not language ones (capitalized, so still types on screen)
+remove_types = ["Box", "Option", "Result", "String", "Vec"]
 
 [javascript]
-# Host globals and ordinary names, not language keywords
+# Host globals and ordinary names, not language keywords; NaN and Infinity are global properties
 remove = ["arguments", "console", "window", "document", "localStorage", "sessionStorage", "module",
-          "self", "global"]
+          "self", "global", "NaN", "Infinity"]
 
 [typescript]
 remove = ["arguments", "console", "window", "document", "localStorage", "sessionStorage", "module",
-          "self", "global"]
+          "self", "global", "NaN", "Infinity"]
 add_types = ["any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "unknown"]
+# An operator keyword that highlight.js also files under `built_in`
+add = ["void"]
 
 [python]
-# highlight.js's `type` holds typing names (capitalized, so types anyway); add the builtin types
+# highlight.js's `type` holds names from the typing module and its `literal` builtin constants:
+# library names, not the language's
+remove_types = ["Any", "Callable", "Coroutine", "Dict", "List", "Literal", "Generic", "Optional",
+                "Sequence", "Set", "Tuple", "Type", "Union"]
+remove = ["Ellipsis", "NotImplemented", "__debug__"]
+# The builtin types are types, though: `x: int`
 add_types = ["bool", "bytearray", "bytes", "complex", "dict", "float", "frozenset", "int", "list",
              "object", "set", "str", "tuple"]
 
 [c]
 # Qualifiers, filed under `type` upstream
-remove_types = ["const", "static", "constexpr"]
+remove_types = ["const", "static", "constexpr", "complex", "imaginary"]
 add = ["const", "static", "constexpr"]
 
 [java]
 # Declarations and statements highlight.js matches with separate rules
-add = ["class", "extends", "implements", "interface", "new", "record", "return", "throw"]
+add = ["class", "extends", "implements", "interface", "new", "record", "return", "throw", "super",
+       "this"]
 
 [csharp]
-# Filed under `built_in`, which gen.mjs reads as types for C#
-remove_types = ["delegate", "enum"]
+# Keywords and built-in types that highlight.js files under `built_in`
 add = ["delegate", "enum"]
+add_types = ["bool", "byte", "char", "decimal", "double", "dynamic", "float", "int", "long", "nint",
+             "nuint", "object", "sbyte", "short", "string", "uint", "ulong", "ushort"]
 
 [php]
 # Matched by separate rules upstream
@@ -44,6 +55,12 @@ add = ["fn", "function", "namespace"]
 
 [ruby]
 add = ["def"]
+# Kernel and Module methods, not keywords
+remove = ["extend", "include", "prepend", "private", "protected", "public", "raise", "require"]
+
+[dart]
+# The lowercase built-in types (the capitalized ones are types by their shape)
+add_types = ["bool", "double", "dynamic", "int", "num"]
 
 [kotlin]
 add = ["return", "this"]
@@ -60,6 +77,8 @@ add = ["function"]
 [cpp]
 remove_types = ["const", "static"]
 add = ["const", "static"]
+# std::nullopt is a library constant
+remove = ["nullopt"]
 
 [css]
 # At-rules: the lexer colors `@word` when the word is here

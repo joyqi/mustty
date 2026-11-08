@@ -1221,6 +1221,27 @@ fn word_tables_are_sorted_and_filled() {
     }
 }
 
+/// Only the languages' own words: library names that highlight.js lists as builtins stay out
+#[test]
+fn word_tables_hold_no_library_names() {
+    for (lang, names) in [
+        (Lang::C, &["printf", "malloc", "complex"][..]),
+        (Lang::Rust, &["String", "Vec", "Option", "println"]),
+        (Lang::Python, &["print", "len", "Ellipsis", "List"]),
+        (Lang::JavaScript, &["console", "document", "window", "Math"]),
+        (Lang::Sql, &["current_date", "count"]),
+        (Lang::Dart, &["print", "window", "DateTime"]),
+        (Lang::Ruby, &["require", "raise"]),
+        (Lang::Kotlin, &["Int", "Unit"]),
+    ] {
+        let t = lang.table();
+        for name in names {
+            let found = t.keywords.contains(name) || t.types.contains(name);
+            assert!(!found, "{lang:?} lists {name}");
+        }
+    }
+}
+
 #[test]
 fn tables_match_their_hashes() {
     let source = TABLES_SOURCE.replace("\r\n", "\n");

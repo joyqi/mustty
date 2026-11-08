@@ -5,6 +5,9 @@
 //
 // A language's keywords are highlight.js's `keyword`, `literal`, `variable.language` and
 // `variable.constant` words; its types are the `type` words. A word in both lists stays a type.
+// Words highlight.js also files under `built_in` (library functions and classes: SQL's
+// current_date, Dart's print) are dropped: only the language's own words are kept, and any
+// builtin we do want (C#'s `int`, Python's `str`) is added by name in overrides.toml.
 // tests/code_scan.rs checks the hashes in the generated header, so a hand edit to tables.rs or an
 // edit to overrides.toml without regenerating fails `cargo test`.
 
@@ -54,9 +57,6 @@ const LANGS = [
 ];
 
 const KEYWORD_CATEGORIES = ["keyword", "literal", "variable.language", "variable.constant"];
-// Modules that file words under `built_in` that we want: Java's `this`/`super`, and the primitive
-// types of C#, Kotlin and Dart
-const BUILT_IN = { java: "keywords", csharp: "types", kotlin: "types", dart: "types" };
 
 const words = (v) =>
   !v ? [] : typeof v === "string" ? v.split(/\s+/).filter(Boolean) : Array.isArray(v) ? v.flatMap(words) : [];
@@ -101,14 +101,17 @@ function table(name, module) {
   const norm = (w) => (ci ? w.toLowerCase() : w);
   const pick = (names) =>
     names.flatMap((c) => words(cats[c])).map((w) => w.split("|")[0]);
-  const keywords = pick(KEYWORD_CATEGORIES);
-  const types = pick(["type"]);
-  if (BUILT_IN[module] === "keywords") keywords.push(...pick(["built_in"]));
-  if (BUILT_IN[module] === "types") types.push(...pick(["built_in"]));
-  // Only words the lexer can see as one identifier (drops Dart's `int?`, Swift's `#if`)
+  const builtins = new Set(pick(["built_in"]).map(norm));
+  // Only words the lexer can see as one identifier (drops Swift's `#if`), and no builtins
   const valid = (w) => /^-?[A-Za-z_][A-Za-z0-9_]*$/.test(w);
-  const k = new Set(keywords.filter(valid).map(norm));
-  const t = new Set(types.filter(valid).map(norm));
+  const keep = (list) => {
+    const all = new Set(list.filter(valid).map(norm));
+    const own = [...all].filter((w) => !builtins.has(w));
+    excluded += all.size - own.length;
+    return new Set(own);
+  };
+  const k = keep(pick(KEYWORD_CATEGORIES));
+  const t = keep(pick(["type"]));
 
   const fix = overrides[name.toLowerCase()] ?? {};
   for (const key of Object.keys(fix)) {
@@ -150,6 +153,7 @@ function list(items) {
   return `&[\n${lines.map((l) => `        ${l}`).join("\n")}\n    ]`;
 }
 
+let excluded = 0;
 const tables = LANGS.map(([name, module]) => table(name, module));
 const body =
   "use super::Table;\n" +
@@ -177,4 +181,4 @@ writeFileSync(out, `${header}\n\n${body}`);
 
 const total = tables.reduce((n, t) => n + t.keywords.length + t.types.length, 0);
 for (const t of tables) console.log(`${t.name.padEnd(11)} ${String(t.keywords.length).padStart(4)} keywords ${String(t.types.length).padStart(3)} types`);
-console.log(`${total} words -> ${out}`);
+console.log(`${total} words (${excluded} highlight.js builtins left out) -> ${out}`);
