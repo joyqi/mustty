@@ -1,19 +1,17 @@
-//! Probe for the experimental code lexer (lexer.rs). Nothing here is used by mustty itself.
+//! Probe for the code lexer (src/code), which began here as an experiment.
 //!
-//! cargo run --example hl_probe -- side <rust|js|py> <file> [first-line] [last-line]
-//!     each line on the left, its tokens on the right
-//! cargo run --example hl_probe -- sample <rust|js|py> <file> <count> <seed>
+//! cargo run --example hl_probe -- side <lang> <file> [first-line] [last-line]
+//!     each line on the left, its tokens on the right; <lang> is any fence alias (rust, js, py, …)
+//! cargo run --example hl_probe -- sample <lang> <file> <count> <seed>
 //!     random non-blank positions with the token they got, for checking by hand
 //! cargo run --example hl_probe -- render <out-dir>
 //!     a page with three code blocks drawn into a TestBackend in two color schemes: printed as ANSI
 //!     (cat it in a terminal) and written as <out-dir>/hl-{dark,light}.svg
 
-#[path = "lexer.rs"]
-mod lexer;
-
 use std::fmt::Write as _;
 
-use lexer::{Lang, Tok, scan_block};
+use mustty::code::aliases::from_info;
+use mustty::code::{CodeState, LangId, Token as Tok, scan};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::{Buffer, Cell};
@@ -22,7 +20,7 @@ use ratatui::style::{Color, Modifier, Style};
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let arg = |i: usize| args.get(i).map(String::as_str).unwrap_or_default();
-    let lang = || Lang::from_info(arg(1)).expect("language: rust, js or py");
+    let lang = || from_info(arg(1)).expect("a known language alias");
     let read = || std::fs::read_to_string(arg(2)).expect("readable file");
     match arg(0) {
         "side" => {
@@ -41,6 +39,21 @@ fn main() {
     }
 }
 
+/// Every line of a block, each starting in the previous line's state, as (start, len, token)
+fn scan_block(lang: LangId, text: &str) -> Vec<Vec<(usize, usize, Tok)>> {
+    let mut state = CodeState::Normal;
+    text.lines()
+        .map(|line| {
+            let (ranges, next) = scan(lang, line, state);
+            state = next;
+            ranges
+                .iter()
+                .map(|r| (r.start, r.end - r.start, r.token))
+                .collect()
+        })
+        .collect()
+}
+
 fn short(tok: Tok) -> &'static str {
     match tok {
         Tok::Keyword => "K",
@@ -51,7 +64,7 @@ fn short(tok: Tok) -> &'static str {
     }
 }
 
-fn side_by_side(lang: Lang, text: &str, first: usize, last: usize) {
+fn side_by_side(lang: LangId, text: &str, first: usize, last: usize) {
     let lines: Vec<&str> = text.lines().collect();
     for (n, spans) in scan_block(lang, text).into_iter().enumerate() {
         if n + 1 < first || n + 1 > last {
@@ -71,7 +84,7 @@ fn side_by_side(lang: Lang, text: &str, first: usize, last: usize) {
 }
 
 /// Deterministic positions (xorshift), so a report can be reproduced
-fn sample(lang: Lang, text: &str, count: usize, seed: u64) {
+fn sample(lang: LangId, text: &str, count: usize, seed: u64) {
     let lines: Vec<&str> = text.lines().collect();
     let spans = scan_block(lang, text);
     let mut spots = Vec::new();
@@ -180,7 +193,7 @@ fn draw_page(buf: &mut Buffer, x0: u16, scheme: &Scheme) {
     let mut lang = None;
     let mut code = Vec::new();
     let mut y = 2;
-    let flush = |buf: &mut Buffer, lang: Lang, code: &mut Vec<&str>, y: &mut u16| {
+    let flush = |buf: &mut Buffer, lang: LangId, code: &mut Vec<&str>, y: &mut u16| {
         let text = code.join("\n");
         for (line, spans) in code.iter().zip(scan_block(lang, &text)) {
             let chars: Vec<char> = line.chars().collect();
@@ -198,7 +211,7 @@ fn draw_page(buf: &mut Buffer, x0: u16, scheme: &Scheme) {
             if let Some(l) = lang.take() {
                 flush(buf, l, &mut code, &mut y);
             } else {
-                lang = Lang::from_info(info);
+                lang = from_info(info);
             }
             buf.set_string(x0, y, line, dim);
         } else if lang.is_some() {
