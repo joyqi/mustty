@@ -442,6 +442,7 @@ fn scan(rope: &Rope, line: usize, state_in: BlockState) -> Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::code::LangId;
 
     const FENCED: BlockState = BlockState::Fenced {
         fence: '`',
@@ -659,6 +660,96 @@ mod tests {
         for (l, want) in before.iter().enumerate() {
             assert_eq!(&syntax(&mut hl, &rope, l), want, "line {l}");
         }
+    }
+
+    /// Every line of `text` from the top, as (text, code token) for the Syntax ranges
+    fn syntax_of(text: &str) -> Vec<Vec<(String, code::Token)>> {
+        let mut state = BlockState::Normal;
+        text.lines()
+            .map(|line| {
+                let (ranges, next) = scan_line(line, state);
+                state = next;
+                let chars: Vec<char> = line.chars().collect();
+                ranges
+                    .iter()
+                    .filter_map(|r| match r.token {
+                        Token::Syntax(t) => Some((chars[r.start..r.end].iter().collect(), t)),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn fence_info_string_picks_the_language() {
+        let lang = |line: &str| match scan_line(line, BlockState::Normal).1 {
+            BlockState::Fenced { lang, .. } => lang,
+            BlockState::Normal => panic!("{line:?} is not a fence"),
+        };
+        let rust = code::aliases::from_info("rust");
+        assert!(rust.is_some());
+        for line in [
+            "```rust",
+            "```Rust,no_run",
+            "  ``` rs ignore",
+            "~~~rust title=\"x\"",
+        ] {
+            assert_eq!(lang(line), rust, "{line:?}");
+        }
+        assert_eq!(lang("```{.python}"), code::aliases::from_info("py"));
+        assert_eq!(lang("```text"), Some(LangId::PLAIN));
+        for line in ["```", "```haskell", "~~~ {r}"] {
+            assert_eq!(lang(line), None, "{line:?}");
+        }
+    }
+
+    /// Without a known language, a block is one FencedCode range per line, as before the lexer
+    #[test]
+    fn unknown_or_plain_blocks_stay_whole_line() {
+        for info in ["", "haskell", "text", "console"] {
+            let text = format!("```{info}\nlet s = \"x\"; // c\n```");
+            let mut state = BlockState::Normal;
+            for line in text.lines() {
+                let (ranges, next) = scan_line(line, state);
+                assert_eq!(ranges.len(), 1, "{info:?} {line:?}");
+                state = next;
+            }
+            assert_eq!(state, BlockState::Normal);
+        }
+    }
+
+    /// An unclosed comment or string ends with the block: the closing fence resets the lexer, the
+    /// text after it is Markdown again, and the next block starts fresh
+    #[test]
+    fn closing_fence_resets_the_code_state() {
+        let text = "```c\n/* never closed\nint x;\n```\n*emphasis* after\n```js\nlet y = 1;\n```";
+        let syntax = syntax_of(text);
+        assert_eq!(syntax[2], [("int x;".to_string(), code::Token::Comment)]);
+        let (ranges, _) = scan_line("*emphasis* after", BlockState::Normal);
+        assert!(ranges.iter().any(|r| r.token == Token::Emph));
+        assert_eq!(
+            syntax[6],
+            [
+                ("let".to_string(), code::Token::Keyword),
+                ("1".to_string(), code::Token::Number)
+            ]
+        );
+    }
+
+    /// A longer fence holds a shorter one as code: a Markdown block that shows a fence
+    #[test]
+    fn shorter_fence_inside_a_block_is_code() {
+        let text = "````markdown\n# Title\n```rust\nfn main() {}\n```\n````\nafter";
+        let syntax = syntax_of(text);
+        assert_eq!(syntax[1], [("# Title".to_string(), code::Token::Keyword)]);
+        // Markdown's lexer leaves the inner fence and code plain, rather than lexing it as Rust
+        assert!(syntax[3].is_empty());
+        let mut state = BlockState::Normal;
+        for line in text.lines().take(6) {
+            state = scan_line(line, state).1;
+        }
+        assert_eq!(state, BlockState::Normal);
     }
 
     #[test]
