@@ -23,6 +23,8 @@ pub fn style(token: Token, code: Color) -> Style {
         Token::Emph | Token::Quote => m(Modifier::ITALIC),
         Token::Code | Token::FencedCode => Style::default().fg(code),
         Token::LinkText => m(Modifier::UNDERLINED),
+        // Styled in the next commit; until then code blocks stay one color
+        Token::Syntax(_) => Style::default(),
     }
 }
 

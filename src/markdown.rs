@@ -1,11 +1,13 @@
 //! Lightweight line-by-line Markdown scanner. It only produces style ranges and never changes the
 //! text. Each line depends only on the block state it starts in (inside a fenced code block or
-//! not), so results can be cached per line and rescanned incrementally.
+//! not, and where the code lexer stands), so results can be cached per line and rescanned
+//! incrementally.
 
 use std::ops::Range;
 
 use ropey::Rope;
 
+use crate::code::{self, CodeState, LangId};
 use crate::text::wrap::line_text;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -15,6 +17,11 @@ pub enum BlockState {
     Fenced {
         fence: char,
         len: u8,
+        /// From the opening fence's info string; `None` when it names no language we know
+        lang: Option<LangId>,
+        /// The code lexer's state at the start of the line. The closing fence drops it, so an edit
+        /// inside a block rescans at most to the block's end.
+        code: CodeState,
     },
 }
 
@@ -30,6 +37,8 @@ pub enum Token {
     Code,
     FenceLine,
     FencedCode,
+    /// A code lexer token inside a fenced block, layered over `FencedCode`
+    Syntax(code::Token),
     QuoteMark,
     Quote,
     ListMark,
@@ -64,22 +73,51 @@ pub fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockSt
         (indent <= 3 && run >= 3).then_some(run)
     };
 
-    if let BlockState::Fenced { fence, len } = state_in {
+    if let BlockState::Fenced {
+        fence,
+        len,
+        lang,
+        code,
+    } = state_in
+    {
         let closes = fence_run(fence).is_some_and(|run| {
             run >= len as usize && chars[indent + run..].iter().all(|c| c.is_whitespace())
         });
-        return if closes {
-            (whole(Token::FenceLine), BlockState::Normal)
-        } else {
-            (whole(Token::FencedCode), state_in)
+        if closes {
+            return (whole(Token::FenceLine), BlockState::Normal);
+        }
+        let mut out = whole(Token::FencedCode);
+        let Some(lang) = lang else {
+            return (out, state_in);
         };
+        let (ranges, code) = code::scan(lang, line, code);
+        out.extend(ranges.into_iter().map(|r| StyledRange {
+            start: r.start,
+            end: r.end,
+            token: Token::Syntax(r.token),
+        }));
+        let state_out = BlockState::Fenced {
+            fence,
+            len,
+            lang: Some(lang),
+            code,
+        };
+        return (out, state_out);
     }
     for fence in ['`', '~'] {
         if let Some(run) = fence_run(fence) {
+            let info = &chars[indent + run..];
             // A backtick fence's info string must not contain backticks
-            if fence == '~' || !chars[indent + run..].contains(&'`') {
+            if fence == '~' || !info.contains(&'`') {
                 let len = run.min(u8::MAX as usize) as u8;
-                return (whole(Token::FenceLine), BlockState::Fenced { fence, len });
+                let lang = code::aliases::from_info(&info.iter().collect::<String>());
+                let state_out = BlockState::Fenced {
+                    fence,
+                    len,
+                    lang,
+                    code: CodeState::Normal,
+                };
+                return (whole(Token::FenceLine), state_out);
             }
         }
     }
@@ -405,7 +443,21 @@ fn scan(rope: &Rope, line: usize, state_in: BlockState) -> Entry {
 mod tests {
     use super::*;
 
-    const FENCED: BlockState = BlockState::Fenced { fence: '`', len: 3 };
+    const FENCED: BlockState = BlockState::Fenced {
+        fence: '`',
+        len: 3,
+        lang: None,
+        code: CodeState::Normal,
+    };
+
+    fn fenced(fence: char, len: u8) -> BlockState {
+        BlockState::Fenced {
+            fence,
+            len,
+            lang: None,
+            code: CodeState::Normal,
+        }
+    }
 
     /// Renders ranges in a snapshot-friendly form: one `Token  "text"` line per range.
     fn show(line: &str) -> String {
@@ -462,9 +514,16 @@ mod tests {
 
     #[test]
     fn fence_state_transitions() {
-        let tilde = BlockState::Fenced { fence: '~', len: 4 };
+        let tilde = fenced('~', 4);
+        let rust = BlockState::Fenced {
+            fence: '`',
+            len: 3,
+            lang: code::aliases::from_info("rust"),
+            code: CodeState::Normal,
+        };
         let cases = [
-            ("```rust", BlockState::Normal, Token::FenceLine, FENCED),
+            ("```rust", BlockState::Normal, Token::FenceLine, rust),
+            ("```", BlockState::Normal, Token::FenceLine, FENCED),
             ("   ```", BlockState::Normal, Token::FenceLine, FENCED),
             (
                 "    ```",
@@ -529,15 +588,77 @@ mod tests {
         assert_eq!(n, rope.len_lines());
         assert!(hl.is_consistent(&rope));
         assert_eq!(hl.ranges(&rope, 5)[0].token, Token::FencedCode);
-        // Typing in a fence line's info string keeps the block state; the rescan stops after 1 line
+        // Typing a language into a fence line's info string changes the block's state, but the
+        // closing fence resets it: the rescan stops after that (lines 0-2), not at the document end
         rope.insert(3, "rust");
-        assert_eq!(hl.invalidate(&rope, 0..1, 0), 1);
+        assert_eq!(hl.invalidate(&rope, 0..1, 0), 3);
         assert!(hl.is_consistent(&rope));
         // Delete a closing fence line (two lines merge into one)
         let at = rope.line_to_char(4);
         rope.remove(at - 1..at + 3);
         hl.invalidate(&rope, 3..5, -1);
         assert!(hl.is_consistent(&rope));
+    }
+
+    /// The code lexer's state rides in the block state, which the cache compares to stop
+    /// rescanning: an edit above a code block, or inside it, must leave the block's coloring
+    /// exactly as a fresh scan would, and an edit inside a block rescans no further than its end
+    #[test]
+    fn code_state_survives_incremental_rescans() {
+        let text = [
+            "para",
+            "```rust",
+            "let s = \"one",
+            "two\"; /* open",
+            "still comment */ fn x() {}",
+            "```",
+            "after",
+            "```py",
+            "x = 1",
+            "```",
+        ]
+        .map(|l| format!("{l}\n"))
+        .concat();
+        let mut rope = Rope::from_str(&text);
+        let mut hl = cached(&rope);
+        let syntax = |hl: &mut HighlightCache, rope: &Rope, line: usize| -> Vec<Token> {
+            hl.ranges(rope, line)
+                .iter()
+                .map(|r| r.token)
+                .filter(|t| matches!(t, Token::Syntax(_)))
+                .collect()
+        };
+        let before: Vec<_> = (0..rope.len_lines())
+            .map(|l| syntax(&mut hl, &rope, l))
+            .collect();
+        assert_eq!(
+            syntax(&mut hl, &rope, 4),
+            [
+                Token::Syntax(code::Token::Comment),
+                Token::Syntax(code::Token::Keyword)
+            ]
+        );
+        // Edit the line above the block: only that line is rescanned, the block keeps its colors
+        rope.insert(0, "more ");
+        assert_eq!(hl.invalidate(&rope, 0..1, 0), 1);
+        assert!(hl.is_consistent(&rope));
+        for (l, want) in before.iter().enumerate() {
+            assert_eq!(&syntax(&mut hl, &rope, l), want, "line {l}");
+        }
+        // Close the string early inside the block: the lines after it change state, and the
+        // rescan stops at the closing fence (lines 2-5), not at the next block
+        let at = rope.line_to_char(2) + "let s = \"one".chars().count();
+        rope.insert(at, "\"");
+        assert_eq!(hl.invalidate(&rope, 2..3, 0), 4);
+        assert!(hl.is_consistent(&rope));
+        assert_eq!(syntax(&mut hl, &rope, 8), before[8]);
+        // Undo it: back to the original coloring
+        rope.remove(at..at + 1);
+        hl.invalidate(&rope, 2..3, 0);
+        assert!(hl.is_consistent(&rope));
+        for (l, want) in before.iter().enumerate() {
+            assert_eq!(&syntax(&mut hl, &rope, l), want, "line {l}");
+        }
     }
 
     #[test]
