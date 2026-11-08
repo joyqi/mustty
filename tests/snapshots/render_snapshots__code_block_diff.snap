@@ -1,0 +1,15 @@
+---
+source: tests/render_snapshots.rs
+expression: "code_block(\"diff\", code, true)"
+---
+ 2: "notes" DIM
+ 4: "  段 落" NONE
+ 6: "```diff" DIM
+ 7: "--- a/x.rs" NONE fg=Red
+ 8: "+++ b/x.rs" NONE fg=Green
+ 9: "@@ -1,2 +1,2 @@" NONE fg=Cyan
+10: "-let a = 1;" NONE fg=Red
+11: "+let a = 2;" NONE fg=Green
+12: " same" NONE fg=Cyan
+13: "```" DIM
+17: "notes.md" DIM | "16 字" DIM | " · 1:1" DIM

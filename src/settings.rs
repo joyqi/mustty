@@ -1,4 +1,4 @@
-//! Settings panel: 13 table-driven options and the panel state machine. Rendering lives in `view::settings`.
+//! Settings panel: 14 table-driven options and the panel state machine. Rendering lives in `view::settings`.
 //!
 //! The panel only reads and writes a copy of `Config`. App calls `apply_config` after every change,
 //! and decides on close whether to keep it or roll back.
@@ -28,6 +28,7 @@ pub enum Field {
     Scrolloff,
     TabWidth,
     CodeColor,
+    CodeHighlight,
     Cursor,
     CursorBlink,
     Lang,
@@ -67,7 +68,7 @@ fn range<T: Into<i64>>((lo, hi): (T, T)) -> (i64, i64) {
 
 impl Field {
     /// Display order.
-    pub const ALL: [Field; 13] = [
+    pub const ALL: [Field; 14] = [
         Self::Width,
         Self::Vim,
         Self::Mouse,
@@ -78,6 +79,7 @@ impl Field {
         Self::Scrolloff,
         Self::TabWidth,
         Self::CodeColor,
+        Self::CodeHighlight,
         Self::Cursor,
         Self::CursorBlink,
         Self::Lang,
@@ -96,6 +98,7 @@ impl Field {
             Self::Scrolloff => "scrolloff",
             Self::TabWidth => "tab_width",
             Self::CodeColor => "code_color",
+            Self::CodeHighlight => "code_highlight",
             Self::Cursor => "cursor",
             Self::CursorBlink => "cursor_blink",
             Self::Lang => "lang",
@@ -116,6 +119,7 @@ impl Field {
             Self::Scrolloff => t("settings-scrolloff"),
             Self::TabWidth => t("settings-tab-width"),
             Self::CodeColor => t("settings-code-color"),
+            Self::CodeHighlight => t("settings-code-highlight"),
             Self::Cursor if vim => t("settings-cursor-vim"),
             Self::CursorBlink if vim => t("settings-cursor-blink-vim"),
             Self::Cursor => t("settings-cursor"),
@@ -137,6 +141,7 @@ impl Field {
             Self::Scrolloff => t("settings-scrolloff-help"),
             Self::TabWidth => t("settings-tab-width-help"),
             Self::CodeColor => t("settings-code-color-help"),
+            Self::CodeHighlight => t("settings-code-highlight-help"),
             Self::Cursor if vim => t("settings-cursor-help-vim"),
             Self::CursorBlink if vim => t("settings-cursor-blink-help-vim"),
             Self::Cursor => t("settings-cursor-help"),
@@ -164,6 +169,7 @@ impl Field {
             | Self::Autosave
             | Self::Typewriter
             | Self::FocusMode
+            | Self::CodeHighlight
             | Self::CursorBlink => Kind::Toggle,
         }
     }
@@ -180,6 +186,7 @@ impl Field {
             Self::Scrolloff => Value::Int(c.scrolloff.into()),
             Self::TabWidth => Value::Int(c.tab_width.into()),
             Self::CodeColor => Value::Color(c.code_color),
+            Self::CodeHighlight => Value::Bool(c.code_highlight),
             Self::Cursor => Value::Cursor(c.cursor),
             Self::CursorBlink => Value::Bool(c.cursor_blink),
             Self::Lang => Value::Lang(c.lang),
@@ -205,6 +212,7 @@ impl Field {
             (Self::Scrolloff, Value::Int(i)) => c.scrolloff = clamp(i) as u16,
             (Self::TabWidth, Value::Int(i)) => c.tab_width = clamp(i) as u16,
             (Self::CodeColor, Value::Color(color)) => c.code_color = color,
+            (Self::CodeHighlight, Value::Bool(b)) => c.code_highlight = b,
             (Self::Cursor, Value::Cursor(shape)) => c.cursor = shape,
             (Self::CursorBlink, Value::Bool(b)) => c.cursor_blink = b,
             (Self::Lang, Value::Lang(lang)) => {
@@ -387,6 +395,7 @@ mod tests {
             Value::Int(7),
             Value::Int(8),
             Value::Color(CodeColor::Magenta),
+            Value::Bool(false),
             Value::Cursor(CursorShape::Underline),
             Value::Bool(true),
             Value::Lang("zh-CN"),

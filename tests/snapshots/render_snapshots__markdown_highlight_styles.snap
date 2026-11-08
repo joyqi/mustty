@@ -10,7 +10,7 @@ expression: "styled(&draw(Some(\"hl.md\"), MARKDOWN, 60, 24, &[]))"
  9: "- [ ]" DIM | "列 表" NONE | "[" DIM | "链" UNDERLINED | "接" UNDERLINED | "](https://x.io)" DIM
 10: "---" DIM
 11: "```rust" DIM
-12: "let a = 1; // **不" NONE fg=Cyan | "是" NONE fg=Cyan | "加" NONE fg=Cyan | "粗" NONE fg=Cyan | "**" NONE fg=Cyan
+12: "let" BOLD fg=Cyan | " a = 1;" NONE fg=Cyan | "// **不" DIM fg=Cyan | "是" DIM fg=Cyan | "加" DIM fg=Cyan | "粗" DIM fg=Cyan | "**" DIM fg=Cyan
 13: "```" DIM
 14: "  栅 栏 之 后 恢 复 正 常" NONE
 20: "hl.md" DIM | "53 字" DIM | " · 1:1" DIM

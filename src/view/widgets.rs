@@ -9,7 +9,7 @@ use ratatui::widgets::Widget;
 use ropey::Rope;
 use unicode_width::UnicodeWidthStr;
 
-use crate::markdown::{HighlightCache, StyledRange};
+use crate::markdown::{HighlightCache, StyledRange, Token};
 use crate::text::grapheme::{grapheme_width, graphemes};
 use crate::text::wrap::{WrapCache, line_text};
 use crate::view::theme;
@@ -123,6 +123,8 @@ pub struct BodyWidget<'a> {
     /// Focus mode: logical line range of the current paragraph; lines outside it are DIM
     pub focus: Option<Range<usize>>,
     pub code_color: Color,
+    /// Show code blocks' syntax colors; off, code blocks are one color
+    pub code_highlight: bool,
 }
 
 impl Widget for BodyWidget<'_> {
@@ -130,9 +132,10 @@ impl Widget for BodyWidget<'_> {
         let (mut line, mut row) = (self.top.line, self.top.row);
         let tab = self.wrap.tab_width();
         let code = self.code_color;
+        let highlight = self.code_highlight;
         let dimmed = |line: usize| self.focus.as_ref().is_some_and(|f| !f.contains(&line));
         let styles_of = |hl: &mut HighlightCache, line: usize, len: usize| {
-            let mut styles = line_styles(hl.ranges(self.rope, line), len, code);
+            let mut styles = line_styles(hl.ranges(self.rope, line), len, code, highlight);
             if dimmed(line) {
                 styles
                     .iter_mut()
@@ -175,9 +178,11 @@ impl Widget for BodyWidget<'_> {
 }
 
 /// Layer a line's style ranges in order into one style per char (outer first, inner overrides).
-fn line_styles(ranges: &[StyledRange], len: usize, code: Color) -> Vec<Style> {
+/// Without `highlight`, code blocks' syntax ranges are skipped.
+fn line_styles(ranges: &[StyledRange], len: usize, code: Color, highlight: bool) -> Vec<Style> {
     let mut styles = vec![Style::default(); len];
-    for r in ranges {
+    let shown = |r: &&StyledRange| highlight || !matches!(r.token, Token::Syntax(_));
+    for r in ranges.iter().filter(shown) {
         for s in &mut styles[r.start.min(len)..r.end.min(len)] {
             *s = s.patch(theme::style(r.token, code));
         }
@@ -322,6 +327,32 @@ fn truncate_left(text: &str, max_w: u16, tab: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn code_highlight_off_drops_only_syntax_layers() {
+        let ranges = [
+            StyledRange {
+                start: 0,
+                end: 6,
+                token: Token::FencedCode,
+            },
+            StyledRange {
+                start: 0,
+                end: 2,
+                token: Token::Syntax(crate::code::Token::Keyword),
+            },
+        ];
+        let on = line_styles(&ranges, 6, Color::Cyan, true);
+        let off = line_styles(&ranges, 6, Color::Cyan, false);
+        assert_eq!(
+            on[0],
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(off[0], Style::default().fg(Color::Cyan));
+        assert_eq!(on[2..], off[2..]);
+    }
 
     #[test]
     fn truncates_from_left() {

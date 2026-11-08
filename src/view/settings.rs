@@ -162,11 +162,11 @@ mod tests {
 
     #[test]
     fn rows_fit_or_scroll() {
-        // 13 fields: when they fit, the list, a blank row, then the help line
-        assert_eq!(list_rows(20), (13, Some(14)));
-        assert_eq!(list_rows(15), (13, Some(14)));
+        // 14 fields: when they fit, the list, a blank row, then the help line
+        assert_eq!(list_rows(20), (14, Some(15)));
+        assert_eq!(list_rows(16), (14, Some(15)));
+        assert_eq!(list_rows(15), (14, Some(14)));
         assert_eq!(list_rows(14), (13, Some(13)));
-        assert_eq!(list_rows(13), (12, Some(12)));
         assert_eq!(list_rows(6), (5, Some(5)));
         assert_eq!(list_rows(1), (1, None));
     }

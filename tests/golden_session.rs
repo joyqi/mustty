@@ -44,7 +44,7 @@ fn whole_session_matches_the_golden_bytes() {
         vec![up, up, up, b"\x1b[F", b"!"],
         // Settings: mouse on, block cursor, blinking, then Enter writes ~/.mustty.toml
         vec![b"\x10", down, down, b" "],
-        vec![down; 8],
+        vec![down; 9],
         vec![b"\x1b[C", down, b" ", b"\r"],
         // Settings again: vim on, so Normal / Insert switch the cursor shape
         vec![b"\x10", down, b" ", b"\r", b"\x1b", b"i", b"x"],

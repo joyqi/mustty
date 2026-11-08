@@ -100,6 +100,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             selection,
             focus: paragraph,
             code_color,
+            code_highlight: app.config.code_highlight,
         },
         body,
     );

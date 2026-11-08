@@ -1,0 +1,14 @@
+---
+source: tests/render_snapshots.rs
+expression: "code_block(\"rust\", RUST_CODE, true)"
+---
+ 2: "notes" DIM
+ 4: "  段 落" NONE
+ 6: "```rust" DIM
+ 7: "/// Doc comment" DIM fg=Cyan
+ 8: "fn" BOLD fg=Cyan | " parse<'a>(s: &'a str) -> Option<u32> {" NONE fg=Cyan
+ 9: "" NONE fg=Cyan | "let" BOLD fg=Cyan | " n = 0x1F + 3;" NONE fg=Cyan | "// it's fine" DIM fg=Cyan
+10: "    Some(" NONE fg=Cyan | "r#\"raw \"q\"\"#" NONE fg=Green | ".len()" NONE fg=Cyan | "as" BOLD fg=Cyan | " u32)" NONE fg=Cyan
+11: "}" NONE fg=Cyan
+12: "```" DIM
+17: "notes.md" DIM | "26 字" DIM | " · 1:1" DIM

@@ -3,6 +3,7 @@ use mustty::editor::document::{Document, FileMeta};
 
 mod support;
 use mustty::input::{Event, KeyCode, KeyEvent, KeyModifiers};
+use mustty::settings::Field;
 use mustty::view;
 use ratatui::Terminal;
 use ratatui::backend::{Backend, TestBackend};
@@ -413,9 +414,17 @@ fn settings_cursor_rows(vim: bool, events: &[Event]) -> TestBackend {
     draw_with(&config, "# 标题\n\n正文\n", 80, 24, events, false)
 }
 
+/// How many rows down the settings panel lists a field
+fn row_of(field: Field) -> usize {
+    Field::ALL.iter().position(|&f| f == field).unwrap()
+}
+
 fn cursor_row_events() -> Vec<Event> {
     let mut events = vec![ctrl('p')];
-    events.extend(std::iter::repeat_n(key(KeyCode::Down), 10));
+    events.extend(std::iter::repeat_n(
+        key(KeyCode::Down),
+        row_of(Field::Cursor),
+    ));
     events
 }
 
@@ -623,12 +632,13 @@ fn settings_language_switches_live() {
         ..mustty::config::Config::default()
     };
     mustty::i18n::init_for_test("zh-CN");
-    let (w, h) = (80, 24);
+    // Tall enough for the whole list, so every label is on screen
+    let (w, h) = (80, 26);
     let doc = Document::parse("# 标题\n\n正文\n", lf_meta(Some("notes.md")));
     let mut app = App::with_config(doc, Size::new(w, h), &config);
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
     app.handle(ctrl('p'));
-    for _ in 0..12 {
+    for _ in 0..row_of(Field::Lang) {
         app.handle(key(KeyCode::Down));
     }
     terminal.draw(|f| view::render(f, &mut app)).unwrap();
@@ -754,4 +764,87 @@ fn help_panel_survives_too_small() {
         back.contains("Keys") && back.contains("Ctrl+S"),
         "still the help panel after recovery"
     );
+}
+
+/// Code blocks with a language, in the default scheme: the block in code_color, keywords bold,
+/// strings green, comments dim, numbers and types in the base color, diff lines green and red
+fn code_block(info: &str, code: &str, highlight: bool) -> String {
+    let config = mustty::config::Config {
+        code_highlight: highlight,
+        ..Default::default()
+    };
+    let raw = format!("段落\n\n```{info}\n{code}\n```\n");
+    styled(&draw_with(&config, &raw, 60, 20, &[], false))
+}
+
+const RUST_CODE: &str = "/// Doc comment\nfn parse<'a>(s: &'a str) -> Option<u32> {\n    let n = 0x1F + 3; // it's fine\n    Some(r#\"raw \"q\"\"#.len() as u32)\n}";
+
+#[test]
+fn code_block_rust() {
+    insta::assert_snapshot!(code_block("rust", RUST_CODE, true));
+}
+
+#[test]
+fn code_block_javascript() {
+    let code = "const re = /ab+c/gi, half = total / 2;\nconst msg = `hi ${user.name}`; // template\nexport default function load(p) { return null; }";
+    insta::assert_snapshot!(code_block("js", code, true));
+}
+
+#[test]
+fn code_block_python() {
+    let code = "def greet(name: str) -> None:\n    \"\"\"Say hello.\n    Twice.\"\"\"  # doc\n    print(f\"hi {name}\", 42, True)";
+    insta::assert_snapshot!(code_block("python", code, true));
+}
+
+#[test]
+fn code_block_diff() {
+    let code = "--- a/x.rs\n+++ b/x.rs\n@@ -1,2 +1,2 @@\n-let a = 1;\n+let a = 2;\n same";
+    insta::assert_snapshot!(code_block("diff", code, true));
+}
+
+#[test]
+fn code_block_highlight_off_is_one_color() {
+    insta::assert_snapshot!(code_block("rust", RUST_CODE, false));
+}
+
+/// The cell style of the first occurrence of `text` on screen
+fn style_at(b: &TestBackend, text: &str) -> ratatui::style::Style {
+    let (x, y) = find_text(b, text);
+    b.buffer()[(x, y)].style()
+}
+
+#[test]
+fn code_colors_follow_code_color() {
+    use ratatui::style::{Color, Modifier};
+    let config = mustty::config::Config {
+        code_color: mustty::config::CodeColor::Yellow,
+        ..Default::default()
+    };
+    let raw = "段落\n\n```rust\nlet s = \"str\"; // note\n```\n";
+    let b = draw_with(&config, raw, 60, 12, &[], false);
+    let keyword = style_at(&b, "let");
+    assert_eq!(keyword.fg, Some(Color::Yellow));
+    assert!(keyword.add_modifier.contains(Modifier::BOLD));
+    assert_eq!(style_at(&b, "\"str\"").fg, Some(Color::Green));
+    let comment = style_at(&b, "// note");
+    assert_eq!(comment.fg, Some(Color::Yellow));
+    assert!(comment.add_modifier.contains(Modifier::DIM));
+}
+
+/// Focus mode dims a code block outside the current paragraph, syntax colors included
+#[test]
+fn focus_mode_dims_code_blocks_too() {
+    use ratatui::style::Modifier;
+    let config = mustty::config::Config {
+        focus_mode: true,
+        ..Default::default()
+    };
+    // The first line is the title; the cursor starts in the body's first paragraph
+    let raw = "标题\nhere is the cursor\n\n```rust\nlet s = \"str\";\n```\n";
+    let b = draw_with(&config, raw, 60, 12, &[], false);
+    for text in ["let", "\"str\""] {
+        let style = style_at(&b, text);
+        assert!(style.add_modifier.contains(Modifier::DIM), "{text}");
+    }
+    assert!(!style_at(&b, "here").add_modifier.contains(Modifier::DIM));
 }

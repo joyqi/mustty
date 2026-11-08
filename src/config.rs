@@ -32,6 +32,8 @@ pub struct Config {
     pub tab_width: u16,
     /// Stores the choice itself rather than a `Color`: `white` and `gray` both map to `Color::Gray`, so it can't be reversed
     pub code_color: CodeColor,
+    /// Color code blocks by their language; off, they are one color (`code_color`) as before
+    pub code_highlight: bool,
     /// Cursor shape while editing (vim Normal mode ignores it and always uses a block)
     pub cursor: CursorShape,
     pub cursor_blink: bool,
@@ -52,6 +54,7 @@ impl Default for Config {
             scrolloff: 3,
             tab_width: 4,
             code_color: CodeColor::Cyan,
+            code_highlight: true,
             cursor: CursorShape::Bar,
             cursor_blink: false,
             lang: i18n::AUTO,
@@ -165,6 +168,7 @@ pub struct PartialConfig {
     pub scrolloff: Option<u16>,
     pub tab_width: Option<u16>,
     pub code_color: Option<CodeColor>,
+    pub code_highlight: Option<bool>,
     pub cursor: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
     pub lang: Option<&'static str>,
@@ -183,7 +187,7 @@ impl ConfigWarning {
     }
 }
 
-pub const KEYS: [&str; 13] = [
+pub const KEYS: [&str; 14] = [
     "width",
     "vim",
     "mouse",
@@ -194,6 +198,7 @@ pub const KEYS: [&str; 13] = [
     "scrolloff",
     "tab_width",
     "code_color",
+    "code_highlight",
     "cursor",
     "cursor_blink",
     "lang",
@@ -261,6 +266,7 @@ impl PartialConfig {
                 "autosave" => p.autosave = boolean(&mut warn),
                 "typewriter" => p.typewriter = boolean(&mut warn),
                 "focus_mode" => p.focus_mode = boolean(&mut warn),
+                "code_highlight" => p.code_highlight = boolean(&mut warn),
                 "cursor_blink" => p.cursor_blink = boolean(&mut warn),
                 "cursor" => {
                     // Case-insensitive
@@ -328,6 +334,7 @@ impl Config {
         self.scrolloff = p.scrolloff.unwrap_or(self.scrolloff);
         self.tab_width = p.tab_width.unwrap_or(self.tab_width);
         self.code_color = p.code_color.unwrap_or(self.code_color);
+        self.code_highlight = p.code_highlight.unwrap_or(self.code_highlight);
         self.cursor = p.cursor.unwrap_or(self.cursor);
         self.cursor_blink = p.cursor_blink.unwrap_or(self.cursor_blink);
         self.lang = p.lang.unwrap_or(self.lang);
@@ -383,6 +390,7 @@ impl Config {
             "scrolloff" => Scalar::Int(self.scrolloff.into()),
             "tab_width" => Scalar::Int(self.tab_width.into()),
             "code_color" => Scalar::Str(self.code_color.name()),
+            "code_highlight" => Scalar::Bool(self.code_highlight),
             "cursor" => Scalar::Str(self.cursor.name()),
             "cursor_blink" => Scalar::Bool(self.cursor_blink),
             "lang" => Scalar::Str(self.lang),
@@ -496,6 +504,7 @@ mod tests {
             scrolloff = 5
             tab_width = 2
             code_color = "yellow"
+            code_highlight = false
             cursor = "underline"
             cursor_blink = true
             lang = "zh-CN"
@@ -511,6 +520,7 @@ mod tests {
             scrolloff: 5,
             tab_width: 2,
             code_color: CodeColor::Yellow,
+            code_highlight: false,
             cursor: CursorShape::Underline,
             cursor_blink: true,
             lang: "zh-CN",
@@ -827,6 +837,34 @@ mod tests {
     }
 
     #[test]
+    fn code_highlight_is_a_bool_defaulting_on() {
+        assert!(Config::default().code_highlight);
+        assert!(!parse("code_highlight = false").0.code_highlight);
+        // A wrong type falls back to the default and names the key
+        let (c, w) = parse("code_highlight = \"no\"");
+        assert_eq!(
+            (c.code_highlight, keys(&w)),
+            (true, vec![Some("code_highlight")])
+        );
+    }
+
+    #[test]
+    fn write_back_writes_code_highlight() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        std::fs::write(&path, "width = 64\n").unwrap();
+        let old = loaded("width = 64\n");
+        let new = Config {
+            code_highlight: false,
+            ..old.clone()
+        };
+        write_back(&mut FsConfigStore::new(&path), &old, &new).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(written, "width = 64\ncode_highlight = false\n");
+        assert_eq!(loaded(&written), new);
+    }
+
+    #[test]
     fn write_back_only_writes_changed_keys() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".mustty.toml");
@@ -912,7 +950,7 @@ mod tests {
             prop_oneof![
                 "[a-z_]{1,16} = -?[0-9]{1,20}",
                 "[a-z_]{1,16} = \"[^\"\\\\]{0,10}\"",
-                "(width|vim|mouse|tab_width|code_color|scrolloff) = (true|false|[0-9]{1,6}|\"[a-z]{0,8}\"|\\[1, 2\\])",
+                "(width|vim|mouse|tab_width|code_color|code_highlight|scrolloff) = (true|false|[0-9]{1,6}|\"[a-z]{0,8}\"|\\[1, 2\\])",
                 "\\[[a-z]{1,5}\\]",
                 ".{0,20}",
             ],

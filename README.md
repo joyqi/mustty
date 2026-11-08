@@ -63,7 +63,8 @@ mustty [FILE]
 Pass a file to open or create it on first save, or omit `FILE` to start an Untitled document (`-h` / `--help` and `-V` / `--version` are the only flags).
 
 - Press `Ctrl+G` inside the app (or `?` in vim Normal mode) to see the shortcuts worth knowing.
-- Press `Ctrl+P` to open the live settings panel. Changes apply immediately and write back to `~/.mustty.toml` (`width`, `vim`, `mouse`, `autosave`, `autosave_idle_ms`, `typewriter`, `focus_mode`, `scrolloff`, `tab_width`, `code_color`, `cursor`, `cursor_blink`, `lang`).
+- Press `Ctrl+P` to open the live settings panel. Changes apply immediately and write back to `~/.mustty.toml` (`width`, `vim`, `mouse`, `autosave`, `autosave_idle_ms`, `typewriter`, `focus_mode`, `scrolloff`, `tab_width`, `code_color`, `code_highlight`, `cursor`, `cursor_blink`, `lang`).
+  `code_highlight` (on by default) colors code blocks whose fence names a language (` ```rust `, ` ```py `, ` ```diff `, 30 languages): keywords bold, strings green, comments dim, diff lines green and red. Off, code blocks are one color, `code_color`.
   `cursor` is `bar`, `block`, or `underline`, previewed live in the panel; with vim on, `cursor` and `cursor_blink` only affect Insert mode (Normal and Visual always use a block).
 
 ## License

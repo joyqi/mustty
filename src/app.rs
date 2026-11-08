@@ -2185,6 +2185,34 @@ mod tests {
     }
 
     #[test]
+    fn settings_code_highlight_toggles_and_writes_back() {
+        crate::i18n::init_for_test("en");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        let mut app = App::with_config(lf_doc(""), Size::new(100, 30), &Config::default());
+        app.set_config_path(Some(path.clone()));
+        assert!(app.config.code_highlight);
+        app.handle(ctrl('p'));
+        let row = crate::settings::Field::ALL
+            .iter()
+            .position(|&f| f == crate::settings::Field::CodeHighlight)
+            .unwrap();
+        for _ in 0..row {
+            app.handle(press(KeyCode::Down));
+        }
+        app.handle(press(KeyCode::Char(' ')));
+        assert!(
+            !app.config.code_highlight,
+            "applies while the panel is open"
+        );
+        app.handle(press(KeyCode::Enter));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "code_highlight = false\n"
+        );
+    }
+
+    #[test]
     fn settings_language_applies_now_and_writes_only_lang() {
         crate::i18n::init_for_test("en");
         let dir = tempfile::tempdir().unwrap();
@@ -2195,7 +2223,7 @@ mod tests {
         app.set_config_path(Some(path.clone()));
         assert_eq!(app.placeholder(), "Untitled");
         app.handle(ctrl('p'));
-        for _ in 0..12 {
+        for _ in 1..crate::settings::Field::ALL.len() {
             app.handle(press(KeyCode::Down));
         }
         assert_eq!(
@@ -2216,7 +2244,7 @@ mod tests {
         );
         // Rolling back the language with Esc also applies immediately
         app.handle(ctrl('p'));
-        for _ in 0..12 {
+        for _ in 1..crate::settings::Field::ALL.len() {
             app.handle(press(KeyCode::Down));
         }
         app.handle(press(KeyCode::Left));

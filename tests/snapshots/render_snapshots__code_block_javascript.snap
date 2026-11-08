@@ -1,0 +1,12 @@
+---
+source: tests/render_snapshots.rs
+expression: "code_block(\"js\", code, true)"
+---
+ 2: "notes" DIM
+ 4: "  段 落" NONE
+ 6: "```js" DIM
+ 7: "const" BOLD fg=Cyan | " re =" NONE fg=Cyan | "/ab+c/gi" NONE fg=Green | ", half = total / 2;" NONE fg=Cyan
+ 8: "const" BOLD fg=Cyan | " msg =" NONE fg=Cyan | "`hi" NONE fg=Green | "${user.name}" NONE fg=Cyan | "`" NONE fg=Green | ";" NONE fg=Cyan | "// template" DIM fg=Cyan
+ 9: "export" BOLD fg=Cyan | "" NONE fg=Cyan | "default" BOLD fg=Cyan | "" NONE fg=Cyan | "function" BOLD fg=Cyan | " load(p) {" NONE fg=Cyan | "return" BOLD fg=Cyan | "" NONE fg=Cyan | "null" BOLD fg=Cyan | "; }" NONE fg=Cyan
+10: "```" DIM
+17: "notes.md" DIM | "23 字" DIM | " · 1:1" DIM

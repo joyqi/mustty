@@ -1,0 +1,13 @@
+---
+source: tests/render_snapshots.rs
+expression: "code_block(\"python\", code, true)"
+---
+ 2: "notes" DIM
+ 4: "  段 落" NONE
+ 6: "```python" DIM
+ 7: "def" BOLD fg=Cyan | " greet(name: str) ->" NONE fg=Cyan | "None" BOLD fg=Cyan | ":" NONE fg=Cyan
+ 8: "" NONE fg=Cyan | "\"\"\"Say hello." NONE fg=Green
+ 9: "    Twice.\"\"\"" NONE fg=Green | "" NONE fg=Cyan | "# doc" DIM fg=Cyan
+10: "    print(" NONE fg=Cyan | "f\"hi" NONE fg=Green | "{name}" NONE fg=Cyan | "\"" NONE fg=Green | ", 42," NONE fg=Cyan | "True" BOLD fg=Cyan | ")" NONE fg=Cyan
+11: "```" DIM
+17: "notes.md" DIM | "18 字" DIM | " · 1:1" DIM

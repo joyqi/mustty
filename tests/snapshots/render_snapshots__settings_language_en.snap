@@ -17,9 +17,11 @@ expression: snapshot(en.clone())
 "    Scroll margin                                                ‹ 3 › lines    "
 "    Tab width                                                   ‹ 4 › spaces    "
 "    Code color                                                    ‹ ■ cyan ›    "
+"    Code highlighting                                                     On    "
 "    Cursor                                                           ‹ bar ›    "
 "    Cursor blink                                                         Off    "
 "    Language                                                     ‹ English ›    "
+"                                                                                "
 "    Interface language; Auto follows your locale settings                       "
 "                                                                                "
 "    ↑↓ select  ←→ adjust  Enter save  Esc cancel                                "
@@ -27,4 +29,4 @@ expression: snapshot(en.clone())
 "                                                                                "
 "                                                                                "
 
-cursor: Position { x: 74, y: 18 } visible: true
+cursor: Position { x: 74, y: 20 } visible: true
