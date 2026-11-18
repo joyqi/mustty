@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-18
+
 ### Added
 
 - Find: `Ctrl+F` opens a find bar in the status line. Matches are found as you type and the first one after the cursor is shown, with every match underlined in yellow, the current one highlighted, and a `3/12` count on the right. `Enter` keeps the cursor on the match; `Esc` puts the cursor, the selection and the view back where they were. After that, `Ctrl+N` / `Ctrl+B` jump to the next / previous match, wrapping around at either end. A lowercase query ignores case, one with a capital letter doesn't; only the body is searched, never the title. With vim keys, `/` opens find and `n` / `N` step through the matches (extending the selection in Visual mode).
