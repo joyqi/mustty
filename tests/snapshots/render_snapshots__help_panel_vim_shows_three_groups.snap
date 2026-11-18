@@ -27,7 +27,7 @@ expression: text
 "    Esc                       Normal mode                                       "
 "    Ctrl+S                    Save                                              "
 "    Ctrl+Q                    Quit (twice if changes cannot be saved)           "
-"    Ctrl+F                    Find / next / previous match                      "
+"    Ctrl+F / Ctrl+N / Ctrl+B  Find / next / previous match                      "
 "    Ctrl+T / Ctrl+O           Typewriter / Focus mode                           "
 "    Ctrl+P                    Settings                                          "
 "    Ctrl+G                    This list of keys                                 "

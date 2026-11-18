@@ -514,6 +514,8 @@ impl App {
             Action::PromptInput(key) if self.find.bar.is_some() => self.find_key(key, now),
             Action::PromptInput(key) => self.prompt_input(key),
             Action::OpenFind => self.open_find(),
+            Action::FindNext => self.find_step(true, now),
+            Action::FindPrev => self.find_step(false, now),
             Action::ScrollView(delta) => self.scroll_view(delta, now),
             Action::ToggleTypewriter => {
                 let on = !self.config.typewriter;
@@ -763,7 +765,9 @@ impl App {
     /// One key in the find bar.
     fn find_key(&mut self, key: KeyEvent, now: Instant) {
         match self.find.key(key) {
-            find::Outcome::Ignored | find::Outcome::Next | find::Outcome::Prev => {}
+            find::Outcome::Ignored => {}
+            find::Outcome::Next => self.find_step(true, now),
+            find::Outcome::Prev => self.find_step(false, now),
             find::Outcome::Edited => self.find_preview(now),
             find::Outcome::Accept => {
                 if self.current_match().is_some() {
@@ -786,6 +790,37 @@ impl App {
         match self.find.first_from(origin.pos()) {
             Some(at) => self.find_jump(at, now),
             None => self.restore(origin),
+        }
+    }
+
+    /// Next / previous match, wrapping at both ends. From the title, next is the first match and
+    /// previous the last. With the bar closed it uses the accepted query and reports the result
+    /// in the status bar (`Match 3/12` doubles as the wrap notice).
+    fn find_step(&mut self, forward: bool, now: Instant) {
+        let open = self.find.bar.is_some();
+        if !open && self.find.query().is_empty() {
+            return;
+        }
+        self.find
+            .sync(self.editor.doc().body(), self.editor.doc().revision());
+        let target = match (self.editor.focus, forward) {
+            (Focus::Title, true) => self.find.first_from(0),
+            (Focus::Title, false) => self.find.prev(0),
+            (Focus::Body, true) => self.find.next(self.editor.cursor.head),
+            (Focus::Body, false) => self.find.prev(self.editor.cursor.head),
+        };
+        let Some(at) = target else {
+            if !open {
+                let msg = t_args("msg-find-none", &[("query", self.find.query())]);
+                self.status.info(msg, now, TOGGLE_TTL);
+            }
+            return;
+        };
+        self.find_jump(at, now);
+        if !open && let Some(n) = self.current_match() {
+            let (n, total) = (n.to_string(), self.find.len().to_string());
+            let msg = t_args("msg-find-position", &[("n", &n), ("total", &total)]);
+            self.status.info(msg, now, TOGGLE_TTL);
         }
     }
 
@@ -2710,5 +2745,61 @@ mod tests {
         assert_eq!((app.mode_label(), head(&app)), (Some("INS"), 4));
         typed(&mut app, "x");
         assert_eq!(body(&app), "one xtwo");
+    }
+
+    fn message(app: &App) -> Option<&str> {
+        app.status.message.as_ref().map(|m| m.text.as_str())
+    }
+
+    #[test]
+    fn find_next_and_prev_wrap() {
+        crate::i18n::init_for_test("en");
+        // "ab" at 0, 3, 6
+        let mut app = find_app("ab ab ab");
+        app.handle(ctrl('n'));
+        assert_eq!(
+            (head(&app), message(&app)),
+            (0, None),
+            "no query yet: nothing"
+        );
+        find(&mut app, "ab");
+        assert_eq!(head(&app), 0);
+        app.handle(ctrl('n'));
+        assert_eq!(head(&app), 3, "Ctrl+N inside the bar");
+        app.handle(press(KeyCode::Enter));
+        app.handle(ctrl('n'));
+        assert_eq!((head(&app), message(&app)), (6, Some("Match 3/3")));
+        app.handle(ctrl('n'));
+        assert_eq!((head(&app), message(&app)), (0, Some("Match 1/3")), "wraps");
+        app.handle(ctrl('b'));
+        assert_eq!(
+            (head(&app), message(&app)),
+            (6, Some("Match 3/3")),
+            "wraps back"
+        );
+        app.handle(ctrl('b'));
+        assert_eq!(head(&app), 3);
+        // The body changed: the next jump searches the new text
+        app.handle(ctrl_key(KeyCode::End));
+        typed(&mut app, " ab");
+        app.handle(ctrl('b'));
+        assert_eq!((head(&app), message(&app)), (9, Some("Match 4/4")));
+        // Nothing left to find
+        app.handle(ctrl('a'));
+        app.handle(press(KeyCode::Delete));
+        app.handle(ctrl('n'));
+        assert_eq!(message(&app), Some("No matches: ab"));
+        // From the title: next is the first match, previous the last
+        let mut app = find_app("# T\nab ab");
+        find(&mut app, "ab");
+        app.handle(press(KeyCode::Enter));
+        app.handle(press(KeyCode::Up));
+        app.handle(press(KeyCode::Up));
+        assert_eq!(app.editor.focus, Focus::Title);
+        app.handle(ctrl('b'));
+        assert_eq!((app.editor.focus, head(&app)), (Focus::Body, 3));
+        app.handle(press(KeyCode::Up));
+        app.handle(ctrl('n'));
+        assert_eq!((app.editor.focus, head(&app)), (Focus::Body, 0));
     }
 }

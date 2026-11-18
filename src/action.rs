@@ -1,6 +1,6 @@
 //! Editing semantics, decoupled from keys. All variants were fixed in M1 and M4 adds or removes none;
 //! the only deliberate revisions are four: `OpenSettings` for the settings panel, `OpenHelp` for
-//! the help panel, `Tab`, and `OpenFind` for find. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
+//! the help panel, `Tab`, and find (`OpenFind`, `FindNext`, `FindPrev`). `Editor::apply` ignores variants that M1 left unbound or unimplemented.
 
 use crate::input::KeyEvent;
 
@@ -39,6 +39,10 @@ pub enum Action {
     OpenHelp,
     /// Ctrl+F: open the find bar; consumed by App
     OpenFind,
+    /// Ctrl+N / vim `n`: jump to the next match of the find query, wrapping; consumed by App
+    FindNext,
+    /// Ctrl+B / vim `N`: jump to the previous match, wrapping; consumed by App
+    FindPrev,
     /// A key while a status-line input (the save prompt or the find bar) is open
     PromptInput(KeyEvent),
     /// Mouse click / drag: jump straight to a char index; `bool` is whether to extend the selection

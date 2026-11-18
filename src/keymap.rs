@@ -91,6 +91,8 @@ fn default_map(key: &KeyEvent, extend: bool) -> Option<Action> {
         KeyCode::Char('t' | 'T') => Some(Action::ToggleTypewriter),
         KeyCode::Char('f' | 'F') => Some(Action::OpenFind),
         KeyCode::Char('o' | 'O') => Some(Action::ToggleFocusMode),
+        KeyCode::Char('n' | 'N') => Some(Action::FindNext),
+        KeyCode::Char('b' | 'B') => Some(Action::FindPrev),
         KeyCode::Char('p' | 'P') => Some(Action::OpenSettings),
         KeyCode::Char('g' | 'G') => Some(Action::OpenHelp),
         KeyCode::Backspace if ctrl => Some(Action::DeleteWordBack),
@@ -283,6 +285,8 @@ mod tests {
             (key(Char('t'), ctrl), Some(Action::ToggleTypewriter)),
             (key(Char('f'), ctrl), Some(Action::OpenFind)),
             (key(Char('o'), ctrl), Some(Action::ToggleFocusMode)),
+            (key(Char('n'), ctrl), Some(Action::FindNext)),
+            (key(Char('b'), ctrl), Some(Action::FindPrev)),
             (key(Char('/'), none), ins("/")),
             (key(Char('n'), none), ins("n")),
             (key(Char('p'), ctrl), Some(Action::OpenSettings)),
@@ -353,7 +357,9 @@ mod tests {
     fn prompt_bindings() {
         let keymap = Keymap { vim: false };
         let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let ctrl_n = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL);
         let cases = [
+            (Event::Key(ctrl_n), Some(Action::PromptInput(ctrl_n))),
             (key(KeyCode::Esc, KeyModifiers::NONE), Some(Action::Cancel)),
             (
                 key(KeyCode::Char('q'), KeyModifiers::CONTROL),
@@ -547,7 +553,7 @@ mod tests {
         // Ctrl combos return the same action in both modes (motions extend the selection in Visual)
         let ctrl = KeyModifiers::CONTROL;
         for c in [
-            's', 'q', 'z', 'y', 'c', 'x', 'v', 't', 'f', 'o', 'p', 'a', 'w',
+            's', 'q', 'z', 'y', 'c', 'x', 'v', 't', 'f', 'o', 'n', 'b', 'p', 'a', 'w',
         ] {
             let ev = key(KeyCode::Char(c), ctrl);
             let insert = vim(Mode::Insert, std::slice::from_ref(&ev), false)[0]

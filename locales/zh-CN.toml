@@ -18,6 +18,8 @@ prompt-overwrite = "文件已存在，Enter 覆盖: "
 # 查找栏
 find-label = "查找: "
 find-no-match = "无匹配"
+msg-find-position = "匹配 {n}/{total}"
+msg-find-none = "无匹配: {query}"
 
 # 消息
 msg-save-failed = "保存失败：{error}"

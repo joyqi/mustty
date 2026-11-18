@@ -19,6 +19,8 @@ prompt-overwrite = "File exists, Enter to overwrite: "
 # find bar
 find-label = "Find: "
 find-no-match = "No matches"
+msg-find-position = "Match {n}/{total}"
+msg-find-none = "No matches: {query}"
 
 # messages
 msg-save-failed = "Save failed: {error}"
