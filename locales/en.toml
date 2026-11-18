@@ -16,6 +16,10 @@ status-hint = "^G keys"
 prompt-save-as = "Save as: "
 prompt-overwrite = "File exists, Enter to overwrite: "
 
+# find bar
+find-label = "Find: "
+find-no-match = "No matches"
+
 # messages
 msg-save-failed = "Save failed: {error}"
 msg-typewriter = "Typewriter mode: {state}"
@@ -131,8 +135,8 @@ help-esc = "Clear the selection / close the save prompt"
 help-esc-normal = "Normal mode"
 help-save = "Save"
 help-quit = "Quit (twice if changes cannot be saved)"
-help-typewriter = "Typewriter mode"
-help-focus = "Focus mode"
+help-find = "Find / next / previous match"
+help-modes = "Typewriter / Focus mode"
 help-settings = "Settings"
 help-help = "This list of keys"
 help-vim-insert = "Insert mode at the cursor"

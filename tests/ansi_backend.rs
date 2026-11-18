@@ -194,7 +194,7 @@ fn snapshot_scenes_look_the_same() {
             MARKDOWN.into(),
             60,
             16,
-            vec![ctrl('t'), key(KeyCode::Down), ctrl('f'), key(KeyCode::Down)],
+            vec![ctrl('t'), key(KeyCode::Down), ctrl('o'), key(KeyCode::Down)],
         ),
         (
             "settings panel",

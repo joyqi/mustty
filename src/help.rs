@@ -146,8 +146,12 @@ fn base_entries(vim: bool) -> Vec<Entry> {
         esc,
         entry("Ctrl+S", "help-save", a(Save)),
         entry("Ctrl+Q", "help-quit", a(Quit)),
-        entry("Ctrl+T", "help-typewriter", a(ToggleTypewriter)),
-        entry("Ctrl+F", "help-focus", a(ToggleFocusMode)),
+        entry("Ctrl+F", "help-find", a(OpenFind)),
+        each(
+            "Ctrl+T / Ctrl+O",
+            "help-modes",
+            vec![a(ToggleTypewriter), a(ToggleFocusMode)],
+        ),
         entry("Ctrl+P", "help-settings", a(OpenSettings)),
         entry("Ctrl+G", "help-help", a(OpenHelp)),
     ]
@@ -544,7 +548,8 @@ mod tests {
             | Action::ToggleTypewriter
             | Action::ToggleFocusMode
             | Action::OpenSettings
-            | Action::OpenHelp => false,
+            | Action::OpenHelp
+            | Action::OpenFind => false,
         }
     }
 

@@ -15,6 +15,10 @@ status-hint = "^G 键位"
 prompt-save-as = "保存为: "
 prompt-overwrite = "文件已存在，Enter 覆盖: "
 
+# 查找栏
+find-label = "查找: "
+find-no-match = "无匹配"
+
 # 消息
 msg-save-failed = "保存失败：{error}"
 msg-typewriter = "Typewriter 模式：{state}"
@@ -130,8 +134,8 @@ help-esc = "取消选区 / 关闭保存提示"
 help-esc-normal = "进入 Normal 模式"
 help-save = "保存"
 help-quit = "退出（无法保存修改时需按两次）"
-help-typewriter = "Typewriter 模式"
-help-focus = "Focus 模式"
+help-find = "查找 / 下一个 / 上一个匹配"
+help-modes = "Typewriter / Focus 模式"
 help-settings = "设置"
 help-help = "本键位表"
 help-vim-insert = "在光标处进入 Insert"

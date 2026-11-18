@@ -118,6 +118,32 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 label: p.label(),
                 input: &p.line.text,
                 cursor_col: text_width(p.line.before_cursor(), tab),
+                right: None,
+                tab_width: tab,
+            };
+            cursor = Some(Position::new(r.x + prompt.cursor_x(r.width), r.y));
+            frame.render_widget(prompt, r);
+        } else if let Some(bar) = &app.find.bar {
+            // The match count, right-aligned: `3/12` (dim), "No matches", or nothing for an
+            // empty query
+            let count;
+            let right = if bar.line.text.is_empty() {
+                None
+            } else if app.find.is_empty() {
+                Some((t("find-no-match"), Style::default()))
+            } else {
+                let total = app.find.len();
+                count = match app.current_match() {
+                    Some(n) => format!("{n}/{total}"),
+                    None => total.to_string(),
+                };
+                Some((count.as_str(), Style::from(Modifier::DIM)))
+            };
+            let prompt = PromptWidget {
+                label: t("find-label"),
+                input: &bar.line.text,
+                cursor_col: text_width(bar.line.before_cursor(), tab),
+                right,
                 tab_width: tab,
             };
             cursor = Some(Position::new(r.x + prompt.cursor_x(r.width), r.y));

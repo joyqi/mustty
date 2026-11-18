@@ -1,6 +1,6 @@
 //! Editing semantics, decoupled from keys. All variants were fixed in M1 and M4 adds or removes none;
-//! the only deliberate revisions are three: `OpenSettings` for the settings panel, `OpenHelp` for
-//! the help panel, and `Tab`. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
+//! the only deliberate revisions are four: `OpenSettings` for the settings panel, `OpenHelp` for
+//! the help panel, `Tab`, and `OpenFind` for find. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
 
 use crate::input::KeyEvent;
 
@@ -37,6 +37,9 @@ pub enum Action {
     OpenSettings,
     /// Ctrl+G (nano's ^G help) / `?` in vim Normal mode: open the help panel; consumed by App
     OpenHelp,
+    /// Ctrl+F: open the find bar; consumed by App
+    OpenFind,
+    /// A key while a status-line input (the save prompt or the find bar) is open
     PromptInput(KeyEvent),
     /// Mouse click / drag: jump straight to a char index; `bool` is whether to extend the selection
     MoveTo(Target, bool),

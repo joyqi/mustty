@@ -1,0 +1,16 @@
+---
+source: tests/render_snapshots.rs
+expression: snapshot(b)
+---
+"      n       "
+"春天来了。    " Hidden by multi-width symbols: [(1, " "), (3, " "), (5, " "), (7, " "), (9, " ")]
+"春天的风，春天" Hidden by multi-width symbols: [(1, " "), (3, " "), (5, " "), (7, " "), (9, " "), (11, " "), (13, " ")]
+"的雨。        " Hidden by multi-width symbols: [(1, " "), (3, " "), (5, " ")]
+"              "
+"夏天之后又是春" Hidden by multi-width symbols: [(1, " "), (3, " "), (5, " "), (7, " "), (9, " "), (11, " "), (13, " ")]
+"天，          " Hidden by multi-width symbols: [(1, " "), (3, " ")]
+"春天。        " Hidden by multi-width symbols: [(1, " "), (3, " "), (5, " ")]
+"              "
+"查找: 春天    " Hidden by multi-width symbols: [(1, " "), (3, " "), (7, " "), (9, " ")]
+
+cursor: Position { x: 10, y: 9 } visible: true

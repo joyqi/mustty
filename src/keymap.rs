@@ -89,7 +89,8 @@ fn default_map(key: &KeyEvent, extend: bool) -> Option<Action> {
         // Unix terminals send Ctrl+Backspace as 0x08, which crossterm reports as Ctrl+H
         KeyCode::Char('w' | 'W' | 'h' | 'H') => Some(Action::DeleteWordBack),
         KeyCode::Char('t' | 'T') => Some(Action::ToggleTypewriter),
-        KeyCode::Char('f' | 'F') => Some(Action::ToggleFocusMode),
+        KeyCode::Char('f' | 'F') => Some(Action::OpenFind),
+        KeyCode::Char('o' | 'O') => Some(Action::ToggleFocusMode),
         KeyCode::Char('p' | 'P') => Some(Action::OpenSettings),
         KeyCode::Char('g' | 'G') => Some(Action::OpenHelp),
         KeyCode::Backspace if ctrl => Some(Action::DeleteWordBack),
@@ -280,7 +281,10 @@ mod tests {
                 Some(Action::Paste("a\r\nb".into())),
             ),
             (key(Char('t'), ctrl), Some(Action::ToggleTypewriter)),
-            (key(Char('f'), ctrl), Some(Action::ToggleFocusMode)),
+            (key(Char('f'), ctrl), Some(Action::OpenFind)),
+            (key(Char('o'), ctrl), Some(Action::ToggleFocusMode)),
+            (key(Char('/'), none), ins("/")),
+            (key(Char('n'), none), ins("n")),
             (key(Char('p'), ctrl), Some(Action::OpenSettings)),
             (key(Char('r'), ctrl), None), // redo is vim Normal mode only
             (key(F(1), none), None),
@@ -542,7 +546,9 @@ mod tests {
         assert_eq!(one(NOR, paste), (Some(Action::Paste("文本".into())), NOR));
         // Ctrl combos return the same action in both modes (motions extend the selection in Visual)
         let ctrl = KeyModifiers::CONTROL;
-        for c in ['s', 'q', 'z', 'y', 'c', 'x', 'v', 't', 'f', 'p', 'a', 'w'] {
+        for c in [
+            's', 'q', 'z', 'y', 'c', 'x', 'v', 't', 'f', 'o', 'p', 'a', 'w',
+        ] {
             let ev = key(KeyCode::Char(c), ctrl);
             let insert = vim(Mode::Insert, std::slice::from_ref(&ev), false)[0]
                 .0

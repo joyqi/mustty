@@ -12,7 +12,8 @@ use crate::action::{Action, Motion, Target};
 use crate::config::{self, Config};
 use crate::editor::cursor::Cursor;
 use crate::editor::document::Document;
-use crate::editor::{Editor, Effect};
+use crate::editor::{Editor, Effect, Focus};
+use crate::find::{self, Find, Origin};
 use crate::help::{self, Help};
 #[cfg(feature = "native")]
 use crate::host::native::{FsConfigStore, FsDocStore};
@@ -66,6 +67,9 @@ pub struct App {
     pub(crate) settings: Option<Settings>,
     /// Help panel (Ctrl+G, or `?` in vim Normal mode); also swallows every key
     pub(crate) help: Option<Help>,
+    /// Find: the bar (a second status-line input next to the save prompt), the accepted query
+    /// and the highlight
+    pub(crate) find: Find,
     /// Pending mouse capture toggle; the event loop applies it with `execute!` (WinAPI on Windows)
     mouse_capture: Option<bool>,
     /// Left-button drag in progress (only when the mouse is enabled)
@@ -154,6 +158,7 @@ impl App {
             caps,
             settings: None,
             help: None,
+            find: Find::default(),
             mouse_capture: None,
             drag: None,
             screen: None,
@@ -236,9 +241,12 @@ impl App {
     }
 
     /// The cursor shape to show right now. vim Normal mode (including Visual) is always a block: it signals command mode and isn't a preference.
-    /// While the settings panel is open, always use the configured shape so the panel can preview it; otherwise use the configured shape too.
+    /// While the settings panel is open, always use the configured shape so the panel can preview it; the find bar is an input, so it does too.
     pub(crate) fn cursor_style(&self) -> CursorStyle {
-        if self.settings.is_none() && matches!(self.mode, Mode::Normal(_)) {
+        if self.settings.is_none()
+            && self.find.bar.is_none()
+            && matches!(self.mode, Mode::Normal(_))
+        {
             CursorStyle::STEADY_BLOCK
         } else {
             CursorStyle {
@@ -304,6 +312,7 @@ impl App {
         };
         self.settings = None;
         self.help = None;
+        self.find = Find::default();
         self.drag = None;
         self.screen = None;
         self.last_edit = None;
@@ -410,7 +419,8 @@ impl App {
             [
                 self.settings.is_some(),
                 self.help.is_some(),
-                self.status.prompt.is_some()
+                self.status.prompt.is_some(),
+                self.find.bar.is_some()
             ]
             .iter()
             .filter(|&&open| open)
@@ -437,7 +447,7 @@ impl App {
         {
             panic!("MUSTTY_DEBUG_PANIC: F12");
         }
-        let prompt_active = self.status.prompt.is_some();
+        let prompt_active = self.status.prompt.is_some() || self.find.bar.is_some();
         let before = matches!(self.mode, Mode::Normal(_));
         let was_visual = matches!(self.mode, Mode::Normal(s) if s.visual);
         let action = self.keymap.map_event(&ev, &mut self.mode, prompt_active);
@@ -484,7 +494,13 @@ impl App {
         let armed = std::mem::take(&mut self.quit_armed);
         let revision = self.editor.doc().revision();
         match action {
-            Action::Quit => self.quit(armed),
+            Action::Quit => {
+                // Like the help panel: close the bar first, or the unsaved-changes notice
+                // would be hidden behind it
+                self.close_find();
+                self.quit(armed);
+            }
+            Action::Cancel if self.find.bar.is_some() => self.close_find(),
             Action::Cancel if self.status.prompt.is_some() => self.status.prompt = None,
             Action::Save => match self.editor.doc().meta.path.clone() {
                 Some(path) => {
@@ -495,7 +511,9 @@ impl App {
                     self.status.prompt = Some(Prompt::with_input(name));
                 }
             },
+            Action::PromptInput(key) if self.find.bar.is_some() => self.find_key(key, now),
             Action::PromptInput(key) => self.prompt_input(key),
+            Action::OpenFind => self.open_find(),
             Action::ScrollView(delta) => self.scroll_view(delta, now),
             Action::ToggleTypewriter => {
                 let on = !self.config.typewriter;
@@ -523,6 +541,10 @@ impl App {
             }
             Action::OpenSettings => self.settings = Some(Settings::open(&self.config)),
             Action::OpenHelp => self.help = Some(Help::default()),
+            Action::Paste(s) if self.find.bar.is_some() => {
+                self.find.paste(&s);
+                self.find_preview(now);
+            }
             Action::Paste(s) => match &mut self.status.prompt {
                 Some(prompt) => prompt.paste(&s),
                 None => self.edit(&Action::Paste(s), now),
@@ -723,6 +745,95 @@ impl App {
         self.save(path, false);
     }
 
+    /// Opens the find bar, remembering where it was opened. Ignored when the bar couldn't be seen
+    /// (window too small, or no status line).
+    fn open_find(&mut self) {
+        let layout = self.layout();
+        if layout.too_small || layout.status.is_none() {
+            return;
+        }
+        self.find.open(Origin {
+            cursor: self.editor.cursor,
+            focus: self.editor.focus,
+            title_cursor: self.editor.title_cursor,
+            top: self.viewport.top,
+        });
+    }
+
+    /// One key in the find bar.
+    fn find_key(&mut self, key: KeyEvent, now: Instant) {
+        match self.find.key(key) {
+            find::Outcome::Ignored | find::Outcome::Next | find::Outcome::Prev => {}
+            find::Outcome::Edited => self.find_preview(now),
+            find::Outcome::Accept => {
+                if self.current_match().is_some() {
+                    self.find.accept();
+                }
+            }
+            find::Outcome::Cancel => self.close_find(),
+        }
+    }
+
+    /// The query changed: search again and preview the first match from where find was opened,
+    /// or go back there when nothing matches.
+    fn find_preview(&mut self, now: Instant) {
+        let Some(bar) = &self.find.bar else {
+            return;
+        };
+        let origin = bar.origin;
+        self.find
+            .sync(self.editor.doc().body(), self.editor.doc().revision());
+        match self.find.first_from(origin.pos()) {
+            Some(at) => self.find_jump(at, now),
+            None => self.restore(origin),
+        }
+    }
+
+    /// The 1-based number of the match the body cursor is on.
+    pub(crate) fn current_match(&self) -> Option<usize> {
+        (self.editor.focus == Focus::Body)
+            .then(|| self.find.position(self.editor.cursor.head))
+            .flatten()
+    }
+
+    /// Moves the cursor to the match starting at `at`. In vim Visual mode the jump extends the
+    /// selection, like every other motion there. Off-screen matches are centered.
+    fn find_jump(&mut self, at: usize, now: Instant) {
+        let layout = self.layout();
+        if layout.too_small {
+            return;
+        }
+        self.sync_body(layout.body);
+        let extend = matches!(self.mode, Mode::Normal(s) if s.visual);
+        self.editor
+            .apply(&Action::MoveTo(Target::Body(at), extend), 1, now);
+        let cursor = self.editor.cursor;
+        let (doc, wrap, _) = self.editor.view();
+        let pos = cursor.visual(doc.body(), wrap);
+        self.viewport
+            .reveal(pos, layout.body.height, wrap, doc.body());
+        self.sync_body(layout.body);
+    }
+
+    /// Esc (or Ctrl+F) in the find bar: close it and put the cursor, focus, title cursor and
+    /// viewport back where find was opened.
+    fn close_find(&mut self) {
+        if let Some(origin) = self.find.cancel() {
+            self.restore(origin);
+        }
+    }
+
+    fn restore(&mut self, origin: Origin) {
+        self.editor.cursor = origin.cursor;
+        self.editor.focus = origin.focus;
+        self.editor.title_cursor = origin.title_cursor;
+        self.viewport.top = origin.top;
+        let layout = self.layout();
+        if !layout.too_small {
+            self.sync_body(layout.body);
+        }
+    }
+
     fn can_autosave(&self) -> bool {
         self.config.autosave
             && self.editor.doc().meta.path.is_some()
@@ -798,7 +909,7 @@ impl App {
 
     /// Mouse: `view::mouse::map_mouse` turns events into Actions, which share the keyboard's editing path.
     fn on_mouse(&mut self, m: MouseEvent, now: Instant) {
-        if self.status.prompt.is_some() {
+        if self.status.prompt.is_some() || self.find.bar.is_some() {
             return;
         }
         // Use only the map from the last rendered frame; ignore the event if nothing has rendered yet (or the window is too small)
@@ -2409,5 +2520,195 @@ mod tests {
         assert!(app.help.is_none() && !app.should_quit);
         app.handle(ctrl('q'));
         assert!(app.should_quit);
+    }
+
+    // ---- find ----
+
+    fn find_app(text: &str) -> App {
+        App::new(lf_doc(text), Size::new(80, 24), false)
+    }
+
+    /// Opens the bar with Ctrl+F and types `query` into it.
+    fn find(app: &mut App, query: &str) {
+        app.handle(ctrl('f'));
+        assert!(app.find.bar.is_some(), "the bar opened");
+        typed(app, query);
+    }
+
+    fn head(app: &App) -> usize {
+        app.editor.cursor.head
+    }
+
+    #[test]
+    fn find_previews_incrementally_from_the_origin() {
+        // "ab" at 0, 6, 12; "abc" only at 12
+        let mut app = find_app("ab xx ab yy abc");
+        app.handle(press(KeyCode::Right));
+        find(&mut app, "a");
+        assert_eq!(head(&app), 6, "first match after the origin (1)");
+        typed(&mut app, "b");
+        assert_eq!(head(&app), 6, "narrowing searches from the origin again");
+        typed(&mut app, "c");
+        assert_eq!(head(&app), 12);
+        assert_eq!(app.current_match(), Some(1));
+        app.handle(press(KeyCode::Backspace));
+        assert_eq!(head(&app), 6, "back to the first match from the origin");
+        app.handle(press(KeyCode::Backspace));
+        app.handle(press(KeyCode::Backspace));
+        assert_eq!(head(&app), 1, "empty query: back at the origin");
+        typed(&mut app, "zz");
+        assert_eq!(
+            (head(&app), app.find.len()),
+            (1, 0),
+            "no match: at the origin"
+        );
+        // Wraps to the first match when nothing follows the origin
+        let mut app = find_app("ab xx");
+        app.handle(ctrl_key(KeyCode::End));
+        find(&mut app, "ab");
+        assert_eq!(head(&app), 0);
+        // A paste goes into the query, newlines as spaces
+        let mut app = find_app("x a b");
+        app.handle(ctrl('f'));
+        app.handle(Event::Paste("a\nb".into()));
+        assert_eq!((app.find.query(), head(&app)), ("a b", 2));
+        assert_eq!(body(&app), "x a b", "nothing pasted into the body");
+    }
+
+    #[test]
+    fn find_enter_accepts_only_on_a_match() {
+        let mut app = find_app("one two one");
+        find(&mut app, "two");
+        app.handle(press(KeyCode::Enter));
+        assert!(app.find.bar.is_none());
+        assert_eq!(head(&app), 4);
+        assert_eq!(app.find.query(), "two");
+        // Zero matches and an empty query: Enter does nothing and the bar stays
+        find(&mut app, "zzz");
+        app.handle(press(KeyCode::Enter));
+        assert!(app.find.bar.is_some());
+        app.handle(press(KeyCode::Esc));
+        find(&mut app, "");
+        app.handle(press(KeyCode::Enter));
+        assert!(app.find.bar.is_some());
+        assert_eq!(body(&app), "one two one");
+    }
+
+    #[test]
+    fn find_cancel_restores_everything() {
+        let text: String = (0..100).map(|i| format!("line {i}\n")).collect();
+        for close in [press(KeyCode::Esc), ctrl('f')] {
+            let mut app = find_app(&format!("{text}needle\n"));
+            app.handle(press(KeyCode::Down));
+            app.handle(Event::Key(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::SHIFT,
+            )));
+            let (cursor, top) = (app.editor.cursor, app.viewport.top);
+            find(&mut app, "needle");
+            assert_eq!(app.editor.doc().body().char_to_line(head(&app)), 100);
+            assert!(app.viewport.top.line > 50, "scrolled to the match");
+            app.handle(close.clone());
+            assert!(app.find.bar.is_none());
+            assert_eq!(
+                app.editor.cursor, cursor,
+                "cursor and selection back ({close:?})"
+            );
+            assert_eq!(app.viewport.top, top);
+        }
+        // Opened from the title: focus and the title cursor come back too
+        let mut app = find_app("# Title\nbody title");
+        app.handle(press(KeyCode::Up));
+        app.handle(press(KeyCode::Left));
+        let title_cursor = app.editor.title_cursor;
+        assert_eq!(app.editor.focus, Focus::Title);
+        find(&mut app, "title");
+        assert_eq!(
+            (app.editor.focus, head(&app)),
+            (Focus::Body, 5),
+            "body only"
+        );
+        app.handle(press(KeyCode::Esc));
+        assert_eq!(app.editor.focus, Focus::Title);
+        assert_eq!(app.editor.title_cursor, title_cursor);
+        // An accepted query survives a later cancel
+        let mut app = find_app("a b a");
+        find(&mut app, "b");
+        app.handle(press(KeyCode::Enter));
+        find(&mut app, "zz");
+        app.handle(press(KeyCode::Esc));
+        assert_eq!(app.find.query(), "b");
+    }
+
+    #[test]
+    fn find_bar_is_exclusive() {
+        let mut app = find_app("abc");
+        find(&mut app, "");
+        for c in ['p', 'g', 's'] {
+            app.handle(ctrl(c));
+        }
+        assert!(app.settings.is_none() && app.help.is_none() && app.status.prompt.is_none());
+        assert!(app.find.bar.is_some());
+        app.handle(press(KeyCode::Esc));
+        // With the save prompt open, Ctrl+F goes into the input
+        app.handle(ctrl('s'));
+        app.handle(ctrl('f'));
+        assert!(app.find.bar.is_none() && app.status.prompt.is_some());
+        // Ctrl+Q closes the bar, then quits as usual
+        let mut app = find_app("abc");
+        find(&mut app, "b");
+        app.handle(ctrl('q'));
+        assert!(app.find.bar.is_none() && app.should_quit);
+        assert_eq!(head(&app), 0, "closed like Esc");
+        let mut app = find_app("abc");
+        typed(&mut app, "x");
+        find(&mut app, "b");
+        app.handle(ctrl('q'));
+        assert!(app.find.bar.is_none() && !app.should_quit);
+        assert!(
+            app.status.message.is_some(),
+            "the unsaved-changes notice shows"
+        );
+    }
+
+    #[test]
+    fn find_bar_ignores_the_mouse_and_too_small_windows() {
+        let mut app = mouse_app("hello world", true);
+        let t0 = Instant::now();
+        rendered(&mut app, ctrl('f'), t0);
+        typed(&mut app, "world");
+        assert_eq!(head(&app), 6);
+        let click = mouse(MouseEventKind::Down(MouseButton::Left), 2, 2);
+        rendered(&mut app, click, t0);
+        assert_eq!(head(&app), 6, "clicks are ignored while the bar is open");
+        // A window too small to show the bar: Ctrl+F does nothing
+        let mut tiny = App::new(lf_doc("x"), Size::new(9, 3), false);
+        tiny.handle(ctrl('f'));
+        assert!(tiny.find.bar.is_none());
+    }
+
+    #[test]
+    fn find_bar_uses_the_insert_cursor_and_keeps_the_mode() {
+        let mut app = vim_app("one two");
+        typed(&mut app, "\x1b");
+        app.take_terminal_output();
+        app.handle(ctrl('f'));
+        assert_eq!(
+            app.take_terminal_output(),
+            vec!["\x1b[6 q".to_owned()],
+            "the configured bar shape while typing the query"
+        );
+        typed(&mut app, "two");
+        app.handle(press(KeyCode::Esc));
+        assert_eq!(app.mode_label(), Some("NOR"), "Esc only closes the bar");
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
+        // Insert mode stays Insert
+        let mut app = vim_app("one two");
+        app.handle(ctrl('f'));
+        typed(&mut app, "two");
+        app.handle(press(KeyCode::Enter));
+        assert_eq!((app.mode_label(), head(&app)), (Some("INS"), 4));
+        typed(&mut app, "x");
+        assert_eq!(body(&app), "one xtwo");
     }
 }

@@ -267,20 +267,38 @@ impl Widget for StatusWidget<'_> {
     }
 }
 
-/// The whole status bar turns into a "Save as: " input.
+/// The whole status bar turns into a single-line input: the "Save as: " prompt or the find bar.
 pub struct PromptWidget<'a> {
     pub label: &'a str,
     pub input: &'a str,
     pub cursor_col: u16,
+    /// Right-aligned text and its style (the find bar's match count). Left out when the bar is
+    /// too narrow to keep at least 8 columns for the input
+    pub right: Option<(&'a str, Style)>,
     pub tab_width: u16,
 }
 
+/// Columns the input keeps at least before the right-aligned text is dropped.
+const PROMPT_MIN_INPUT: u16 = 8;
+
 impl PromptWidget<'_> {
-    /// Cursor column relative to the left end of the status bar.
-    pub fn cursor_x(&self, w: u16) -> u16 {
+    /// `(label width, right-aligned text width, columns for the input)` within width `w`.
+    /// `cursor_x` and `render` share it, so the cursor always sits where the input is drawn.
+    fn columns(&self, w: u16) -> (u16, u16, u16) {
         let tab = self.tab_width;
         let label_w = text_width(self.label, tab).min(w);
-        let avail = w - label_w;
+        let right_w = self.right.map_or(0, |(r, _)| text_width(r, tab));
+        if right_w > 0 && label_w + right_w + 1 + PROMPT_MIN_INPUT <= w {
+            (label_w, right_w, w - label_w - right_w - 1)
+        } else {
+            (label_w, 0, w - label_w)
+        }
+    }
+
+    /// Cursor column relative to the left end of the status bar.
+    pub fn cursor_x(&self, w: u16) -> u16 {
+        let (label_w, _, avail) = self.columns(w);
+        let tab = self.tab_width;
         label_w + self.cursor_col - hscroll(text_width(self.input, tab), self.cursor_col, avail)
     }
 }
@@ -288,11 +306,14 @@ impl PromptWidget<'_> {
 impl Widget for PromptWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let tab = self.tab_width;
-        let label_w = text_width(self.label, tab).min(area.width);
-        let avail = area.width - label_w;
+        let (label_w, right_w, avail) = self.columns(area.width);
         let scroll = hscroll(text_width(self.input, tab), self.cursor_col, avail);
         let style = Style::default();
         draw_text(buf, area.x, area.y, label_w, self.label, style, 0, tab);
+        if let Some((right, right_style)) = self.right.filter(|_| right_w > 0) {
+            let x = area.right() - right_w;
+            draw_text(buf, x, area.y, right_w, right, right_style, 0, tab);
+        }
         draw_text(
             buf,
             area.x + label_w,
@@ -370,5 +391,43 @@ mod tests {
         assert_eq!(t("abcdefghijklmnop", Some(12)), (0, 7));
         assert_eq!(t("abcdefghijklmnop", Some(16)), (0, 7));
         assert_eq!(t("abcdefghijklmnop", Some(2)), (0, 0));
+    }
+
+    fn prompt_row(p: PromptWidget, w: u16) -> (String, u16) {
+        let x = p.cursor_x(w);
+        let mut buf = Buffer::empty(Rect::new(0, 0, w, 1));
+        p.render(buf.area, &mut buf);
+        let row = buf.content.iter().map(|c| c.symbol()).collect();
+        (row, x)
+    }
+
+    #[test]
+    fn prompt_right_aligned_text() {
+        let dim = Style::from(Modifier::DIM);
+        let p = |input, cursor_col, right| PromptWidget {
+            label: "Find: ",
+            input,
+            cursor_col,
+            right,
+            tab_width: 4,
+        };
+        // Wide enough: right-aligned, the input keeps the rest
+        let (row, x) = prompt_row(p("abc", 3, Some(("3/12", dim))), 30);
+        assert_eq!(row, "Find: abc                 3/12");
+        assert_eq!(x, 9);
+        // label 6 + "3/12" 4 + gap 1 + 8 = 19 columns needed: at 18 the count is dropped
+        let (row, _) = prompt_row(p("abc", 3, Some(("3/12", dim))), 18);
+        assert_eq!(row, "Find: abc         ");
+        let (row, _) = prompt_row(p("abc", 3, Some(("3/12", dim))), 19);
+        assert_eq!(row, "Find: abc      3/12");
+        // A long input scrolls within the narrower area; the cursor follows the same scroll
+        let long = "0123456789abcdef";
+        let w = 19;
+        let (row, x) = prompt_row(p(long, 16, Some(("3/12", dim))), w);
+        assert_eq!(row, "Find: 9abcdef  3/12");
+        assert_eq!(x, 6 + 7, "cursor right after the last visible char");
+        // No right text (the save prompt): unchanged behavior
+        let (row, _) = prompt_row(p("abc", 3, None), 12);
+        assert_eq!(row, "Find: abc   ");
     }
 }

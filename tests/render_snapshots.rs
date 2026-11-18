@@ -848,3 +848,62 @@ fn focus_mode_dims_code_blocks_too() {
     }
     assert!(!style_at(&b, "here").add_modifier.contains(Modifier::DIM));
 }
+
+// ---- find ----
+
+/// Ctrl+F, then the query typed key by key.
+fn find_keys(query: &str) -> Vec<Event> {
+    std::iter::once(ctrl('f'))
+        .chain(query.chars().map(|c| key(KeyCode::Char(c))))
+        .collect()
+}
+
+const FIND_DOC: &str = "春天来了。\n春天的风，春天的雨。\n\n夏天之后又是春天，\n春天。\n";
+
+#[test]
+fn find_bar_shows_the_match_count() {
+    // The cursor starts on line 2, so the preview lands on the second of five matches
+    let mut events = vec![key(KeyCode::Down)];
+    events.extend(find_keys("春天"));
+    insta::assert_snapshot!(snapshot(draw(Some("n.md"), FIND_DOC, 40, 10, &events)));
+}
+
+#[test]
+fn find_bar_no_matches() {
+    let b = draw(Some("n.md"), FIND_DOC, 40, 10, &find_keys("秋天"));
+    insta::assert_snapshot!(format!("{}\n{}", status_line(&b, 9), snapshot(b.clone())));
+}
+
+#[test]
+fn find_bar_drops_the_count_when_narrow() {
+    // 14 columns of status line: "查找: " (6) + "1/5" (3) + 1 + 8 > 14
+    let b = draw(Some("n.md"), FIND_DOC, 14, 10, &find_keys("春天"));
+    let row: String = (0..14).map(|x| b.buffer()[(x, 9)].symbol()).collect();
+    assert!(!row.contains('/'), "{row:?}");
+    insta::assert_snapshot!(snapshot(b));
+}
+
+/// Too small: only the notice, like every other screen; the bar is still open afterwards.
+#[test]
+fn find_bar_survives_too_small() {
+    mustty::i18n::init_for_test("zh-CN");
+    let doc = Document::parse(FIND_DOC, lf_meta(Some("n.md")));
+    let mut app = App::new(doc, Size::new(40, 10), false);
+    for ev in find_keys("春天") {
+        app.handle(ev);
+    }
+    app.handle(Event::Resize(8, 3));
+    let mut terminal = Terminal::new(TestBackend::new(8, 3)).unwrap();
+    terminal.draw(|f| view::render(f, &mut app)).unwrap();
+    insta::assert_snapshot!(snapshot(terminal.backend().clone()));
+    app.handle(Event::Resize(40, 10));
+    let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+    terminal.draw(|f| view::render(f, &mut app)).unwrap();
+    let row: String = (0..40)
+        .map(|x| terminal.backend().buffer()[(x, 9)].symbol())
+        .collect();
+    assert!(
+        row.trim_end().ends_with("1/5"),
+        "still the find bar: {row:?}"
+    );
+}

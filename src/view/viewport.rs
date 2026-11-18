@@ -72,6 +72,28 @@ impl Viewport {
         self.top = ViewTop { line, row };
     }
 
+    /// A jump (find): when the target row is off screen, put it on the middle row, never past the
+    /// end of the document; when it's already visible, leave the viewport alone. `follow` runs
+    /// afterwards as usual. In typewriter mode `follow` already centers the cursor, so this does
+    /// nothing.
+    pub fn reveal(&mut self, target: VisualPos, body_h: u16, wrap: &mut WrapCache, rope: &Rope) {
+        if self.typewriter {
+            return;
+        }
+        let h = body_h.max(1) as isize;
+        let cur = (target.line, target.row);
+        let d = wrap.rows_between(rope, (self.top.line, self.top.row), cur);
+        if (0..h).contains(&d) {
+            return;
+        }
+        let last = rope.len_lines() - 1;
+        let end = (last, wrap.rows(rope, last).len() - 1);
+        let max_top = wrap.step_rows(rope, end, -(h - 1));
+        let (line, row) = wrap.step_rows(rope, cur, -(h / 2)).min(max_top);
+        self.top = ViewTop { line, row };
+        self.top_padding = 0;
+    }
+
     /// Effective scrolloff: `(body_h - 1) / 2` when the body is shorter than 8 rows, otherwise the configured value capped at that.
     pub fn margin(&self, body_h: u16) -> u16 {
         let half = body_h.saturating_sub(1) / 2;
@@ -211,5 +233,32 @@ mod tests {
         };
         vp.rewrap(40, &mut wrap, &rope);
         assert_eq!(vp.top, ViewTop { line: 0, row: 1 });
+    }
+
+    #[test]
+    fn reveal_centers_only_off_screen_targets() {
+        let rope = doc(100);
+        let mut wrap = WrapCache::new(20, 4);
+        let mut vp = Viewport::default();
+        vp.reveal(at(5), 10, &mut wrap, &rope);
+        assert_eq!(vp.top.line, 0, "already visible: no scroll");
+        vp.reveal(at(50), 10, &mut wrap, &rope);
+        assert_eq!(vp.top.line, 45, "off screen below: centered");
+        vp.reveal(at(54), 10, &mut wrap, &rope);
+        assert_eq!(vp.top.line, 45, "visible again");
+        vp.reveal(at(10), 10, &mut wrap, &rope);
+        assert_eq!(vp.top.line, 5, "off screen above: centered");
+        vp.reveal(at(99), 10, &mut wrap, &rope);
+        assert_eq!(vp.top.line, 91, "never past the end of the document");
+        let mut tw = Viewport {
+            typewriter: true,
+            ..Viewport::default()
+        };
+        tw.reveal(at(50), 10, &mut wrap, &rope);
+        assert_eq!(
+            tw.top,
+            ViewTop::default(),
+            "typewriter: follow does the centering"
+        );
     }
 }
