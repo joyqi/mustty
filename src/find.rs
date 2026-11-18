@@ -5,16 +5,16 @@
 //! grapheme boundaries. Rendering doesn't read the match list: it calls `Needle::line_matches` on
 //! each visible line, and the current match is derived from the cursor rather than stored.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use ropey::Rope;
+use unicode_segmentation::GraphemeCursor;
 
 use crate::editor::Focus;
 use crate::editor::cursor::Cursor;
 use crate::input::{KeyCode, KeyEvent, KeyModifiers};
 use crate::status::{LineEdit, LineInput};
-use crate::text::grapheme::graphemes;
-use crate::text::wrap::line_text;
 use crate::view::viewport::ViewTop;
 
 /// A non-empty query. Smart-case: an all-lowercase query matches any case; one with an uppercase
@@ -28,7 +28,11 @@ pub struct Needle {
 
 /// Lowercases char by char, so every char of the original maps to its own run of the result.
 fn fold_char(c: char, out: &mut String) {
-    out.extend(c.to_lowercase());
+    if c.is_ascii() {
+        out.push(c.to_ascii_lowercase());
+    } else {
+        out.extend(c.to_lowercase());
+    }
 }
 
 impl Needle {
@@ -50,49 +54,65 @@ impl Needle {
 
     /// Matches within one line (no `\n`), as char ranges, left to right and non-overlapping.
     pub fn line_matches(&self, line: &str) -> Vec<Range<usize>> {
-        // The haystack, and the byte offset in it where each char of `line` starts (plus the end).
-        // Folding may turn one char into several (`İ` → `i̇`); a match must start and end on one
-        // of these offsets
-        let (hay, starts) = if self.fold {
-            let mut hay = String::with_capacity(line.len());
-            let mut starts = Vec::with_capacity(line.len() + 1);
-            for c in line.chars() {
-                starts.push(hay.len());
-                fold_char(c, &mut hay);
-            }
-            starts.push(hay.len());
-            (std::borrow::Cow::Owned(hay), starts)
-        } else {
-            let starts = line
-                .char_indices()
-                .map(|(b, _)| b)
-                .chain(std::iter::once(line.len()))
-                .collect();
-            (std::borrow::Cow::Borrowed(line), starts)
-        };
         let mut out = Vec::new();
-        if hay.len() < self.text.len() {
+        let ascii = line.is_ascii();
+        let hay: Cow<str> = match (self.fold, ascii) {
+            (false, _) => Cow::Borrowed(line),
+            (true, true) => Cow::Owned(line.to_ascii_lowercase()),
+            (true, false) => {
+                let mut hay = String::with_capacity(line.len());
+                line.chars().for_each(|c| fold_char(c, &mut hay));
+                Cow::Owned(hay)
+            }
+        };
+        // Most lines have no candidate at all: they cost one substring search
+        let Some(first) = hay.find(&self.text) else {
+            return out;
+        };
+        // An ASCII line: bytes are chars, and with no `\n` in a line every char is a cluster
+        if ascii {
+            let mut from = first;
+            while let Some(i) = hay[from..].find(&self.text) {
+                let start = from + i;
+                from = start + self.text.len();
+                out.push(start..from);
+            }
             return out;
         }
-        let total = starts.len() - 1;
-        let clusters: Vec<usize> = graphemes(line)
-            .map(|(c, _)| c)
-            .chain(std::iter::once(total))
-            .collect();
+        // For each char of `line`, plus the end: where it starts in `hay`, and in `line`. Folding
+        // may turn one char into several (`İ` → `i̇`), so a match must start and end on one of
+        // the `hay` offsets
+        let mut starts = Vec::with_capacity(line.len() + 1);
+        let mut bytes = Vec::with_capacity(line.len() + 1);
+        let mut at = 0;
+        for (b, c) in line.char_indices() {
+            starts.push(at);
+            bytes.push(b);
+            at += if self.fold && !c.is_ascii() {
+                c.to_lowercase().map(char::len_utf8).sum()
+            } else {
+                c.len_utf8()
+            };
+        }
+        starts.push(at);
+        bytes.push(line.len());
         let char_at = |b: usize| starts.binary_search(&b).ok();
-        let on_cluster = |c: usize| clusters.binary_search(&c).is_ok();
-        let mut from = 0;
-        while let Some(i) = hay[from..].find(&self.text) {
-            let b = from + i;
+        // The whole line is the chunk, so the cursor never asks for more context
+        let on_cluster = |c: usize| {
+            GraphemeCursor::new(bytes[c], line.len(), true).is_boundary(line, 0) == Ok(true)
+        };
+        let mut found = Some(first);
+        while let Some(b) = found {
             let end = b + self.text.len();
-            match (char_at(b), char_at(end)) {
+            let from = match (char_at(b), char_at(end)) {
                 (Some(s), Some(e)) if on_cluster(s) && on_cluster(e) => {
                     out.push(s..e);
-                    from = end;
+                    end
                 }
                 // Not a whole run of chars or clusters: try again one char further on
-                _ => from = b + hay[b..].chars().next().map_or(1, char::len_utf8),
-            }
+                _ => b + hay[b..].chars().next().map_or(1, char::len_utf8),
+            };
+            found = hay[from..].find(&self.text).map(|i| from + i);
         }
         out
     }
@@ -101,15 +121,18 @@ impl Needle {
 /// Every match in the body, as document-wide char ranges in ascending order.
 pub fn search(needle: &Needle, rope: &Rope) -> Vec<Range<usize>> {
     let mut out = Vec::new();
-    for line in 0..rope.len_lines() {
-        let start = rope.line_to_char(line);
-        let text = line_text(rope, line);
+    let mut start = 0;
+    for line in rope.lines() {
+        let len = line.len_chars();
+        let text = Cow::<str>::from(line);
+        let text = text.strip_suffix('\n').unwrap_or(&text);
         out.extend(
             needle
-                .line_matches(&text)
+                .line_matches(text)
                 .into_iter()
                 .map(|m| start + m.start..start + m.end),
         );
+        start += len;
     }
     out
 }
@@ -328,6 +351,8 @@ impl Find {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::grapheme::graphemes;
+    use crate::text::wrap::line_text;
     use proptest::prelude::*;
 
     fn find(query: &str, line: &str) -> Vec<Range<usize>> {
