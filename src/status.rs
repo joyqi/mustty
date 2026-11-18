@@ -16,22 +16,103 @@ use crate::text::count::thousands;
 use crate::text::grapheme::{graphemes, next_boundary, prev_boundary};
 use crate::text::wrap::line_text;
 
-/// The single-line "Save as: " input.
+/// A single-line text input: the "Save as: " prompt and the find bar both edit one.
 #[derive(Debug, Default)]
-pub struct Prompt {
-    pub input: String,
+pub struct LineInput {
+    pub text: String,
     /// Char index
     pub cursor: usize,
+}
+
+/// What one key did to a `LineInput`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineEdit {
+    /// Enter
+    Submit,
+    /// The text changed
+    Changed,
+    /// Only the cursor moved, or the key was ignored
+    Unchanged,
+}
+
+impl LineInput {
+    /// Prefills `text` with the cursor at the end.
+    pub fn with_text(text: String) -> Self {
+        Self {
+            cursor: text.chars().count(),
+            text,
+        }
+    }
+
+    /// Pastes at the cursor, turning newlines into spaces.
+    pub fn paste(&mut self, s: &str) {
+        let s = s.replace("\r\n", " ").replace(['\r', '\n'], " ");
+        let at = byte(&self.text, self.cursor);
+        self.text.insert_str(at, &s);
+        self.cursor += s.chars().count();
+    }
+
+    /// Handles one key: editing, cursor movement by grapheme, Home / End, and Enter.
+    pub fn edit(&mut self, key: KeyEvent) -> LineEdit {
+        let len = self.text.chars().count();
+        match key.code {
+            KeyCode::Enter => return LineEdit::Submit,
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                let at = byte(&self.text, self.cursor);
+                self.text.insert(at, c);
+                self.cursor += 1;
+            }
+            KeyCode::Backspace if self.cursor > 0 => {
+                let prev = prev_boundary(&self.text, self.cursor);
+                let range = byte(&self.text, prev)..byte(&self.text, self.cursor);
+                self.text.replace_range(range, "");
+                self.cursor = prev;
+            }
+            KeyCode::Delete if self.cursor < len => {
+                let next = next_boundary(&self.text, self.cursor);
+                let range = byte(&self.text, self.cursor)..byte(&self.text, next);
+                self.text.replace_range(range, "");
+            }
+            KeyCode::Left => self.cursor = prev_boundary(&self.text, self.cursor),
+            KeyCode::Right => self.cursor = next_boundary(&self.text, self.cursor),
+            KeyCode::Home => self.cursor = 0,
+            KeyCode::End => self.cursor = len,
+            _ => {}
+        }
+        match key.code {
+            KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Delete
+                if self.text.chars().count() != len =>
+            {
+                LineEdit::Changed
+            }
+            _ => LineEdit::Unchanged,
+        }
+    }
+
+    /// The text left of the cursor.
+    pub fn before_cursor(&self) -> &str {
+        &self.text[..byte(&self.text, self.cursor)]
+    }
+}
+
+/// Byte offset of char `i` in `s` (the end when past it).
+fn byte(s: &str, i: usize) -> usize {
+    s.char_indices().nth(i).map_or(s.len(), |(b, _)| b)
+}
+
+/// The "Save as: " prompt.
+#[derive(Debug, Default)]
+pub struct Prompt {
+    pub line: LineInput,
     /// The target exists; a second Enter confirms the overwrite. Reset when the path changes
     pub confirm_overwrite: bool,
 }
 
 impl Prompt {
-    /// Prefills `input` with the cursor at the end.
+    /// Prefills the input with the cursor at the end.
     pub fn with_input(input: String) -> Self {
         Self {
-            cursor: input.chars().count(),
-            input,
+            line: LineInput::with_text(input),
             confirm_overwrite: false,
         }
     }
@@ -44,51 +125,21 @@ impl Prompt {
         }
     }
 
-    /// Pastes into the single-line input, turning newlines into spaces.
     pub fn paste(&mut self, s: &str) {
-        let s = s.replace("\r\n", " ").replace(['\r', '\n'], " ");
-        let at = self
-            .input
-            .char_indices()
-            .nth(self.cursor)
-            .map_or(self.input.len(), |(b, _)| b);
-        self.input.insert_str(at, &s);
-        self.cursor += s.chars().count();
+        self.line.paste(s);
         self.confirm_overwrite = false;
     }
 
     /// Handles one key; returns true if it was Enter.
     pub fn edit(&mut self, key: KeyEvent) -> bool {
-        let byte = |s: &str, i: usize| s.char_indices().nth(i).map_or(s.len(), |(b, _)| b);
-        let len = self.input.chars().count();
-        match key.code {
-            KeyCode::Enter => return true,
-            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                let at = byte(&self.input, self.cursor);
-                self.input.insert(at, c);
-                self.cursor += 1;
+        match self.line.edit(key) {
+            LineEdit::Submit => true,
+            LineEdit::Changed => {
                 self.confirm_overwrite = false;
+                false
             }
-            KeyCode::Backspace if self.cursor > 0 => {
-                let prev = prev_boundary(&self.input, self.cursor);
-                let range = byte(&self.input, prev)..byte(&self.input, self.cursor);
-                self.input.replace_range(range, "");
-                self.cursor = prev;
-                self.confirm_overwrite = false;
-            }
-            KeyCode::Delete if self.cursor < len => {
-                let next = next_boundary(&self.input, self.cursor);
-                let range = byte(&self.input, self.cursor)..byte(&self.input, next);
-                self.input.replace_range(range, "");
-                self.confirm_overwrite = false;
-            }
-            KeyCode::Left => self.cursor = prev_boundary(&self.input, self.cursor),
-            KeyCode::Right => self.cursor = next_boundary(&self.input, self.cursor),
-            KeyCode::Home => self.cursor = 0,
-            KeyCode::End => self.cursor = len,
-            _ => {}
+            LineEdit::Unchanged => false,
         }
-        false
     }
 }
 
@@ -335,13 +386,36 @@ mod tests {
         p.edit(k(KeyCode::Delete));
         p.edit(k(KeyCode::End));
         p.edit(k(KeyCode::Backspace));
-        assert_eq!((p.input.as_str(), p.cursor), ("a.m", 3));
+        assert_eq!((p.line.text.as_str(), p.line.cursor), ("a.m", 3));
         p.confirm_overwrite = true;
         p.edit(k(KeyCode::Char('d')));
         assert!(!p.confirm_overwrite);
         assert!(p.edit(k(KeyCode::Enter)));
         p.paste("x\r\ny");
-        assert_eq!(p.input, "a.mdx y");
+        assert_eq!(p.line.text, "a.mdx y");
+        // Cursor moves don't count as a change, so they keep the overwrite confirmation
+        p.confirm_overwrite = true;
+        p.edit(k(KeyCode::Left));
+        assert!(p.confirm_overwrite);
+    }
+
+    #[test]
+    fn line_input_reports_changes() {
+        let k = |c| KeyEvent::new(c, KeyModifiers::NONE);
+        let mut l = LineInput::with_text("ab".into());
+        assert_eq!(l.edit(k(KeyCode::Char('c'))), LineEdit::Changed);
+        assert_eq!(
+            l.edit(k(KeyCode::Delete)),
+            LineEdit::Unchanged,
+            "at the end"
+        );
+        assert_eq!(l.edit(k(KeyCode::Left)), LineEdit::Unchanged);
+        assert_eq!(l.before_cursor(), "ab");
+        assert_eq!(l.edit(k(KeyCode::Backspace)), LineEdit::Changed);
+        let ctrl_n = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL);
+        assert_eq!(l.edit(ctrl_n), LineEdit::Unchanged);
+        assert_eq!(l.edit(k(KeyCode::Enter)), LineEdit::Submit);
+        assert_eq!(l.text, "ac");
     }
 
     #[test]

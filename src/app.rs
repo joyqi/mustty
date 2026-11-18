@@ -710,11 +710,11 @@ impl App {
         let Some(prompt) = &mut self.status.prompt else {
             return;
         };
-        if !prompt.edit(key) || prompt.input.is_empty() {
+        if !prompt.edit(key) || prompt.line.text.is_empty() {
             return;
         }
         // Relative to save_dir (the cwd at startup), with no ~ expansion; absolute paths are used as is
-        let path = self.save_dir.join(&prompt.input);
+        let path = self.save_dir.join(&prompt.line.text);
         if self.docs.exists(&path) && !prompt.confirm_overwrite {
             prompt.confirm_overwrite = true;
             return;
@@ -1802,11 +1802,19 @@ mod tests {
 
     /// Deletes the file name prefilled in the prompt.
     fn clear_prompt(app: &mut App) {
-        let n = app.status.prompt.as_ref().unwrap().input.chars().count();
+        let n = app
+            .status
+            .prompt
+            .as_ref()
+            .unwrap()
+            .line
+            .text
+            .chars()
+            .count();
         for _ in 0..n {
             app.handle(press(KeyCode::Backspace));
         }
-        assert_eq!(app.status.prompt.as_ref().unwrap().input, "");
+        assert_eq!(app.status.prompt.as_ref().unwrap().line.text, "");
     }
 
     /// Ctrl+S on a document without a path prefills untitled.md with the cursor at the end; Enter saves, and the next document avoids that name.
@@ -1820,9 +1828,9 @@ mod tests {
         typed(&mut app, "hello");
         app.handle(ctrl('s'));
         let prompt = app.status.prompt.as_ref().expect("prompt is open");
-        assert_eq!(prompt.input, "untitled.md");
+        assert_eq!(prompt.line.text, "untitled.md");
         assert_eq!(
-            prompt.cursor,
+            prompt.line.cursor,
             "untitled.md".len(),
             "cursor at the end of the file name"
         );
@@ -1847,7 +1855,10 @@ mod tests {
         app.save_dir = dir.path().to_path_buf();
         typed(&mut app, "two");
         app.handle(ctrl('s'));
-        assert_eq!(app.status.prompt.as_ref().unwrap().input, "untitled-2.md");
+        assert_eq!(
+            app.status.prompt.as_ref().unwrap().line.text,
+            "untitled-2.md"
+        );
         // Changing to an existing name still asks to confirm the overwrite
         clear_prompt(&mut app);
         app.handle(press(KeyCode::Enter));

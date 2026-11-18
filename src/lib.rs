@@ -4,6 +4,7 @@ pub mod app;
 pub mod code;
 pub mod config;
 pub mod editor;
+pub mod find;
 pub mod help;
 pub mod host;
 pub mod i18n;

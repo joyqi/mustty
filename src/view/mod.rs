@@ -114,11 +114,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let ed = &app.editor;
     if let Some(r) = layout.status {
         if let Some(p) = &app.status.prompt {
-            let before: String = p.input.chars().take(p.cursor).collect();
             let prompt = PromptWidget {
                 label: p.label(),
-                input: &p.input,
-                cursor_col: text_width(&before, tab),
+                input: &p.line.text,
+                cursor_col: text_width(p.line.before_cursor(), tab),
                 tab_width: tab,
             };
             cursor = Some(Position::new(r.x + prompt.cursor_x(r.width), r.y));
