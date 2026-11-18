@@ -151,6 +151,8 @@ help-vim-paste = "粘贴（整行粘到下一行）"
 help-vim-extend = "移动键扩展选区"
 help-vim-replace = "用寄存器内容替换选区"
 help-vim-leave-visual = "结束选区"
+help-vim-find = "查找"
+help-vim-find-step = "下一个 / 上一个匹配"
 
 # 启动错误
 startup-open = "无法打开 {path}：{error}"

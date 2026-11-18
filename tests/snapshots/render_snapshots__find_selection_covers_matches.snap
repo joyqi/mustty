@@ -1,0 +1,7 @@
+---
+source: tests/render_snapshots.rs
+expression: styled(&b)
+---
+ 0: "notes" DIM
+ 1: "x" REVERSED | "key" UNDERLINED | REVERSED fg=Yellow | " y" REVERSED | "key" REVERSED fg=Yellow | " z" NONE | "key" UNDERLINED fg=Yellow
+ 5: "VIS" NONE fg=Yellow | " 匹 配  2/3" NONE | "6 字" DIM | " · 1:9" DIM

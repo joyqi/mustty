@@ -209,6 +209,10 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
         (None, 'p') => (Some(Action::PasteRegister), leave_visual),
         (None, 'u') => (Some(Action::Undo), normal),
         (None, '?') => (Some(Action::OpenHelp), normal),
+        // Find; in Visual mode the jumps extend the selection (App does that, like every motion)
+        (None, '/') => (Some(Action::OpenFind), normal),
+        (None, 'n') => (Some(Action::FindNext), normal),
+        (None, 'N') => (Some(Action::FindPrev), normal),
         // Any other printable character (including CJK committed by an IME) is ignored
         _ => (None, normal),
     }
@@ -616,6 +620,10 @@ mod tests {
         ("dd", NOR, Some(Action::DeleteLine), NOR),
         ("p", NOR, Some(Action::PasteRegister), NOR),
         ("u", NOR, Some(Action::Undo), NOR),
+        ("?", NOR, Some(Action::OpenHelp), NOR),
+        ("/", NOR, Some(Action::OpenFind), NOR),
+        ("n", NOR, Some(Action::FindNext), NOR),
+        ("N", NOR, Some(Action::FindPrev), NOR),
         // Visual: motions extend the selection; d / y / x exit afterwards
         ("h", VIS, mv(Motion::Left, true), VIS),
         ("w", VIS, mv(Motion::WordRight, true), VIS),
@@ -625,11 +633,18 @@ mod tests {
         ("x", VIS, Some(Action::Cut), NOR),
         ("d", VIS, Some(Action::Cut), NOR),
         ("y", VIS, Some(Action::Copy), NOR),
+        ("?", VIS, Some(Action::OpenHelp), VIS),
+        ("/", VIS, Some(Action::OpenFind), VIS),
+        ("n", VIS, Some(Action::FindNext), VIS),
+        ("N", VIS, Some(Action::FindPrev), VIS),
         // Prefix sequences and invalid sequences
         ("g", NOR, None, PEND_G),
         ("d", NOR, None, PEND_D),
         ("gx", NOR, None, NOR),
         ("dj", NOR, None, NOR),
+        ("g/", NOR, None, NOR),
+        ("gn", NOR, None, NOR),
+        ("d/", NOR, None, NOR),
         // Other printable characters are ignored
         ("z", NOR, None, NOR),
         ("中", NOR, None, NOR),

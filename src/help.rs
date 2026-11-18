@@ -190,6 +190,12 @@ fn normal_entries() -> Vec<Entry> {
         entry("p", "help-vim-paste", a(PasteRegister)),
         entry("u", "help-undo", a(Undo)),
         entry("Ctrl+R", "help-redo", a(Redo)),
+        entry("/", "help-vim-find", a(OpenFind)),
+        each(
+            "n / N",
+            "help-vim-find-step",
+            vec![a(FindNext), a(FindPrev)],
+        ),
         entry("?", "help-help", a(OpenHelp)),
     ]
 }

@@ -1343,7 +1343,7 @@ mod tests {
             keys in proptest::collection::vec(
                 proptest::sample::select(vec![
                     "v", "\x1b", "d", "x", "y", "p", "u", "\x12", "i", "a", "o", "h", "j", "k",
-                    "l", "w", "b", "e", "0", "$", "G", "g", "z", "\n",
+                    "l", "w", "b", "e", "0", "$", "G", "g", "z", "\n", "/", "n", "N", "\x06",
                 ]),
                 1..40,
             ),
@@ -1353,6 +1353,7 @@ mod tests {
             for k in &keys {
                 let ev = match *k {
                     "\x12" => Event::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
+                    "\x06" => Event::Key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL)),
                     "\n" => press(KeyCode::Enter),
                     _ => press(if *k == "\x1b" { KeyCode::Esc } else { KeyCode::Char(k.chars().next().unwrap()) }),
                 };
@@ -2836,5 +2837,59 @@ mod tests {
         find(&mut app, "a");
         app.handle(press(KeyCode::Esc));
         assert!(!shown(&app));
+    }
+
+    #[test]
+    fn vim_find_keys() {
+        // Normal: / opens the bar, Enter accepts, still Normal with no anchor; n / N step
+        let mut app = vim_app("one two one two");
+        typed(&mut app, "\x1b/two");
+        assert!(app.find.bar.is_some());
+        app.handle(press(KeyCode::Enter));
+        assert_eq!(
+            (app.mode_label(), head(&app), app.editor.cursor.anchor),
+            (Some("NOR"), 4, None)
+        );
+        typed(&mut app, "n");
+        assert_eq!(head(&app), 12);
+        typed(&mut app, "n");
+        assert_eq!(head(&app), 4, "wraps");
+        typed(&mut app, "N");
+        assert_eq!((head(&app), app.editor.cursor.anchor), (12, None));
+        assert_eq!(body(&app), "one two one two", "nothing typed into the body");
+        // ? is still the help panel
+        typed(&mut app, "?");
+        assert!(app.help.is_some());
+    }
+
+    #[test]
+    fn vim_visual_find_extends_the_selection() {
+        let mut app = vim_app("abc x abc x abc");
+        typed(&mut app, "\x1b/abc");
+        app.handle(press(KeyCode::Enter));
+        // From the first match: v, then n extends to the next one; d cuts up to and including
+        // its first character
+        typed(&mut app, "vn");
+        assert_eq!(app.mode_label(), Some("VIS"));
+        assert_eq!(app.visible_selection(), Some(0..7));
+        typed(&mut app, "d");
+        assert_eq!(body(&app), "bc x abc");
+        assert_eq!(
+            (app.mode_label(), app.editor.cursor.anchor),
+            (Some("NOR"), None)
+        );
+        // Cancelling find in Visual mode puts the selection back as it was
+        let mut app = vim_app("abc x abc x abc");
+        typed(&mut app, "\x1bvl");
+        let before = app.editor.cursor;
+        typed(&mut app, "/abc");
+        assert_eq!(
+            app.visible_selection(),
+            Some(0..7),
+            "the preview extends too"
+        );
+        app.handle(press(KeyCode::Esc));
+        assert_eq!(app.editor.cursor, before);
+        assert_eq!(app.mode_label(), Some("VIS"));
     }
 }

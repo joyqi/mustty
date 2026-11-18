@@ -949,3 +949,23 @@ fn find_highlight_in_dimmed_paragraph() {
     assert!(style_at(&b, "second").add_modifier.contains(Modifier::DIM));
     insta::assert_snapshot!(out);
 }
+
+/// The selection goes on top of the match styles: vim Visual, then a find that extends it.
+#[test]
+fn find_selection_covers_matches() {
+    let config = mustty::config::Config {
+        vim: true,
+        ..Default::default()
+    };
+    let raw = "x key y key z key\n";
+    let mut events = vec![
+        key(KeyCode::Esc),
+        key(KeyCode::Char('v')),
+        key(KeyCode::Char('/')),
+    ];
+    events.extend("key".chars().map(|c| key(KeyCode::Char(c))));
+    events.push(key(KeyCode::Enter));
+    events.push(key(KeyCode::Char('n')));
+    let b = draw_with(&config, raw, 40, 6, &events, false);
+    insta::assert_snapshot!(styled(&b));
+}

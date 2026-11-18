@@ -152,6 +152,8 @@ help-vim-paste = "Paste (a cut line goes below)"
 help-vim-extend = "Movement keys extend the selection"
 help-vim-replace = "Replace the selection with the register"
 help-vim-leave-visual = "End the selection"
+help-vim-find = "Find"
+help-vim-find-step = "Next / previous match"
 
 # startup errors
 startup-open = "Cannot open {path}: {error}"
