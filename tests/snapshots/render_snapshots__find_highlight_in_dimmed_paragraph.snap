@@ -1,0 +1,8 @@
+---
+source: tests/render_snapshots.rs
+expression: out
+---
+ 0: "notes" DIM
+ 1: "  first" NONE | "key" REVERSED fg=Yellow
+ 3: "second" DIM | "key" UNDERLINED fg=Yellow | " and" DIM | "key" UNDERLINED fg=Yellow
+ 9: "  查 找 : key" NONE | "1/3" DIM

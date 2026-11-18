@@ -1,0 +1,10 @@
+---
+source: tests/render_snapshots.rs
+expression: styled(&b)
+---
+ 0: "notes" DIM
+ 1: "  段 落" NONE
+ 3: "```rust" DIM
+ 4: "let" BOLD fg=Cyan | "" NONE fg=Cyan | "value" REVERSED fg=Yellow | " =" NONE fg=Cyan | "\"" NONE fg=Green | "value" UNDERLINED fg=Yellow | "\"" NONE fg=Green | ";" NONE fg=Cyan | "//" DIM fg=Cyan | "value" UNDERLINED fg=Yellow
+ 5: "```" DIM
+ 9: "notes.md" DIM | "7 字" DIM | " · 4:5" DIM

@@ -907,3 +907,45 @@ fn find_bar_survives_too_small() {
         "still the find bar: {row:?}"
     );
 }
+
+/// Matches are yellow + underlined, the current one yellow + reversed; DIM marks around a match
+/// don't dim it.
+#[test]
+fn find_highlight_styles() {
+    let raw = "## 春天的标题\n春天来了，**春天**和 [春天](https://x.io)。\n\n春天\n";
+    let b = draw(Some("n.md"), raw, 40, 10, &find_keys("春天"));
+    insta::assert_snapshot!(styled(&b));
+}
+
+/// A match in a code block covers the code color.
+#[test]
+fn find_highlight_in_code_block() {
+    let config = mustty::config::Config {
+        code_color: mustty::config::CodeColor::Cyan,
+        ..Default::default()
+    };
+    let raw = "段落\n\n```rust\nlet value = \"value\"; // value\n```\n";
+    let mut events = find_keys("value");
+    events.push(key(KeyCode::Enter));
+    let b = draw_with(&config, raw, 50, 10, &events, false);
+    insta::assert_snapshot!(styled(&b));
+}
+
+/// In focus mode, matches in dimmed paragraphs are not dimmed.
+#[test]
+fn find_highlight_in_dimmed_paragraph() {
+    use ratatui::style::{Color, Modifier};
+    let config = mustty::config::Config {
+        focus_mode: true,
+        ..Default::default()
+    };
+    let raw = "first key\n\nsecond key and key\n";
+    let b = draw_with(&config, raw, 40, 10, &find_keys("key"), false);
+    let out = styled(&b);
+    let dimmed = style_at(&b, "key and");
+    assert_eq!(dimmed.fg, Some(Color::Yellow));
+    assert!(dimmed.add_modifier.contains(Modifier::UNDERLINED));
+    assert!(!dimmed.add_modifier.contains(Modifier::DIM));
+    assert!(style_at(&b, "second").add_modifier.contains(Modifier::DIM));
+    insta::assert_snapshot!(out);
+}

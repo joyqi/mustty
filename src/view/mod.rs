@@ -89,6 +89,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         current_paragraph(rope, rope.char_to_line(caret.head), top.line, visible_end)
     });
     let code_color = app.config.code_color.color();
+    let marks = app.find.marks((focus == Focus::Body).then_some(caret.head));
     let (doc, wrap, highlight) = app.editor.view();
     frame.render_widget(
         BodyWidget {
@@ -101,6 +102,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             focus: paragraph,
             code_color,
             code_highlight: app.config.code_highlight,
+            find: marks,
         },
         body,
     );

@@ -491,6 +491,16 @@ impl App {
     fn dispatch(&mut self, action: Action, now: Instant) {
         self.needs_redraw = true;
         self.status.on_input();
+        // Find highlighting lasts while the bar is open and after a jump; anything else (but the
+        // wheel) hides it
+        if self.find.bar.is_none()
+            && !matches!(
+                action,
+                Action::FindNext | Action::FindPrev | Action::ScrollView(_)
+            )
+        {
+            self.find.hide();
+        }
         let armed = std::mem::take(&mut self.quit_armed);
         let revision = self.editor.doc().revision();
         match action {
@@ -816,6 +826,7 @@ impl App {
             }
             return;
         };
+        self.find.show();
         self.find_jump(at, now);
         if !open && let Some(n) = self.current_match() {
             let (n, total) = (n.to_string(), self.find.len().to_string());
@@ -2801,5 +2812,29 @@ mod tests {
         app.handle(press(KeyCode::Up));
         app.handle(ctrl('n'));
         assert_eq!((app.editor.focus, head(&app)), (Focus::Body, 0));
+    }
+
+    #[test]
+    fn find_highlight_lifetime() {
+        let mut app = find_app("ab ab ab");
+        let shown = |app: &App| app.find.marks(None).is_some();
+        find(&mut app, "ab");
+        assert!(shown(&app), "while the bar is open");
+        app.handle(press(KeyCode::Enter));
+        assert!(shown(&app), "after Enter");
+        app.dispatch(Action::ScrollView(3), Instant::now());
+        assert!(shown(&app), "the wheel keeps it");
+        app.handle(press(KeyCode::Right));
+        assert!(!shown(&app), "any other key hides it");
+        app.handle(ctrl('n'));
+        assert!(shown(&app), "shown again after a jump");
+        typed(&mut app, "x");
+        assert!(!shown(&app));
+        app.handle(ctrl('b'));
+        assert!(shown(&app));
+        // Esc in the bar hides it even if it was shown before
+        find(&mut app, "a");
+        app.handle(press(KeyCode::Esc));
+        assert!(!shown(&app));
     }
 }

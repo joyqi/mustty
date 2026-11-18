@@ -1,0 +1,10 @@
+---
+source: tests/render_snapshots.rs
+expression: styled(&b)
+---
+ 0: "n" DIM
+ 1: "##" DIM | "春" BOLD | REVERSED fg=Yellow | "天" BOLD | REVERSED fg=Yellow | "的" BOLD | "标" BOLD | "题" BOLD
+ 2: "春" UNDERLINED fg=Yellow | "天" UNDERLINED fg=Yellow | " 来 了 ，" NONE | "**" DIM | "春" BOLD | UNDERLINED fg=Yellow | "天" BOLD | UNDERLINED fg=Yellow | "**" DIM | "和" NONE | "[" DIM | "春" UNDERLINED fg=Yellow | "天" UNDERLINED fg=Yellow | "](https://" DIM
+ 3: "x.io)" DIM | "。" NONE
+ 5: "春" UNDERLINED fg=Yellow | "天" UNDERLINED fg=Yellow
+ 9: "  查 找 : 春 天" NONE | "1/5" DIM

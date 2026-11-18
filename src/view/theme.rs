@@ -57,6 +57,25 @@ pub fn selection() -> Style {
     Style::default().add_modifier(Modifier::REVERSED)
 }
 
+/// A find match: yellow and underlined. Undimmed, so matches in a dimmed paragraph or on a dim
+/// mark still stand out. Neither half is enough alone: links are underlined and code can be
+/// yellow.
+pub fn find_match() -> Style {
+    Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::UNDERLINED)
+        .remove_modifier(Modifier::DIM)
+}
+
+/// The match under the cursor: yellow reversed, which reads as a yellow block without setting a
+/// background color.
+pub fn find_current() -> Style {
+    Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::REVERSED)
+        .remove_modifier(Modifier::DIM)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -9,6 +9,7 @@ use ratatui::widgets::Widget;
 use ropey::Rope;
 use unicode_width::UnicodeWidthStr;
 
+use crate::find::Marks;
 use crate::markdown::{HighlightCache, StyledRange, Token};
 use crate::text::grapheme::{grapheme_width, graphemes};
 use crate::text::wrap::{WrapCache, line_text};
@@ -125,6 +126,9 @@ pub struct BodyWidget<'a> {
     pub code_color: Color,
     /// Show code blocks' syntax colors; off, code blocks are one color
     pub code_highlight: bool,
+    /// Find highlighting: each visible line is searched as it's drawn, so this never needs the
+    /// full match list
+    pub find: Option<Marks<'a>>,
 }
 
 impl Widget for BodyWidget<'_> {
@@ -134,17 +138,31 @@ impl Widget for BodyWidget<'_> {
         let code = self.code_color;
         let highlight = self.code_highlight;
         let dimmed = |line: usize| self.focus.as_ref().is_some_and(|f| !f.contains(&line));
-        let styles_of = |hl: &mut HighlightCache, line: usize, len: usize| {
+        // Layers, later ones on top: markdown / code, focus mode DIM, matches, the current match,
+        // and the selection (in the draw loop below)
+        let styles_of = |hl: &mut HighlightCache, line: usize, text: &str| {
+            let len = text.chars().count();
             let mut styles = line_styles(hl.ranges(self.rope, line), len, code, highlight);
             if dimmed(line) {
                 styles
                     .iter_mut()
                     .for_each(|s| *s = s.add_modifier(Modifier::DIM));
             }
+            if let Some(marks) = &self.find {
+                let start = self.rope.line_to_char(line);
+                for m in marks.needle.line_matches(text) {
+                    let style = if marks.caret == Some(start + m.start) {
+                        theme::find_current()
+                    } else {
+                        theme::find_match()
+                    };
+                    styles[m].iter_mut().for_each(|s| *s = s.patch(style));
+                }
+            }
             styles
         };
         let mut text = line_text(self.rope, line);
-        let mut styles = styles_of(self.highlight, line, text.chars().count());
+        let mut styles = styles_of(self.highlight, line, &text);
         let first = area
             .top()
             .saturating_add(self.top_padding)
@@ -169,7 +187,7 @@ impl Widget for BodyWidget<'_> {
             } else if line + 1 < self.rope.len_lines() {
                 (line, row) = (line + 1, 0);
                 text = line_text(self.rope, line);
-                styles = styles_of(self.highlight, line, text.chars().count());
+                styles = styles_of(self.highlight, line, &text);
             } else {
                 break;
             }
