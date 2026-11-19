@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Documentation — mustty</title>
+  <meta name="description" content="How to install mustty and use its keys, vim mode, find, settings, clipboard and browser demo.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="canonical" href="https://mustty.com/docs/">
+  <!-- Link previews need absolute URLs; the image is the repository's social preview on GitHub -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://mustty.com/docs/">
+  <meta property="og:title" content="Documentation — mustty">
+  <meta property="og:description" content="How to install mustty and use its keys, vim mode, find, settings, clipboard and browser demo.">
+  <meta property="og:image" content="https://repository-images.githubusercontent.com/1436827710/831bb030-8d97-4fe2-9619-6093516833cf">
+  <meta name="twitter:card" content="summary_large_image">
+  <!-- The theme before first paint, by the same rule as src/theme.js: a stored choice, else the system -->
+  <script>
+    try {
+      const s = localStorage.getItem("mustty-theme");
+      document.documentElement.dataset.theme =
+        s === "light" || s === "dark" ? s : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    } catch {}
+  </script>
+  <!-- Web fonts without blocking render: the stylesheet loads as print media and switches itself on;
+       until the fonts arrive (display=swap) the metric-matched fallbacks in style.css are used -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" media="print" onload="this.media='all'"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap">
+  <noscript>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap">
+  </noscript>
+  <script type="module" src="/src/docs.js"></script>
+</head>
+<body class="bg-[var(--bg)] text-[var(--text)] font-sans antialiased">
+  <div class="mx-auto max-w-[1248px] px-6">
+    <nav class="flex h-20 items-center justify-between">
+      <a href="/" class="flex items-center gap-3" aria-label="mustty">
+        <span class="relative flex h-[33px] w-[38px] flex-col gap-[5px]" aria-hidden="true">
+          <span class="h-[5px] w-[22px] rounded-[2.5px] bg-[var(--text)]"></span>
+          <span class="h-[5px] w-[30px] rounded-[2.5px] bg-[var(--text)]"></span>
+          <span class="h-[5px] w-[16px] rounded-[2.5px] bg-[var(--text)]"></span>
+          <span class="absolute left-[26px] top-[26px] size-1.5 rounded-full bg-[var(--dot)]"></span>
+        </span>
+        <span class="font-mono text-xl font-bold tracking-[-0.5px]">mustty</span>
+      </a>
+      <div class="flex items-center gap-2 sm:gap-3">
+        <a href="/docs/" aria-current="page" class="rounded-lg px-3 py-[8px] text-sm font-medium text-[var(--muted)] hover:bg-[var(--card)] hover:text-[var(--text)] aria-[current=page]:text-[var(--text)]">Docs</a>
+        <button id="theme-toggle" type="button" aria-label="Toggle light/dark theme" title="Toggle light/dark theme"
+                class="grid size-[35px] place-items-center rounded-lg text-[var(--muted)] hover:bg-[var(--card)] hover:text-[var(--text)]">
+          <svg class="sun size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          <svg class="moon size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+        </button>
+        <a href="https://github.com/joyqi/mustty"
+           class="flex items-center gap-2 rounded-lg border border-[var(--border-strong)] px-4 py-[8px] text-sm font-medium hover:bg-[var(--card)]">
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+          GitHub
+          <svg class="hidden size-3.5 text-[var(--muted)] sm:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></svg>
+        </a>
+      </div>
+    </nav>
+
+    <div class="grid grid-cols-[minmax(0,1fr)] gap-10 pb-8 pt-10 lg:grid-cols-[200px_minmax(0,760px)] lg:justify-center lg:gap-16">
+      <nav id="toc" aria-label="On this page" class="lg:sticky lg:top-8 lg:self-start">
+        <p class="mb-3 text-[13px] font-semibold uppercase tracking-wide text-[var(--faint)]">On this page</p>
+        <ul class="flex flex-col gap-2 text-sm text-[var(--muted)] [&_a]:hover:text-[var(--text)] [&_a[aria-current]]:font-medium [&_a[aria-current]]:text-[var(--accent)]">
+          <li><a href="#install">Install and open a file</a></li>
+          <li><a href="#keys">Default keys</a></li>
+          <li><a href="#vim">Vim keys</a></li>
+          <li><a href="#find">Find</a></li>
+          <li><a href="#settings">Settings</a></li>
+          <li><a href="#writing">Writing</a></li>
+          <li><a href="#clipboard">Clipboard and SSH</a></li>
+          <li><a href="#browser">Browser demo</a></li>
+          <li><a href="#troubleshooting">Troubleshooting</a></li>
+        </ul>
+      </nav>
+
+      <article class="docs min-w-0">
+<h1>mustty documentation</h1>
+<p>mustty is a terminal Markdown editor for writing one file at a time on a centred column. This page covers installation, keys, settings and behaviour in the terminal app and the browser demo.</p>
+<h2 id="install">Install and open a file</h2>
+<p>Install mustty and open a document in under a minute.</p>
+<pre><code class="language-sh"># macOS and Linux
+curl -LsSf https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.sh | sh
+
+# Homebrew
+brew install joyqi/tap/mustty
+
+# From source (Rust 1.88+)
+cargo install --git https://github.com/joyqi/mustty
+</code></pre>
+<pre><code class="language-powershell"># Windows (PowerShell)
+irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps1 | iex
+</code></pre>
+<p>Prebuilt archives are also on the <a href="https://github.com/joyqi/mustty">GitHub repository</a> under Releases.</p>
+<p>Run <code>mustty [FILE]</code>. The only flags are <code>-h</code> / <code>--help</code> and <code>-V</code> / <code>--version</code>; older flags such as <code>--vim</code>, <code>--width</code> and <code>--no-autosave</code> are rejected. Passing a path such as <code>mustty notes.md</code> opens the file or creates it on first save. Running <code>mustty</code> alone opens an <code>Untitled</code> document. Passing a directory fails with <code>mustty only edits files</code>. mustty edits one file per run and has no command to open another.</p>
+<p>The screen has three parts: a title line, a body and a one-line status bar. The title is the file&#39;s first-line H1 (<code># text</code>), edited as its own field; press <code>↑</code> on the first body line to enter it, and <code>Enter</code> or <code>Tab</code> to return to the body. The status bar shows the file name, a save mark (<code>*</code> unsaved, green <code>●</code> saved), the word count and <code>line:col</code> (<code>Title</code> while in the title). For the first 5 seconds the right side shows <code>^G keys</code>.</p>
+<p>Press <code>Ctrl+S</code> to save and <code>Ctrl+Q</code> to quit. On an <code>Untitled</code> document, <code>Ctrl+S</code> opens <code>Save as: </code> prefilled with <code>untitled.md</code> (or the next free <code>untitled-N.md</code>) relative to the working directory, and asks <code>File exists, Enter to overwrite: </code> if that file exists. When unsaved changes cannot be autosaved on quit, mustty shows <code>Unsaved changes, press Ctrl+Q again to discard</code>.</p>
+<h2 id="keys">Default keys</h2>
+<p>Move and edit without modes; press <code>Ctrl+G</code> to view this list inside the app.</p>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Key</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Move cursor</td>
+<td><code>↑</code> <code>↓</code> <code>←</code> <code>→</code></td>
+</tr>
+<tr>
+<td>Start / end of screen line</td>
+<td><code>Home</code> / <code>End</code></td>
+</tr>
+<tr>
+<td>Page up / down</td>
+<td><code>PgUp</code> / <code>PgDn</code></td>
+</tr>
+<tr>
+<td>Previous / next word</td>
+<td><code>Ctrl+←</code> / <code>Ctrl+→</code>, <code>Alt+B</code> / <code>Alt+F</code></td>
+</tr>
+<tr>
+<td>Start / end of document</td>
+<td><code>Ctrl+Home</code> / <code>Ctrl+End</code></td>
+</tr>
+<tr>
+<td>Select</td>
+<td><code>Shift</code> + any move key (such as <code>Shift+→</code>)</td>
+</tr>
+<tr>
+<td>Select whole body (excludes title)</td>
+<td><code>Ctrl+A</code></td>
+</tr>
+<tr>
+<td>Clear selection / close save prompt</td>
+<td><code>Esc</code></td>
+</tr>
+<tr>
+<td>Delete previous word</td>
+<td><code>Ctrl+Backspace</code>, <code>Ctrl+W</code></td>
+</tr>
+<tr>
+<td>Copy / cut / paste (internal register)</td>
+<td><code>Ctrl+C</code> / <code>Ctrl+X</code> / <code>Ctrl+V</code></td>
+</tr>
+<tr>
+<td>Undo / redo</td>
+<td><code>Ctrl+Z</code> / <code>Ctrl+Y</code></td>
+</tr>
+<tr>
+<td>Save / quit</td>
+<td><code>Ctrl+S</code> / <code>Ctrl+Q</code></td>
+</tr>
+<tr>
+<td>Find / next / previous match</td>
+<td><code>Ctrl+F</code> / <code>Ctrl+N</code> / <code>Ctrl+B</code></td>
+</tr>
+<tr>
+<td>Typewriter mode / focus mode</td>
+<td><code>Ctrl+T</code> / <code>Ctrl+O</code></td>
+</tr>
+<tr>
+<td>Settings panel / keys panel</td>
+<td><code>Ctrl+P</code> / <code>Ctrl+G</code></td>
+</tr>
+</tbody></table>
+<p><code>Home</code> and <code>End</code> act on the wrapped screen line, not the logical line. <code>Ctrl+C</code> copies rather than quitting, <code>Ctrl+Z</code> undoes rather than suspending, and <code>Ctrl+V</code> pastes mustty&#39;s internal register rather than the system clipboard. Since 0.1.6, <code>Ctrl+F</code> opens find and <code>Ctrl+O</code> toggles focus mode. <code>Tab</code> inserts <code>tab_width</code> spaces; <code>Shift+Tab</code> does nothing. In the keys panel, scroll with <code>↑</code>, <code>↓</code>, <code>PgUp</code>, <code>PgDn</code>, <code>Home</code> or <code>End</code>, and close with <code>Esc</code> or <code>Ctrl+G</code>.</p>
+<h2 id="vim">Vim keys</h2>
+<p>Optional Normal, Visual and Insert modes for modal movement and editing.</p>
+<p>Vim keys are off by default. Turn them on in the settings panel (<code>Ctrl+P</code> → <code>Vim keys</code>) or set <code>vim = true</code> in <code>~/.mustty.toml</code>. Even with vim keys enabled, mustty starts in Insert mode, not Normal. The status bar shows <code>INS</code>, <code>NOR</code> or <code>VIS</code> before the file name. The cursor is a block in Normal and Visual modes and uses your configured shape in Insert mode.</p>
+<p>Insert mode uses the default keys above, except <code>Esc</code> switches to Normal mode. All <code>Ctrl</code> keys also work in Normal and Visual modes, and save and quit stay <code>Ctrl+S</code> and <code>Ctrl+Q</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Normal</td>
+<td><code>i</code> / <code>a</code> / <code>o</code></td>
+<td>Enter Insert at cursor / after cursor / new line below</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>v</code></td>
+<td>Start character-wise Visual selection</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>h</code> <code>j</code> <code>k</code> <code>l</code></td>
+<td>Move cursor (<code>j</code> / <code>k</code> move by screen line)</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>w</code> / <code>b</code> / <code>e</code></td>
+<td>Next word / previous word / end of word</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>0</code> / <code>$</code></td>
+<td>Start / end of screen line</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>gg</code> / <code>G</code></td>
+<td>Start / end of document</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>x</code> / <code>dd</code> / <code>p</code></td>
+<td>Delete character / cut line / paste (cut line goes below)</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>u</code> / <code>Ctrl+R</code></td>
+<td>Undo / redo (<code>Ctrl+R</code> in Normal only; elsewhere <code>Ctrl+Y</code>)</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>/</code> / <code>n</code> / <code>N</code></td>
+<td>Find / next match / previous match</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>?</code></td>
+<td>Open keys panel</td>
+</tr>
+<tr>
+<td>Visual</td>
+<td>Move keys, <code>n</code> / <code>N</code></td>
+<td>Extend selection</td>
+</tr>
+<tr>
+<td>Visual</td>
+<td><code>y</code> / <code>d</code> or <code>x</code> / <code>p</code></td>
+<td>Copy / cut / replace selection with register</td>
+</tr>
+<tr>
+<td>Visual</td>
+<td><code>v</code> or <code>Esc</code> / <code>i</code></td>
+<td>End selection / switch to Insert</td>
+</tr>
+</tbody></table>
+<p>Arrow keys, <code>Home</code>, <code>End</code>, <code>PgUp</code> and <code>PgDn</code> also work in Normal mode. <code>?</code>, <code>/</code>, <code>n</code> and <code>N</code> act as commands only in vim modes; otherwise they type the character. This is a deliberately small subset: there are no counts, no <code>c</code>, <code>yy</code>, <code>A</code>, <code>I</code>, <code>O</code>, <code>.</code>, <code>:</code> commands, registers or text objects, and any other key in Normal mode is ignored.</p>
+<h2 id="find">Find</h2>
+<p>Search the document body incrementally as you type.</p>
+<p>Press <code>Ctrl+F</code> (or <code>/</code> in vim Normal mode) to open <code>Find: </code> in the status bar. Matches update as you type and the view jumps to the first match at or after the cursor, wrapping to the top. Every match is yellow and underlined, with the current match reversed; the right side shows the count (such as <code>3/12</code>) or <code>No matches</code>.</p>
+<p>In the find bar, <code>Enter</code> keeps the cursor on the match and closes (doing nothing when there is no match). <code>Esc</code> or <code>Ctrl+F</code> closes and restores your previous cursor, selection and scroll position. <code>Ctrl+N</code> and <code>Ctrl+B</code> step through matches without closing.</p>
+<p>After closing, <code>Ctrl+N</code> and <code>Ctrl+B</code> (vim <code>n</code> and <code>N</code>) repeat the last accepted query, wrapping at both ends, and show <code>Match 3/12</code> or <code>No matches: &lt;query&gt;</code>. Search is literal text only (no regex) with smart case: an all-lowercase query ignores case, while any capital letter makes it exact. Find searches the body only, never the title, matches do not span lines, and there is no replace.</p>
+<h2 id="settings">Settings</h2>
+<p>Adjust options live in the settings panel or persistently in <code>~/.mustty.toml</code>.</p>
+<p>Press <code>Ctrl+P</code> to open the settings panel. Move with <code>↑</code>/<code>↓</code> or <code>Tab</code>/<code>Shift+Tab</code>, and adjust with <code>←</code>/<code>→</code> (<code>PgUp</code>/<code>PgDn</code> step numbers by 10, <code>Space</code> flips toggles). Changes preview live, but are not saved until you press <code>Enter</code>; <code>Esc</code> or <code>Ctrl+P</code> rolls them back.</p>
+<p>Settings live in <code>~/.mustty.toml</code> (<code>.mustty.toml</code> in your home directory on Windows), a fixed path with top-level TOML keys and no CLI or environment overrides. It is read at startup only, so hand edits need a restart. Saving from the panel writes only the keys you changed, preserves comments and key order, and follows symlinks.</p>
+<pre><code class="language-toml">width = 72
+vim = false
+autosave = true
+autosave_idle_ms = 2000
+code_color = &quot;cyan&quot;
+cursor = &quot;bar&quot;
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Default</th>
+<th>Allowed values</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>width</code></td>
+<td>int</td>
+<td><code>72</code></td>
+<td><code>40</code>–<code>120</code> (clamped)</td>
+<td>Body width in columns (panel step 2)</td>
+</tr>
+<tr>
+<td><code>vim</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>Enable vim keys</td>
+</tr>
+<tr>
+<td><code>mouse</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>Click to place cursor, drag to select, wheel scrolls 3 rows</td>
+</tr>
+<tr>
+<td><code>autosave</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>Autosave on idle, focus loss and quit</td>
+</tr>
+<tr>
+<td><code>autosave_idle_ms</code></td>
+<td>int</td>
+<td><code>2000</code></td>
+<td><code>500</code>–<code>60000</code> (clamped)</td>
+<td>Autosave idle delay in milliseconds (panel step 500)</td>
+</tr>
+<tr>
+<td><code>typewriter</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>Start with typewriter mode on</td>
+</tr>
+<tr>
+<td><code>focus_mode</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>Start with focus mode on</td>
+</tr>
+<tr>
+<td><code>scrolloff</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td><code>0</code>–<code>10</code> (clamped)</td>
+<td>Scroll margin (panel step 1; inactive in typewriter mode)</td>
+</tr>
+<tr>
+<td><code>tab_width</code></td>
+<td>int</td>
+<td><code>4</code></td>
+<td><code>1</code>–<code>16</code> (clamped)</td>
+<td>Spaces inserted by <code>Tab</code> (panel step 1)</td>
+</tr>
+<tr>
+<td><code>code_color</code></td>
+<td>string</td>
+<td><code>&quot;cyan&quot;</code></td>
+<td><code>black</code>, <code>red</code>, <code>green</code>, <code>yellow</code>, <code>blue</code>, <code>magenta</code>, <code>cyan</code>, <code>white</code> (<code>gray</code> = <code>white</code>)</td>
+<td>Code colour (<code>grey</code>, hex and <code>bright*</code> are invalid)</td>
+</tr>
+<tr>
+<td><code>code_highlight</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>Highlight fenced code blocks naming a supported language</td>
+</tr>
+<tr>
+<td><code>cursor</code></td>
+<td>string</td>
+<td><code>&quot;bar&quot;</code></td>
+<td><code>bar</code>, <code>block</code>, <code>underline</code></td>
+<td>Cursor shape (Insert mode only when <code>vim</code> is <code>true</code>)</td>
+</tr>
+<tr>
+<td><code>cursor_blink</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>Blink the cursor (Insert mode only when <code>vim</code> is <code>true</code>)</td>
+</tr>
+<tr>
+<td><code>lang</code></td>
+<td>string</td>
+<td><code>&quot;auto&quot;</code></td>
+<td><code>auto</code>, <code>en</code>, <code>zh-CN</code></td>
+<td>UI language (<code>auto</code> checks <code>LC_ALL</code>, <code>LC_MESSAGES</code>, <code>LANG</code>, then system locale)</td>
+</tr>
+</tbody></table>
+<p>String values are case-insensitive. Enabling <code>mouse</code> disables your terminal&#39;s own drag-select, so hold <code>Shift</code> while dragging in most terminals to select text for the terminal; <code>mouse</code> is off by default for this reason.</p>
+<p>A bad config file never blocks startup. Out-of-range numbers are clamped, wrong types or names fall back for that key only, unknown keys are ignored silently, and a syntax error discards the whole file. Warnings appear in the status bar until the first keypress and on stderr. If the file has a syntax error, the panel applies changes to the current session only and refuses to write the file.</p>
+<h2 id="writing">Writing</h2>
+<p>How mustty formats Markdown, wraps lines, handles focus modes and writes files.</p>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Width</td>
+<td>Centred 40–120 column page (default 72). Narrower terminals keep a 2-column margin, dropping to none under 24 columns.</td>
+</tr>
+<tr>
+<td>Markdown</td>
+<td>Syntax markers stay visible but dimmed while headings, emphasis, code, links, lists and quotes are styled in place. Fenced blocks naming one of 30 languages (such as <code>```rust</code>) are highlighted when <code>code_highlight</code> is on; see the <a href="https://github.com/joyqi/mustty/blob/main/CHANGELOG.md">changelog</a> for the list and aliases.</td>
+</tr>
+<tr>
+<td>Wrapping and CJK</td>
+<td>Soft wrapping uses Unicode UAX #14 break opportunities, so mixed English and CJK wrap without closing punctuation starting a line; trailing spaces hang and overlong words are force-broken. Using the real terminal cursor keeps IME candidate windows at the insertion point.</td>
+</tr>
+<tr>
+<td>Typewriter mode</td>
+<td><code>Ctrl+T</code> keeps the active line in the middle of the screen (<code>scrolloff</code> has no effect while it is on). Key toggles are session-only; <code>typewriter</code> sets the startup state.</td>
+</tr>
+<tr>
+<td>Focus mode</td>
+<td><code>Ctrl+O</code> dims everything outside the current paragraph (adjacent non-blank lines around the cursor). Key toggles are session-only; <code>focus_mode</code> sets the startup state.</td>
+</tr>
+<tr>
+<td>Autosave</td>
+<td>On by default; writes atomically (temp file and rename) after <code>autosave_idle_ms</code> (2 s) idle, on focus loss and on quit. <code>Untitled</code> documents are never autosaved. Saved state shows as a green <code>●</code> with no &quot;Saved&quot; message. If the file changes on disk, autosave pauses (<code>File changed on disk, Ctrl+S to overwrite</code>); <code>Ctrl+S</code> overwrites and resumes it. mustty does not reload files.</td>
+</tr>
+<tr>
+<td>Files and window title</td>
+<td>UTF-8 only; an existing BOM, CRLF line endings and final newline are preserved. Files over 5 MB show <code>File is over 5 MB: word count updates on save</code>. The window title shows the document title, else the file name, else <code>Untitled</code>, prefixed with <code>* </code> while unsaved.</td>
+</tr>
+</tbody></table>
+<h2 id="clipboard">Clipboard and SSH</h2>
+<p>Copy out over SSH using OSC 52, and paste from the system clipboard via your terminal.</p>
+<p><code>Ctrl+C</code> and <code>Ctrl+X</code> (vim <code>y</code> and <code>d</code>) fill mustty&#39;s internal register and also send the text to the system clipboard with OSC 52, which works over SSH.</p>
+<p><code>Ctrl+V</code> (vim <code>p</code>) pastes mustty&#39;s internal register only, not the system clipboard. To paste from the system clipboard, use your terminal&#39;s paste (<code>Cmd+V</code>, <code>Ctrl+Shift+V</code> or right-click). It arrives as a single bracketed paste and one undo step, and works in vim Normal mode too.</p>
+<p>macOS Terminal.app does not support OSC 52; on first copy, mustty shows <code>This terminal doesn&#39;t support OSC 52: copied to the internal register, Ctrl+V pastes</code>. Other terminals that drop OSC 52 fail silently. In tmux, enable <code>set -g set-clipboard on</code> so OSC 52 passes through.</p>
+<h2 id="browser">Browser demo</h2>
+<p>How the WebAssembly demo on mustty.com differs from the terminal app.</p>
+<p>The demo runs the same editor compiled to WebAssembly inside xterm.js and opens a sample <code>demo.md</code>. Mouse support is enabled, so hold <code>Shift</code> to select text with the browser.</p>
+<p>There is no file system: the Open button loads a local UTF-8 <code>.md</code>, <code>.markdown</code> or <code>.txt</code> file, and Download saves it under its name or <code>untitled.md</code>. <code>Ctrl+S</code> and autosave write only to page memory; nothing survives a reload. Settings work for the current session with no config file. Copy stays inside mustty with no system clipboard access and no warning, and <code>Ctrl+Q</code> does nothing.</p>
+<p>The Maximize button fills the window; press <code>Esc</code> twice quickly to restore. <code>Option+B</code> and <code>Option+F</code> work as <code>Alt+B</code> and <code>Alt+F</code>.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<p>Common terminal issues and how to handle them.</p>
+<table>
+<thead>
+<tr>
+<th>Issue</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Window too small</code></td>
+<td>The terminal is under 10 columns wide; enlarge it. Find also requires the status bar to be visible.</td>
+</tr>
+<tr>
+<td><code>Not a UTF-8 file (byte N)</code></td>
+<td>mustty refuses non-UTF-8 files rather than guessing an encoding. Convert the file first (for example with <code>iconv</code>).</td>
+</tr>
+<tr>
+<td>Copy does not reach the system clipboard</td>
+<td>Your terminal does not support OSC 52 (such as macOS Terminal.app). Copy still works inside mustty; to copy out, select with the terminal (hold <code>Shift</code> while dragging when <code>mouse</code> is on).</td>
+</tr>
+<tr>
+<td><code>Alt+B</code> / <code>Alt+F</code> type characters on macOS</td>
+<td>Configure your terminal to send Option as Meta (Terminal.app: &quot;Use Option as Meta key&quot;), or use <code>Ctrl+←</code> / <code>Ctrl+→</code>.</td>
+</tr>
+<tr>
+<td><code>Ctrl+B</code> activates tmux</td>
+<td><code>Ctrl+B</code> is tmux&#39;s default prefix; press it twice for previous match, or use <code>N</code> in vim mode. If the cursor stays a block in tmux, check its <code>Ss</code>/<code>Se</code> overrides.</td>
+</tr>
+<tr>
+<td><code>Ctrl+Backspace</code> behaves unexpectedly</td>
+<td>Both common terminal sequences are handled; <code>Ctrl+W</code> always deletes the previous word.</td>
+</tr>
+<tr>
+<td>Config warning at startup</td>
+<td>See Settings above; the same warning is printed to stderr after exit.</td>
+</tr>
+</tbody></table>
+      </article>
+    </div>
+
+    <footer class="flex flex-wrap items-center justify-between gap-4 pb-8 pt-14">
+      <p class="text-[13px] text-[var(--faint)]">MIT licensed · built in Rust</p>
+      <a href="https://github.com/joyqi/mustty"
+         class="flex items-center gap-2 rounded-lg bg-[var(--cta)] px-[18px] py-2.5 text-sm font-semibold text-white hover:bg-[var(--cta-hover)]">
+        <svg class="size-[15px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+        Star on GitHub
+      </a>
+    </footer>
+  </div>
+</body>
+</html>

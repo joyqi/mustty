@@ -1,9 +1,10 @@
 /target
 *.log
-docs/
+/docs/
 .DS_Store
 design/
 web/node_modules/
 web/dist/
 web/src/pkg/
 tools/lexer-tables/node_modules/
+.gstack/
