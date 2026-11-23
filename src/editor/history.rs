@@ -68,26 +68,35 @@ pub struct History {
 }
 
 impl History {
+    /// Records one Transaction's edits, in the order they were written. Only a lone edit can merge
+    /// into the previous Transaction; several edits always form a group of their own.
     pub fn record(
         &mut self,
-        edit: Edit,
+        edits: Vec<Edit>,
         kind: EditKind,
         before: Snapshot,
         after: Snapshot,
         now: Instant,
     ) {
         self.redo.clear();
+        let kind = if edits.len() == 1 {
+            kind
+        } else {
+            EditKind::Other
+        };
         let recent = self
             .last_edit_at
             .is_some_and(|t| now.saturating_duration_since(t) < MERGE_WINDOW);
-        match self.undo.back_mut() {
-            Some(tx) if !self.sealed && recent && tx.kind == kind && mergeable(tx, &edit) => {
-                tx.edits.push(edit);
+        match (self.undo.back_mut(), &edits[..]) {
+            (Some(tx), [edit])
+                if !self.sealed && recent && tx.kind == kind && mergeable(tx, edit) =>
+            {
+                tx.edits.push(edit.clone());
                 tx.after = after;
             }
             _ => {
                 self.undo.push_back(Transaction {
-                    edits: vec![edit],
+                    edits,
                     kind,
                     before,
                     after,
@@ -178,7 +187,7 @@ mod tests {
                 h.seal();
             }
             h.record(
-                e.clone(),
+                vec![e.clone()],
                 *kind,
                 snap(0),
                 snap(1),
@@ -265,14 +274,50 @@ mod tests {
         let mut h = History::default();
         for i in 0..MAX_TRANSACTIONS + 5 {
             h.seal();
-            h.record(edit(i, "", "a"), EditKind::Insert, snap(0), snap(1), t0);
+            h.record(
+                vec![edit(i, "", "a")],
+                EditKind::Insert,
+                snap(0),
+                snap(1),
+                t0,
+            );
         }
         assert_eq!(h.undo.len(), MAX_TRANSACTIONS);
         assert!(h.undo().is_some());
         assert_eq!(h.redo.len(), 1);
-        h.record(edit(0, "", "z"), EditKind::Insert, snap(0), snap(1), t0);
+        h.record(
+            vec![edit(0, "", "z")],
+            EditKind::Insert,
+            snap(0),
+            snap(1),
+            t0,
+        );
         assert!(h.redo.is_empty());
         // input after an undo does not merge into an earlier group
         assert_eq!(h.undo.back().unwrap().edits.len(), 1);
+    }
+
+    #[test]
+    fn several_edits_never_merge() {
+        let t0 = Instant::now();
+        let mut h = History::default();
+        h.record(
+            vec![edit(0, "", "a")],
+            EditKind::Insert,
+            snap(0),
+            snap(1),
+            t0,
+        );
+        let pair = vec![edit(1, "", "b"), edit(0, "1", "2")];
+        h.record(pair, EditKind::Insert, snap(1), snap(2), t0);
+        h.record(
+            vec![edit(2, "", "c")],
+            EditKind::Insert,
+            snap(2),
+            snap(3),
+            t0,
+        );
+        let sizes: Vec<usize> = h.undo.iter().map(|tx| tx.edits.len()).collect();
+        assert_eq!(sizes, vec![1, 2, 1]);
     }
 }

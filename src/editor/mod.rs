@@ -1,12 +1,14 @@
 //! Editor: Document + Cursor + History + Focus + register, plus two caches derived from the body.
 //!
 //! The body's single write path is `Editor::replace`, which also invalidates the affected logical lines in WrapCache and HighlightCache.
-//! Typing, deleting, pasting, cutting, register paste, undo, and redo all go through it. The Editor owns `doc` and both caches;
+//! Typing, deleting, pasting, cutting, register paste, undo, and redo all go through it; every user
+//! edit to the body is a set of splices that `Editor::commit` writes and records as one Transaction. The Editor owns `doc` and both caches;
 //! outside code can only read through `doc()` and fill the caches lazily through `view()`.
 
 pub mod cursor;
 pub mod document;
 pub mod history;
+pub mod ops;
 
 use std::ops::Range;
 use std::path::PathBuf;
@@ -23,6 +25,7 @@ use crate::text::wrap::{WrapCache, line_text};
 use cursor::Cursor;
 use document::{DiskStamp, Document};
 use history::{Edit, EditKind, History, Snapshot, Target};
+use ops::Splice;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -422,12 +425,16 @@ impl Editor {
         kind: EditKind,
         now: Instant,
     ) {
+        if target == Target::Body {
+            let splice = Splice {
+                range,
+                text: text.to_owned(),
+            };
+            return self.commit(vec![splice], head, kind, now);
+        }
         let before = self.snapshot();
         let deleted = self.write(target, range.clone(), text);
-        match target {
-            Target::Body => self.cursor.set(head),
-            Target::Title => self.title_cursor = head,
-        }
+        self.title_cursor = head;
         let edit = Edit {
             target,
             at: range.start,
@@ -435,7 +442,33 @@ impl Editor {
             inserted: text.to_owned(),
         };
         self.history
-            .record(edit, kind, before, self.snapshot(), now);
+            .record(vec![edit], kind, before, self.snapshot(), now);
+    }
+
+    /// Every body edit goes through here: write the splices (non-overlapping, in coordinates
+    /// before the edit), put the cursor at `head` (after the edit), and record all of it as one
+    /// Transaction.
+    fn commit(&mut self, splices: Vec<Splice>, head: usize, kind: EditKind, now: Instant) {
+        let before = self.snapshot();
+        let edits = self.write_splices(splices);
+        self.cursor.set(head);
+        self.history
+            .record(edits, kind, before, self.snapshot(), now);
+    }
+
+    /// Writes splices back to front, so each one's coordinates still hold when it is written;
+    /// returns the edits in the order written (undo replays them in reverse).
+    fn write_splices(&mut self, mut splices: Vec<Splice>) -> Vec<Edit> {
+        splices.sort_by_key(|s| std::cmp::Reverse(s.range.start));
+        splices
+            .into_iter()
+            .map(|s| Edit {
+                target: Target::Body,
+                at: s.range.start,
+                deleted: self.write(Target::Body, s.range, &s.text),
+                inserted: s.text,
+            })
+            .collect()
     }
 
     fn undo(&mut self) {
