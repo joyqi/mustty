@@ -170,6 +170,88 @@ pub fn shape(rope: &Rope, marks: &mut HighlightCache, lines: Range<usize>) -> Ve
     lines.map(|l| classify(rope, marks, l)).collect()
 }
 
+/// Fixes the numbers of every ordered list in the blocks that meet `lines`. A block runs from
+/// the first item above to the last line before a line that is not an item, indented text, or a
+/// blank line followed by either. Each level counts on its own from the number its first item
+/// has; a change of bullet or delimiter starts a new list.
+pub fn renumber(rope: &Rope, marks: &mut HighlightCache, lines: Range<usize>) -> Vec<Splice> {
+    struct Level {
+        indent: usize,
+        kind: MarkerKind,
+        next: u32,
+    }
+    let start_of = |m: &ListMarker| Level {
+        indent: m.indent,
+        kind: m.kind,
+        next: match m.kind {
+            MarkerKind::Ordered { number, .. } => number.saturating_add(1),
+            MarkerKind::Bullet(_) => 0,
+        },
+    };
+    let n = rope.len_lines();
+    let mut l = lines.start.min(n - 1);
+    // Back to the block's start, when the first line is in one
+    let mut first = l;
+    while first < n && classify(rope, marks, first) == Line::Blank {
+        first += 1;
+    }
+    if first < n && classify(rope, marks, first) != Line::Other {
+        while l > 0 && classify(rope, marks, l - 1) != Line::Other {
+            l -= 1;
+        }
+    }
+    let mut stack: Vec<Level> = Vec::new();
+    let mut out = Vec::new();
+    while l < n {
+        let class = classify(rope, marks, l);
+        let ends = match class {
+            Line::Other => true,
+            Line::Indented => false,
+            Line::Blank => {
+                // Blank lines carry the block on only if it resumes after them
+                let next = (l + 1..n).find(|&k| classify(rope, marks, k) != Line::Blank);
+                match next {
+                    Some(k) if classify(rope, marks, k) != Line::Other => {
+                        l = k;
+                        continue;
+                    }
+                    _ => true,
+                }
+            }
+            Line::Item(m) => {
+                while stack.last().is_some_and(|t| t.indent > m.indent) {
+                    stack.pop();
+                }
+                match stack.last_mut() {
+                    Some(top) if top.indent == m.indent && same_list(top.kind, m.kind) => {
+                        if let MarkerKind::Ordered { number, .. } = m.kind {
+                            if number != top.next {
+                                let at = rope.line_to_char(l) + m.indent;
+                                out.push(Splice {
+                                    range: at..at + m.width - 2,
+                                    text: top.next.to_string(),
+                                });
+                            }
+                            top.next = top.next.saturating_add(1);
+                        }
+                    }
+                    Some(top) if top.indent == m.indent => *top = start_of(&m),
+                    _ => stack.push(start_of(&m)),
+                }
+                false
+            }
+        };
+        if ends {
+            stack.clear();
+            if l + 1 >= lines.end {
+                break;
+            }
+        }
+        l += 1;
+    }
+    out
+}
+
 /// Leading spaces of a line.
 fn indent_of(rope: &Rope, line: usize) -> usize {
     rope.line(line).chars().take_while(|&c| c == ' ').count()
@@ -344,6 +426,69 @@ mod tests {
             unreachable!()
         };
         assert_eq!((m.indent, m.width), (2, 3));
+    }
+
+    /// Renumbers the blocks meeting `lines` of `before`.
+    fn renumbered(before: &str, lines: Range<usize>) -> String {
+        let mut rope = Rope::from_str(before);
+        let mut marks = HighlightCache::default();
+        let mut splices = renumber(&rope, &mut marks, lines);
+        splices.sort_by_key(|s| std::cmp::Reverse(s.range.start));
+        for s in splices {
+            rope.remove(s.range.clone());
+            rope.insert(s.range.start, &s.text);
+        }
+        rope.to_string()
+    }
+
+    #[test]
+    fn renumbering() {
+        let cases = [
+            // Counts up from the first item, whatever it is
+            ("1. a\n1. b\n1. c", "1. a\n2. b\n3. c"),
+            ("3. a\n1. b\n7. c", "3. a\n4. b\n5. c"),
+            ("1) a\n5) b", "1) a\n2) b"),
+            ("8. a\n9. b\n9. c", "8. a\n9. b\n10. c"),
+            // Each level on its own; the outer count resumes after a sublist
+            (
+                "1. a\n    1. x\n    5. y\n4. b\n    - z\n9. c",
+                "1. a\n    1. x\n    2. y\n2. b\n    - z\n3. c",
+            ),
+            // A different delimiter or bullet starts a new list
+            ("1. a\n2. b\n5) c\n9) d", "1. a\n2. b\n5) c\n6) d"),
+            ("1. a\n- b\n4. c", "1. a\n- b\n4. c"),
+            // Loose lists: blank lines and continuation text stay in the block
+            ("1. a\n\n   more\n\n1. b", "1. a\n\n   more\n\n2. b"),
+            // A paragraph ends the block; the next list counts from its own first number
+            (
+                "1. a\n1. b\n\npara\n\n4. c\n1. d",
+                "1. a\n2. b\n\npara\n\n4. c\n5. d",
+            ),
+            // A fenced block inside an item belongs to it
+            (
+                "1. a\n   ```\n   1. code\n   ```\n1. b",
+                "1. a\n   ```\n   1. code\n   ```\n2. b",
+            ),
+            // A fence at column 0 ends the list
+            (
+                "1. a\n```\n1. code\n```\n1. b",
+                "1. a\n```\n1. code\n```\n1. b",
+            ),
+        ];
+        for (before, want) in cases {
+            let last = before.lines().count();
+            assert_eq!(renumbered(before, 0..last), want, "{before:?}");
+        }
+        // Only the blocks that meet the lines change
+        let text = "1. a\n1. b\n\npara\n\n1. c\n1. d";
+        assert_eq!(renumbered(text, 6..7), "1. a\n1. b\n\npara\n\n1. c\n2. d");
+        assert_eq!(renumbered(text, 3..4), text);
+        assert_eq!(
+            renumbered("1. a\n1. b\n\n\npara", 3..4),
+            "1. a\n1. b\n\n\npara"
+        );
+        // A blank line that the block resumes after counts on from above
+        assert_eq!(renumbered("1. a\n\n1. b", 1..2), "1. a\n\n2. b");
     }
 
     #[test]

@@ -460,11 +460,24 @@ impl Editor {
     }
 
     /// Every body edit goes through here: write the splices (non-overlapping, in coordinates
-    /// before the edit), put the cursor at `head` (after the edit), and record all of it as one
-    /// Transaction.
+    /// before the edit), let `ops::settle` fix up the lines they touched, put the cursor at `head`
+    /// (after the edit, moved past the fixes), and record all of it as one Transaction.
     fn commit(&mut self, splices: Vec<Splice>, head: usize, kind: EditKind, now: Instant) {
         let before = self.snapshot();
-        let edits = self.write_splices(splices);
+        let rope = self.doc.body();
+        let from = splices.iter().map(|s| s.range.start).min().unwrap_or(0);
+        let to = splices.iter().map(|s| s.range.end).max().unwrap_or(0);
+        let (first, last) = (rope.char_to_line(from), rope.char_to_line(to));
+        let count = rope.len_lines();
+        let shape = ops::shape(rope, &mut self.highlight, first..last + 1);
+        let mut edits = self.write_splices(splices);
+        let rope = self.doc.body();
+        let end = (last + 1 + rope.len_lines())
+            .saturating_sub(count)
+            .max(first + 1);
+        let fixes = ops::settle(rope, &mut self.highlight, first..end, &shape);
+        let head = ops::map(head, &fixes);
+        edits.extend(self.write_splices(fixes));
         self.cursor.set(head);
         self.history
             .record(edits, kind, before, self.snapshot(), now);
@@ -908,6 +921,75 @@ mod tests {
         // With a selection, Enter replaces it as before
         run(&mut ed, &[Action::Redo, ext(Motion::Left), Action::Newline]);
         assert_eq!(body(&ed), "- [x] a\n- [ ]\nb");
+    }
+
+    #[test]
+    fn numbered_lists_renumber_in_the_same_undo_step() {
+        let mut ed = editor("1. a\n2. b\n3. c");
+        run(
+            &mut ed,
+            &[mv(Motion::Right), mv(Motion::Right), mv(Motion::Right)],
+        );
+        run(&mut ed, &[mv(Motion::Right), Action::Newline, ins("x")]);
+        assert_eq!(body(&ed), "1. a\n2. x\n3. b\n4. c");
+        assert_eq!(ed.cursor.head, 9);
+        // Typing x merged with nothing; undo takes it, then the new item and its renumbering
+        run(&mut ed, &[Action::Undo]);
+        assert_eq!(body(&ed), "1. a\n2. \n3. b\n4. c");
+        run(&mut ed, &[Action::Undo]);
+        assert_eq!(
+            (body(&ed).as_str(), ed.cursor.head),
+            ("1. a\n2. b\n3. c", 4)
+        );
+        assert!(!ed.is_dirty(), "back at the opening revision");
+        run(&mut ed, &[Action::Redo]);
+        assert_eq!(body(&ed), "1. a\n2. \n3. b\n4. c");
+        // dd, then p elsewhere: each step fixes the numbers. The first item sets where a list
+        // starts, so removing it leaves the list starting at the next number
+        let mut ed = editor("1. a\n2. b\n3. c\n4. d\n\npara");
+        run(&mut ed, &[mv(Motion::Down), Action::DeleteLine]);
+        assert_eq!(body(&ed), "1. a\n2. c\n3. d\n\npara");
+        run(&mut ed, &[mv(Motion::Down), Action::PasteRegister]);
+        assert_eq!(body(&ed), "1. a\n2. c\n3. d\n4. b\n\npara");
+        run(&mut ed, &[mv(Motion::DocStart), Action::DeleteLine]);
+        assert_eq!(body(&ed), "2. c\n3. d\n4. b\n\npara");
+        // A cut and a paste
+        run(&mut ed, &[mv(Motion::Down), ext(Motion::Down), Action::Cut]);
+        assert_eq!(body(&ed), "2. c\n3. b\n\npara");
+        run(
+            &mut ed,
+            &[mv(Motion::DocEnd), Action::Paste("\n1. x\n1. y".into())],
+        );
+        assert_eq!(body(&ed), "2. c\n3. b\n\npara\n1. x\n2. y");
+        run(&mut ed, &[Action::Paste("\n\n1. z".into())]);
+        assert_eq!(body(&ed), "2. c\n3. b\n\npara\n1. x\n2. y\n\n3. z");
+    }
+
+    #[test]
+    fn typing_in_an_item_still_merges_by_word() {
+        let mut ed = editor("1. a\n2. b");
+        let t0 = Instant::now();
+        ed.apply(&mv(Motion::DocEnd), 5, t0);
+        for (i, c) in " cd ef".chars().enumerate() {
+            ed.apply(
+                &ins(&c.to_string()),
+                5,
+                t0 + Duration::from_millis(i as u64),
+            );
+        }
+        assert_eq!(body(&ed), "1. a\n2. b cd ef");
+        run(&mut ed, &[Action::Undo]);
+        assert_eq!(body(&ed), "1. a\n2. b cd ");
+        // Editing the number of a later item puts it right back, in one step
+        let mut ed = editor("1. a\n2. b");
+        run(
+            &mut ed,
+            &[mv(Motion::Down), mv(Motion::LineStart), ins("7")],
+        );
+        assert_eq!((body(&ed).as_str(), ed.cursor.head), ("1. a\n2. b", 6));
+        run(&mut ed, &[Action::Undo]);
+        assert_eq!(body(&ed), "1. a\n2. b");
+        assert!(!ed.is_dirty());
     }
 
     #[test]
