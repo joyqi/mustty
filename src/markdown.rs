@@ -165,13 +165,13 @@ pub fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockSt
             token: Token::Heading(level as u8),
         });
         pos = mark_end;
-    } else if let Some(end) = list_marker(&chars, pos) {
+    } else if let Some(marker) = list_marker(&chars, pos) {
         out.push(StyledRange {
             start: pos,
-            end,
+            end: marker.end,
             token: Token::ListMark,
         });
-        pos = end;
+        pos = marker.end;
     }
     scan_inline(&chars, pos, &mut out);
     (out, BlockState::Normal)
@@ -196,31 +196,74 @@ fn heading_level(chars: &[char]) -> Option<usize> {
     ((1..=6).contains(&level) && follows).then_some(level)
 }
 
-/// Where the list marker ends, including indent and task box:
-/// `- `, `* `, `+ `, `1. `, `1) `, `- [ ] `.
-fn list_marker(chars: &[char], from: usize) -> Option<usize> {
-    let mut i = from + chars[from..].iter().take_while(|&&c| c == ' ').count();
-    match chars.get(i) {
-        Some('-' | '*' | '+') => i += 1,
+/// A list item's marker, parsed from the start of a line (after any quote marks).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ListMarker {
+    /// Leading spaces
+    pub indent: usize,
+    pub kind: MarkerKind,
+    /// The task box: `None` without one, `Some(checked)` with `[ ]` / `[x]`
+    pub task: Option<bool>,
+    /// The marker itself with its space, after the indent and before any task box: 2 for `- `, 4
+    /// for `10. `
+    pub width: usize,
+    /// Where the whole marker ends: indent, marker, space and task box
+    pub end: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkerKind {
+    /// `-`, `*` or `+`
+    Bullet(char),
+    /// `1.` or `1)`
+    Ordered { number: u32, delim: char },
+}
+
+/// The list marker at `from`: `- `, `* `, `+ `, `1. `, `1) `, optionally indented and followed
+/// by a task box (`- [ ] `).
+pub fn list_marker(chars: &[char], from: usize) -> Option<ListMarker> {
+    let indent = chars[from..].iter().take_while(|&&c| c == ' ').count();
+    let mut i = from + indent;
+    let kind = match chars.get(i) {
+        Some(&c @ ('-' | '*' | '+')) => {
+            i += 1;
+            MarkerKind::Bullet(c)
+        }
         Some(c) if c.is_ascii_digit() => {
             let digits = chars[i..].iter().take_while(|c| c.is_ascii_digit()).count();
-            if digits > 9 || !matches!(chars.get(i + digits), Some('.' | ')')) {
-                return None;
-            }
+            let delim = match chars.get(i + digits) {
+                Some(&d @ ('.' | ')')) if digits <= 9 => d,
+                _ => return None,
+            };
+            let number = chars[i..i + digits]
+                .iter()
+                .collect::<String>()
+                .parse()
+                .ok()?;
             i += digits + 1;
+            MarkerKind::Ordered { number, delim }
         }
         _ => return None,
-    }
+    };
     if chars.get(i) != Some(&' ') {
         return None;
     }
     i += 1;
-    if matches!(chars.get(i..i + 3), Some(['[', ' ' | 'x' | 'X', ']']))
+    let width = i - from - indent;
+    let mut task = None;
+    if let Some(['[', mark @ (' ' | 'x' | 'X'), ']']) = chars.get(i..i + 3)
         && chars.get(i + 3).is_none_or(|&c| c == ' ')
     {
+        task = Some(*mark != ' ');
         i = (i + 4).min(chars.len());
     }
-    Some(i)
+    Some(ListMarker {
+        indent,
+        kind,
+        task,
+        width,
+        end: i,
+    })
 }
 
 /// Inline passes: code → links → `**`/`__` → `*`/`_`. Matching is sequential, never backtracks and
@@ -511,6 +554,54 @@ mod tests {
             "-不是列表",
         ];
         insta::assert_snapshot!(lines.map(show).concat());
+    }
+
+    #[test]
+    fn list_markers() {
+        use MarkerKind::*;
+        let m = |indent, kind, task, width, end| {
+            Some(ListMarker {
+                indent,
+                kind,
+                task,
+                width,
+                end,
+            })
+        };
+        let ord = |number, delim| Ordered { number, delim };
+        let cases = [
+            ("- a", m(0, Bullet('-'), None, 2, 2)),
+            ("* a", m(0, Bullet('*'), None, 2, 2)),
+            ("+ a", m(0, Bullet('+'), None, 2, 2)),
+            ("- ", m(0, Bullet('-'), None, 2, 2)),
+            ("1. a", m(0, ord(1, '.'), None, 3, 3)),
+            ("7) a", m(0, ord(7, ')'), None, 3, 3)),
+            ("10. a", m(0, ord(10, '.'), None, 4, 4)),
+            ("123456789. a", m(0, ord(123456789, '.'), None, 11, 11)),
+            ("    - a", m(4, Bullet('-'), None, 2, 6)),
+            ("   12. a", m(3, ord(12, '.'), None, 4, 7)),
+            ("- [ ] a", m(0, Bullet('-'), Some(false), 2, 6)),
+            ("- [x] a", m(0, Bullet('-'), Some(true), 2, 6)),
+            ("1. [X] a", m(0, ord(1, '.'), Some(true), 3, 7)),
+            ("- [ ]", m(0, Bullet('-'), Some(false), 2, 5)),
+            ("- [ ]a", m(0, Bullet('-'), None, 2, 2)),
+            ("- [y] a", m(0, Bullet('-'), None, 2, 2)),
+            ("-x", None),
+            ("-", None),
+            ("1.x", None),
+            ("1.", None),
+            ("1 a", None),
+            ("1234567890. a", None),
+            ("a. b", None),
+            ("", None),
+        ];
+        for (line, want) in cases {
+            let chars: Vec<char> = line.chars().collect();
+            assert_eq!(list_marker(&chars, 0), want, "{line:?}");
+        }
+        // After quote marks, the indent counts from `from`
+        let chars: Vec<char> = "> - a".chars().collect();
+        assert_eq!(list_marker(&chars, 2), m(0, Bullet('-'), None, 2, 4));
     }
 
     #[test]

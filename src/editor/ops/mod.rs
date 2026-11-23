@@ -3,6 +3,8 @@
 //! the lines an edit touched. Both only produce `Splice`s, which `Editor::commit` writes in the
 //! same Transaction as their cause, so one key is one undo step.
 
+pub mod list;
+
 use std::ops::Range;
 
 /// Replace the body's chars in `range` (coordinates before the edit) with `text`.
