@@ -1351,6 +1351,35 @@ mod tests {
     }
 
     #[test]
+    fn vim_open_line_on_list_items() {
+        let mut app = vim_app("- [x] one\n- two");
+        typed(&mut app, "\x1bo");
+        assert_eq!(app.mode_label(), Some("INS"));
+        typed(&mut app, "new");
+        assert_eq!(body(&app), "- [x] one\n- [ ] new\n- two");
+        typed(&mut app, "\x1bGO");
+        assert_eq!(app.mode_label(), Some("INS"));
+        typed(&mut app, "above");
+        assert_eq!(body(&app), "- [x] one\n- [ ] new\n- above\n- two");
+        // Numbered: O inserts the same number and the ones below move up
+        let mut app = vim_app("1. a\n2. b");
+        typed(&mut app, "\x1bjOx");
+        assert_eq!(body(&app), "1. a\n2. x\n3. b");
+        // u takes back the typing, then the new item with its renumbering
+        typed(&mut app, "\x1bu");
+        assert_eq!(body(&app), "1. a\n2. \n3. b");
+        typed(&mut app, "u");
+        assert_eq!(body(&app), "1. a\n2. b");
+        // Not a list line: O opens an empty line above
+        let mut app = vim_app("one\ntwo");
+        typed(&mut app, "\x1bjOx");
+        assert_eq!(
+            (body(&app).as_str(), app.mode_label()),
+            ("one\nx\ntwo", Some("INS"))
+        );
+    }
+
+    #[test]
     fn vim_visual_leaves_no_anchor_behind() {
         // At the end of the document the inclusive range collapses to nothing: d / x / y / p
         // find no selection, and the anchor must still go, or the next motion paints a selection

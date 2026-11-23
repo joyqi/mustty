@@ -173,10 +173,13 @@ fn normal_entries() -> Vec<Entry> {
     vec![
         entry("i", "help-vim-insert", Expect::mode(Mode::Insert)),
         entry("a", "help-vim-append", mv(Right, false).then(Mode::Insert)),
-        entry(
-            "o",
+        each(
+            "o / O",
             "help-vim-open-line",
-            a(OpenLineBelow).then(Mode::Insert),
+            vec![
+                a(OpenLineBelow).then(Mode::Insert),
+                a(OpenLineAbove).then(Mode::Insert),
+            ],
         ),
         entry("v", "help-vim-visual", Expect::mode(VISUAL)),
         entry("h", "help-left", mv(Left, false)),
@@ -561,6 +564,7 @@ mod tests {
             | Action::PasteRegister
             | Action::DeleteLine
             | Action::OpenLineBelow
+            | Action::OpenLineAbove
             | Action::ToggleTypewriter
             | Action::ToggleFocusMode
             | Action::OpenSettings

@@ -190,8 +190,8 @@ irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps
 </thead>
 <tbody><tr>
 <td>Normal</td>
-<td><code>i</code> / <code>a</code> / <code>o</code></td>
-<td>Enter Insert at cursor / after cursor / new line below</td>
+<td><code>i</code> / <code>a</code> / <code>o</code> / <code>O</code></td>
+<td>Enter Insert at cursor / after cursor / new line below / new line above (a new item on a list line)</td>
 </tr>
 <tr>
 <td>Normal</td>
@@ -254,7 +254,7 @@ irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps
 <td>End selection / switch to Insert</td>
 </tr>
 </tbody></table>
-<p>Arrow keys, <code>Home</code>, <code>End</code>, <code>PgUp</code> and <code>PgDn</code> also work in Normal mode. <code>?</code>, <code>/</code>, <code>n</code> and <code>N</code> act as commands only in vim modes; otherwise they type the character. This is a deliberately small subset: there are no counts, no <code>c</code>, <code>yy</code>, <code>A</code>, <code>I</code>, <code>O</code>, <code>.</code>, <code>:</code> commands, registers or text objects, and any other key in Normal mode is ignored.</p>
+<p>Arrow keys, <code>Home</code>, <code>End</code>, <code>PgUp</code> and <code>PgDn</code> also work in Normal mode. <code>?</code>, <code>/</code>, <code>n</code> and <code>N</code> act as commands only in vim modes; otherwise they type the character. This is a deliberately small subset: there are no counts, no <code>c</code>, <code>yy</code>, <code>A</code>, <code>I</code>, <code>.</code>, <code>:</code> commands, registers or text objects, and any other key in Normal mode is ignored.</p>
 <h2 id="find">Find</h2>
 <p>Search the document body incrementally as you type.</p>
 <p>Press <code>Ctrl+F</code> (or <code>/</code> in vim Normal mode) to open <code>Find: </code> in the status bar. Matches update as you type and the view jumps to the first match at or after the cursor, wrapping to the top. Every match is yellow and underlined, with the current match reversed; the right side shows the count (such as <code>3/12</code>) or <code>No matches</code>.</p>

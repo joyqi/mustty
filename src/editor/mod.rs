@@ -231,6 +231,17 @@ impl Editor {
                 let end = rope.line_to_char(line) + line_text(rope, line).chars().count();
                 self.change(Target::Body, end..end, "\n", EditKind::Other, now);
             }
+            Action::OpenLineAbove => {
+                let start = rope.line_to_char(rope.char_to_line(head));
+                self.change_to(
+                    Target::Body,
+                    start..start,
+                    "\n",
+                    start,
+                    EditKind::Other,
+                    now,
+                );
+            }
             _ => {}
         }
         Effect::None
@@ -993,6 +1004,26 @@ mod tests {
     }
 
     #[test]
+    fn open_line_above_is_one_undo() {
+        let mut ed = editor("ab\ncd");
+        run(&mut ed, &[mv(Motion::Down), Action::OpenLineAbove]);
+        assert_eq!((body(&ed).as_str(), ed.cursor.head), ("ab\n\ncd", 3));
+        run(&mut ed, &[Action::Undo]);
+        assert_eq!((body(&ed).as_str(), ed.cursor.head), ("ab\ncd", 3));
+        // On a list item, a new item with the same marker; the numbers below move up
+        let mut ed = editor("1. a\n2. b");
+        run(&mut ed, &[mv(Motion::Down), Action::OpenLineAbove]);
+        assert_eq!((body(&ed).as_str(), ed.cursor.head), ("1. a\n2. \n3. b", 8));
+        run(&mut ed, &[Action::Undo]);
+        assert_eq!(body(&ed), "1. a\n2. b");
+        run(&mut ed, &[Action::OpenLineBelow]);
+        assert_eq!(
+            (body(&ed).as_str(), ed.cursor.head),
+            ("1. a\n2. b\n3. ", 13)
+        );
+    }
+
+    #[test]
     fn delete_word_back() {
         let mut ed = editor("hello 中文写作 world");
         run(&mut ed, &[mv(Motion::DocEnd), Action::DeleteWordBack]);
@@ -1047,6 +1078,7 @@ mod tests {
             Action::Newline,
             Action::Tab,
             Action::BackTab,
+            Action::OpenLineAbove,
             Action::Cancel,
         ];
         prop_oneof![

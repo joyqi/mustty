@@ -36,7 +36,7 @@ expression: text
 "    Normal mode                                                                 "
 "    i                         Insert mode at the cursor                         "
 "    a                         Insert mode after the cursor                      "
-"    o                         Insert mode on a new line below                   "
+"    o / O                     Insert mode on a new line below / above           "
 "    v                         Start a selection                                 "
 "    h                         Left                                              "
 "    j                         Down a line                                       "

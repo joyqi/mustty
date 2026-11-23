@@ -35,6 +35,8 @@ pub enum Action {
     DeleteLine,
     /// vim `o`: move to the end of the logical line and insert `\n`, as one Transaction
     OpenLineBelow,
+    /// vim `O`: insert `\n` at the start of the logical line and stay on the new line above
+    OpenLineAbove,
     ToggleTypewriter,
     ToggleFocusMode,
     /// Ctrl+P: open the settings panel; consumed by App

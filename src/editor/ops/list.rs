@@ -35,6 +35,29 @@ pub fn intent(action: &Action, cx: &mut Ctx) -> Option<Change> {
                 }],
             })
         }
+        // vim `o` / `O`: a new empty item of the same kind below or above
+        Action::OpenLineBelow => {
+            let end = start + text.len();
+            let insert = format!("\n{}{}", " ".repeat(m.indent), next_marker(&m));
+            Some(Change {
+                head: end + insert.chars().count(),
+                splices: vec![Splice {
+                    range: end..end,
+                    text: insert,
+                }],
+            })
+        }
+        Action::OpenLineAbove => {
+            let task = if m.task.is_some() { "[ ] " } else { "" };
+            let prefix = format!("{}{}{task}", " ".repeat(m.indent), marker_text(m.kind));
+            Some(Change {
+                head: start + prefix.chars().count(),
+                splices: vec![Splice {
+                    range: start..start,
+                    text: prefix + "\n",
+                }],
+            })
+        }
         Action::Tab => Some(indent(cx, line, &m)),
         Action::BackTab => Some(outdent(cx, line, &m)),
         // At the start of the item's text: out a level, or drop the marker at the top level
@@ -533,6 +556,29 @@ mod tests {
         );
         // A blank line that the block resumes after counts on from above
         assert_eq!(renumbered("1. a\n\n1. b", 1..2), "1. a\n\n2. b");
+    }
+
+    #[test]
+    fn open_line_below_and_above() {
+        each(
+            Action::OpenLineBelow,
+            &[
+                ("- a|b", Some("- ab\n- |")),
+                (
+                    "|  3. [x] a\n  4. b",
+                    Some("  3. [x] a\n  4. [ ] |\n  4. b"),
+                ),
+                ("a|", None),
+            ],
+        );
+        each(
+            Action::OpenLineAbove,
+            &[
+                ("- a|b", Some("- |\n- ab")),
+                ("1. a\n  2) [x] b|", Some("1. a\n  2) [ ] |\n  2) [x] b")),
+                ("a|", None),
+            ],
+        );
     }
 
     #[test]

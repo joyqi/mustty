@@ -173,6 +173,7 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
         (None, 'i') => (visual.then_some(Action::Cancel), Mode::Insert),
         (None, 'a') => (Some(Action::Move(Right, false)), Mode::Insert),
         (None, 'o') => (Some(Action::OpenLineBelow), Mode::Insert),
+        (None, 'O') => (Some(Action::OpenLineAbove), Mode::Insert),
         (None, 'v') if visual => (Some(Action::Cancel), leave_visual),
         (None, 'v') => (
             None,
@@ -436,6 +437,10 @@ mod tests {
             one(NOR, ch('o')),
             (Some(Action::OpenLineBelow), Mode::Insert)
         );
+        assert_eq!(
+            one(NOR, ch('O')),
+            (Some(Action::OpenLineAbove), Mode::Insert)
+        );
         assert_eq!(one(NOR, ch('v')), (None, VIS));
         assert_eq!(one(VIS, ch('v')), (Some(Action::Cancel), NOR));
         assert_eq!(one(VIS, esc.clone()), (Some(Action::Cancel), NOR));
@@ -603,6 +608,7 @@ mod tests {
         ("i", NOR, None, INS),
         ("a", NOR, mv(Motion::Right, false), INS),
         ("o", NOR, Some(Action::OpenLineBelow), INS),
+        ("O", NOR, Some(Action::OpenLineAbove), INS),
         ("v", NOR, None, VIS),
         ("v", VIS, Some(Action::Cancel), NOR),
         ("<Esc>", VIS, Some(Action::Cancel), NOR),
