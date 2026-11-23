@@ -153,6 +153,20 @@ impl Editor {
         let head = self.cursor.head;
         let sel = self.cursor.selection();
         let at_cursor = sel.clone().unwrap_or(head..head);
+        if sel.is_none() {
+            let mut cx = ops::Ctx {
+                rope,
+                marks: &mut self.highlight,
+                head,
+                tab_width: self.wrap.tab_width() as usize,
+            };
+            if let Some(change) = ops::intent(action, &mut cx) {
+                if !change.splices.is_empty() {
+                    self.commit(change.splices, change.head, EditKind::Other, now);
+                }
+                return Effect::None;
+            }
+        }
         match action {
             Action::Insert(s) => {
                 let single = sel.is_none() && s.graphemes(true).count() == 1;
@@ -875,6 +889,25 @@ mod tests {
         run(&mut ed, &[ins("x"), Action::Undo]);
         run(&mut ed, &[Action::Undo]);
         assert_eq!((body(&ed).as_str(), ed.cursor.head), ("ab\ncd", 1));
+    }
+
+    #[test]
+    fn enter_on_a_list_item_is_one_undo() {
+        let mut ed = editor("- [x] ab");
+        run(
+            &mut ed,
+            &[mv(Motion::DocEnd), mv(Motion::Left), Action::Newline],
+        );
+        assert_eq!(
+            (body(&ed).as_str(), ed.cursor.head),
+            ("- [x] a\n- [ ] b", 14)
+        );
+        run(&mut ed, &[Action::Undo]);
+        assert_eq!((body(&ed).as_str(), ed.cursor.head), ("- [x] ab", 7));
+        assert!(!ed.is_dirty());
+        // With a selection, Enter replaces it as before
+        run(&mut ed, &[Action::Redo, ext(Motion::Left), Action::Newline]);
+        assert_eq!(body(&ed), "- [x] a\n- [ ]\nb");
     }
 
     #[test]

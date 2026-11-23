@@ -7,8 +7,124 @@ use std::ops::Range;
 
 use ropey::Rope;
 
+use super::{Change, Ctx, Splice};
+use crate::action::Action;
 use crate::markdown::{HighlightCache, ListMarker, MarkerKind, Token, list_marker};
 use crate::text::wrap::line_text;
+
+/// Enter, Tab, Shift+Tab, Backspace and vim `o` / `O` on a list item.
+pub fn intent(action: &Action, cx: &mut Ctx) -> Option<Change> {
+    let line = cx.rope.char_to_line(cx.head);
+    let m = item_at(cx.rope, cx.marks, line)?;
+    let start = cx.rope.line_to_char(line);
+    let col = cx.head - start;
+    let text: Vec<char> = line_text(cx.rope, line).chars().collect();
+    match action {
+        Action::Newline if col >= m.end => {
+            if text[m.end..].iter().all(|c| c.is_whitespace()) {
+                return Some(end_item(cx, line, &m, text.len()));
+            }
+            // The new item takes the text after the cursor, minus the spaces right after it
+            let gap = text[col..].iter().take_while(|&&c| c == ' ').count();
+            let insert = format!("\n{}{}", " ".repeat(m.indent), next_marker(&m));
+            Some(Change {
+                head: cx.head + insert.chars().count(),
+                splices: vec![Splice {
+                    range: cx.head..cx.head + gap,
+                    text: insert,
+                }],
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Enter on an empty item: a nested one moves out a level, a top-level one is cleared, ending
+/// the list.
+fn end_item(cx: &mut Ctx, line: usize, m: &ListMarker, len: usize) -> Change {
+    if m.indent > 0 {
+        return outdent(cx, line, m);
+    }
+    let start = cx.rope.line_to_char(line);
+    Change {
+        splices: vec![Splice {
+            range: start..start + len,
+            text: String::new(),
+        }],
+        head: start,
+    }
+}
+
+/// Moves the item and its children out to the parent's indent.
+fn outdent(cx: &mut Ctx, line: usize, m: &ListMarker) -> Change {
+    let target = parent(cx.rope, cx.marks, line, m.indent).map_or(0, |(_, p)| p.indent);
+    move_item(cx, line, m, target)
+}
+
+/// Moves the item on `line` and its subtree to `target` indent. The item joins the list already
+/// at that level next to it, taking its marker; without one it starts a new list with its own
+/// kind of marker. Its task box stays as it is.
+fn move_item(cx: &mut Ctx, line: usize, m: &ListMarker, target: usize) -> Change {
+    let kind = match prev_sibling(cx.rope, cx.marks, line, target) {
+        Some((_, near)) => following(near.kind),
+        None => match m.kind {
+            MarkerKind::Ordered { delim, .. } => MarkerKind::Ordered { number: 1, delim },
+            bullet => bullet,
+        },
+    };
+    let start = cx.rope.line_to_char(line);
+    let old = m.indent + m.width;
+    let prefix = format!("{}{}", " ".repeat(target), marker_text(kind));
+    let col = cx.head - start;
+    let head = start + prefix.chars().count() + col.saturating_sub(old);
+    let mut splices = vec![Splice {
+        range: start..start + old,
+        text: prefix,
+    }];
+    for l in line + 1..subtree_end(cx.rope, line, m.indent) {
+        if line_text(cx.rope, l).trim().is_empty() {
+            continue;
+        }
+        let at = cx.rope.line_to_char(l);
+        splices.push(if target > m.indent {
+            Splice {
+                range: at..at,
+                text: " ".repeat(target - m.indent),
+            }
+        } else {
+            Splice {
+                range: at..at + m.indent - target,
+                text: String::new(),
+            }
+        });
+    }
+    Change { splices, head }
+}
+
+/// The marker kind of the item after one of `kind`.
+fn following(kind: MarkerKind) -> MarkerKind {
+    match kind {
+        MarkerKind::Ordered { number, delim } => MarkerKind::Ordered {
+            number: number.saturating_add(1),
+            delim,
+        },
+        bullet => bullet,
+    }
+}
+
+fn marker_text(kind: MarkerKind) -> String {
+    match kind {
+        MarkerKind::Bullet(c) => format!("{c} "),
+        MarkerKind::Ordered { number, delim } => format!("{number}{delim} "),
+    }
+}
+
+/// The marker for a new item after `m`: the same bullet or the next number, and an unchecked box
+/// if `m` has a box.
+fn next_marker(m: &ListMarker) -> String {
+    let task = if m.task.is_some() { "[ ] " } else { "" };
+    format!("{}{task}", marker_text(following(m.kind)))
+}
 
 /// How a line takes part in a list block.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +246,79 @@ pub fn same_list(a: MarkerKind, b: MarkerKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Runs `action` on `before`, where `|` marks the cursor, and returns the text with the new
+    /// cursor marked, or None when the key keeps its plain behaviour.
+    fn key(before: &str, action: Action) -> Option<String> {
+        let head = before
+            .find('|')
+            .map(|b| before[..b].chars().count())
+            .unwrap();
+        let mut rope = Rope::from_str(&before.replacen('|', "", 1));
+        let mut marks = HighlightCache::default();
+        let mut cx = Ctx {
+            rope: &rope,
+            marks: &mut marks,
+            head,
+            tab_width: 4,
+        };
+        let mut change = intent(&action, &mut cx)?;
+        change
+            .splices
+            .sort_by_key(|s| std::cmp::Reverse(s.range.start));
+        for s in change.splices {
+            rope.remove(s.range.clone());
+            rope.insert(s.range.start, &s.text);
+        }
+        rope.insert_char(change.head, '|');
+        Some(rope.to_string())
+    }
+
+    fn each(action: Action, cases: &[(&str, Option<&str>)]) {
+        for (before, want) in cases {
+            let got = key(before, action.clone());
+            assert_eq!(got.as_deref(), *want, "{action:?} on {before:?}");
+        }
+    }
+
+    #[test]
+    fn enter_continues_splits_and_ends_items() {
+        each(
+            Action::Newline,
+            &[
+                // At the end: a new item with the next marker
+                ("- a|", Some("- a\n- |")),
+                ("* a|\n* b", Some("* a\n* |\n* b")),
+                ("+ a|", Some("+ a\n+ |")),
+                ("3. foo|", Some("3. foo\n4. |")),
+                ("9) foo|", Some("9) foo\n10) |")),
+                ("  - a|", Some("  - a\n  - |")),
+                // A checkbox continues unchecked
+                ("- [x] done|", Some("- [x] done\n- [ ] |")),
+                ("1. [ ] todo|", Some("1. [ ] todo\n2. [ ] |")),
+                // In the middle: split, the space after the cursor goes
+                ("3. foo| bar", Some("3. foo\n4. |bar")),
+                ("- a|b", Some("- a\n- |b")),
+                ("- |ab", Some("- \n- |ab")),
+                // An empty top-level item ends the list
+                ("- a\n- |", Some("- a\n|")),
+                ("- a\n- [ ] |", Some("- a\n|")),
+                ("1. a\n2. |  ", Some("1. a\n|")),
+                // An empty nested item moves out a level, taking the parent list's marker
+                ("- a\n    - |", Some("- a\n- |")),
+                ("1. a\n    - |", Some("1. a\n2. |")),
+                ("- a\n    - b\n        - |", Some("- a\n    - b\n    - |")),
+                ("- a\n    - [ ] |", Some("- a\n- [ ] |")),
+                // Before or inside the marker, and outside lists: plain Enter
+                ("|- a", None),
+                ("-| a", None),
+                ("- |[ ] a", None),
+                ("para|", None),
+                ("```\n- a|\n```", None),
+                ("> - a|", None),
+            ],
+        );
+    }
 
     fn doc(text: &str) -> (Rope, HighlightCache) {
         (Rope::from_str(text), HighlightCache::default())
