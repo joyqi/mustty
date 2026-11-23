@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Lists continue as you write ([#2](https://github.com/joyqi/mustty/issues/2)). On a bullet, checkbox or numbered item, `Enter` at the end starts the next item (a new checkbox starts unchecked) and `Enter` in the middle splits the item, moving the text after the cursor to the new one. `Enter` on an empty item ends the list, or moves a nested item out one level.
+- `Tab` makes a list item a sub-item of the one above, bringing its own sub-items along, and `Shift+Tab` moves it back out. A moved item takes the marker of the list it joins. Outside lists `Tab` still inserts `tab_width` spaces.
+- `Backspace` at the start of an item's text removes the marker, or moves a nested item out one level. At the very start of the line it joins with the line above as before, marker and all.
+- Numbered lists renumber themselves when items are added, deleted, moved, pasted or nested, each level counting on its own from the number of its first item; undo puts the old numbers back with the edit. A list written as `1.` on every line becomes 1, 2, 3 once you edit it.
+- vim: `O` opens a new line above and enters Insert mode. On a list item, `o` and `O` open an empty item with the right marker.
+- The help panel (`Ctrl+G`) lists `Tab / Shift+Tab`, and `o / O` under vim.
+
 ## [0.1.6] - 2026-11-18
 
 ### Added
