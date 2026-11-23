@@ -1238,6 +1238,66 @@ mod tests {
         assert_eq!(body(&app), format!("{}x", " ".repeat(10)));
     }
 
+    fn key_with(code: KeyCode, mods: KeyModifiers) -> Event {
+        Event::Key(KeyEvent::new(code, mods))
+    }
+
+    #[test]
+    fn list_keys_flow() {
+        let doc = Document::parse("", lf_meta(None));
+        let config = Config {
+            autosave: false,
+            ..Config::default()
+        };
+        let mut app = App::with_config(doc, Size::new(80, 24), &config);
+        let shift_tab = || key_with(KeyCode::BackTab, KeyModifiers::SHIFT);
+        let cursor = |app: &App| {
+            let mut s = body(app);
+            let b = s
+                .char_indices()
+                .nth(app.editor.cursor.head)
+                .map_or(s.len(), |(b, _)| b);
+            s.insert(b, '|');
+            s
+        };
+        typed(&mut app, "1. a");
+        app.handle(press(KeyCode::Enter));
+        typed(&mut app, "b");
+        app.handle(press(KeyCode::Enter));
+        assert_eq!(cursor(&app), "1. a\n2. b\n3. |");
+        app.handle(press(KeyCode::Tab));
+        typed(&mut app, "x");
+        app.handle(press(KeyCode::Enter));
+        assert_eq!(cursor(&app), "1. a\n2. b\n    1. x\n    2. |");
+        // Enter on the empty nested item moves it back out, continuing the outer count
+        app.handle(press(KeyCode::Enter));
+        assert_eq!(cursor(&app), "1. a\n2. b\n    1. x\n3. |");
+        // Shift+Tab at the top level does nothing; Tab and Shift+Tab move it in and out
+        app.handle(shift_tab());
+        assert_eq!(cursor(&app), "1. a\n2. b\n    1. x\n3. |");
+        app.handle(press(KeyCode::Tab));
+        assert_eq!(cursor(&app), "1. a\n2. b\n    1. x\n    2. |");
+        app.handle(key_with(KeyCode::Tab, KeyModifiers::SHIFT));
+        assert_eq!(cursor(&app), "1. a\n2. b\n    1. x\n3. |");
+        // Backspace at the start of the text drops the marker, then joins lines as usual
+        app.handle(press(KeyCode::Backspace));
+        assert_eq!(cursor(&app), "1. a\n2. b\n    1. x\n|");
+        app.handle(press(KeyCode::Backspace));
+        assert_eq!(cursor(&app), "1. a\n2. b\n    1. x|");
+        // Each key was one undo step
+        let undo = || key_with(KeyCode::Char('z'), KeyModifiers::CONTROL);
+        for want in [
+            "1. a\n2. b\n    1. x\n|",
+            "1. a\n2. b\n    1. x\n3. |",
+            "1. a\n2. b\n    1. x\n    2. |",
+            "1. a\n2. b\n    1. x\n3. |",
+            "1. a\n2. b\n    1. x\n    2. |",
+        ] {
+            app.handle(undo());
+            assert_eq!(cursor(&app), want);
+        }
+    }
+
     fn vim_app(text: &str) -> App {
         let doc = Document::parse(text, lf_meta(None));
         let config = Config {

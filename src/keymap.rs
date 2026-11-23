@@ -99,6 +99,8 @@ fn default_map(key: &KeyEvent, extend: bool) -> Option<Action> {
         KeyCode::Enter => Some(Action::Newline),
         KeyCode::Backspace => Some(Action::DeleteBack),
         KeyCode::Delete => Some(Action::DeleteForward),
+        KeyCode::BackTab => Some(Action::BackTab),
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(Action::BackTab),
         KeyCode::Tab => Some(Action::Tab),
         KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Left if ctrl => mv(Motion::WordLeft),
@@ -140,6 +142,7 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
                 a,
                 Action::Insert(_)
                     | Action::Tab
+                    | Action::BackTab
                     | Action::Newline
                     | Action::DeleteBack
                     | Action::DeleteForward
@@ -266,7 +269,8 @@ mod tests {
             (key(Backspace, none), Some(Action::DeleteBack)),
             (key(Delete, none), Some(Action::DeleteForward)),
             (key(Tab, none), Some(Action::Tab)),
-            (key(BackTab, shift), None), // Shift+Tab is a no-op; never adds spaces to the title
+            (key(BackTab, shift), Some(Action::BackTab)),
+            (key(Tab, shift), Some(Action::BackTab)),
             (key(Esc, none), Some(Action::Cancel)),
             (key(Left, none), mv(Motion::Left)),
             (key(Right, none), mv(Motion::Right)),
@@ -719,7 +723,7 @@ mod tests {
                 let before = mode;
                 let action = keymap.map_event(ev, &mut mode, false);
                 if matches!(before, Mode::Normal(_)) {
-                    prop_assert!(!matches!(action, Some(Action::Insert(_) | Action::Tab)), "{:?}", ev);
+                    prop_assert!(!matches!(action, Some(Action::Insert(_) | Action::Tab | Action::BackTab)), "{:?}", ev);
                 }
                 if let Mode::Normal(s) = mode {
                     prop_assert!(matches!(s.pending, None | Some('g' | 'd')));

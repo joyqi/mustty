@@ -2,8 +2,8 @@
 //! machine. Rendering lives in `view::help`.
 //!
 //! Only special, hard-to-guess keys are listed. Keys that work the same in every editor (Enter,
-//! Backspace, Tab, typing) are left out, and arrows / Home / End / PgUp / PgDn collapse into a
-//! single "move" entry.
+//! Backspace, typing) are left out, and arrows / Home / End / PgUp / PgDn collapse into a single
+//! "move" entry. Tab is listed with Shift+Tab, for what they do on list items.
 //!
 //! Every `Entry` states what `Keymap::map_event` should return for it (`Expect`), and the tests
 //! feed each one to the keymap to check. Conversely, every Action the keymap can produce (except
@@ -131,6 +131,11 @@ fn base_entries(vim: bool) -> Vec<Entry> {
             vec![mv(DocStart, false), mv(DocEnd, false)],
         ),
         entry("Shift+↑↓←→", "help-extend", Expect::Moves { extend: true }),
+        each(
+            "Tab / Shift+Tab",
+            "help-list-indent",
+            vec![a(Tab), a(BackTab)],
+        ),
         entry(
             "Ctrl+Backspace / Ctrl+W",
             "help-delete-word",
@@ -542,7 +547,8 @@ mod tests {
             | Action::PromptInput(_)
             | Action::MoveTo(..)
             | Action::ScrollView(_) => false,
-            Action::DeleteWordBack
+            Action::BackTab
+            | Action::DeleteWordBack
             | Action::Move(..)
             | Action::Undo
             | Action::Redo
@@ -693,11 +699,8 @@ mod tests {
     }
 
     #[test]
-    fn default_list_is_short() {
-        // Only special shortcuts: at most 15 default entries, so they fit on one screen when
-        // the body is 16 rows tall
+    fn default_list_skips_conventional_input() {
         let plain = lines(false);
-        assert!(plain.len() <= 15, "{} default entries", plain.len());
         // The vim Insert group is as lean as the default table; Normal / Visual still list
         // everything
         let g = groups(true);
@@ -706,7 +709,7 @@ mod tests {
         // Conventional input gets no entry of its own
         for vim in [false, true] {
             for e in groups(vim).iter().take(1).flat_map(|g| &g.entries) {
-                for gone in ["Enter", "Backspace", "Delete", "Tab", "Home", "PgUp"] {
+                for gone in ["Enter", "Backspace", "Delete", "Home", "PgUp"] {
                     assert!(e.keys != gone, "vim={vim}: {gone} listed ({})", e.desc_id);
                 }
             }

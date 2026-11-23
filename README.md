@@ -18,6 +18,7 @@ mustty is an unhurried place to write by hand, one word at a time, inside the te
 
 - One file at a time on a 72-column centered page (40–120), with no file tree, splits, borders, or chrome.
 - Markdown headings, emphasis, code, links, lists, and quotes are styled in place while their `#`, `*`, and `` ` `` markers dim instead of disappearing.
+- Lists continue themselves: `Enter` starts the next bullet, checkbox or number, `Tab` / `Shift+Tab` nest and un-nest items, and numbered lists renumber as you edit.
 - Autosave writes atomically after 2 seconds of idle time, on focus loss, and on quit, and pauses if another program modifies the file on disk.
 - Soft wrapping follows Unicode line-breaking rules (UAX #14), so mixed English and CJK text wraps cleanly and closing punctuation never starts a line.
 - Positioning the terminal's hardware cursor—rather than drawing a fake one—keeps IME candidate windows attached to the character you are typing.

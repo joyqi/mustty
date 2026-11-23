@@ -35,7 +35,39 @@ pub fn intent(action: &Action, cx: &mut Ctx) -> Option<Change> {
                 }],
             })
         }
+        Action::Tab => Some(indent(cx, line, &m)),
+        Action::BackTab => Some(outdent(cx, line, &m)),
+        // At the start of the item's text: out a level, or drop the marker at the top level
+        Action::DeleteBack if col == m.end && m.indent > 0 => Some(outdent(cx, line, &m)),
+        Action::DeleteBack if col == m.end => Some(Change {
+            splices: vec![Splice {
+                range: start..start + m.end,
+                text: String::new(),
+            }],
+            head: start,
+        }),
         _ => None,
+    }
+}
+
+/// A key that does nothing here, rather than its plain behaviour.
+fn swallowed(head: usize) -> Change {
+    Change {
+        splices: Vec::new(),
+        head,
+    }
+}
+
+/// Moves the item and its children in under the previous item at its level, to that item's
+/// indent plus `max(tab_width, its marker width)`, so the child stays nested in CommonMark even
+/// with a narrow tab width. The first item of a list has nowhere to go.
+fn indent(cx: &mut Ctx, line: usize, m: &ListMarker) -> Change {
+    match prev_sibling(cx.rope, cx.marks, line, m.indent) {
+        Some((_, sib)) => {
+            let target = sib.indent + cx.tab_width.max(sib.width);
+            move_item(cx, line, m, target)
+        }
+        None => swallowed(cx.head),
     }
 }
 
@@ -55,8 +87,11 @@ fn end_item(cx: &mut Ctx, line: usize, m: &ListMarker, len: usize) -> Change {
     }
 }
 
-/// Moves the item and its children out to the parent's indent.
+/// Moves the item and its children out to the parent's indent; at the top level, nothing.
 fn outdent(cx: &mut Ctx, line: usize, m: &ListMarker) -> Change {
+    if m.indent == 0 {
+        return swallowed(cx.head);
+    }
     let target = parent(cx.rope, cx.marks, line, m.indent).map_or(0, |(_, p)| p.indent);
     move_item(cx, line, m, target)
 }
@@ -75,8 +110,17 @@ fn move_item(cx: &mut Ctx, line: usize, m: &ListMarker, target: usize) -> Change
     let start = cx.rope.line_to_char(line);
     let old = m.indent + m.width;
     let prefix = format!("{}{}", " ".repeat(target), marker_text(kind));
+    // The cursor keeps its place in the text, or in front of the marker
     let col = cx.head - start;
-    let head = start + prefix.chars().count() + col.saturating_sub(old);
+    let head = if col >= old {
+        start + prefix.chars().count() + col - old
+    } else {
+        start
+            + target
+            + col
+                .saturating_sub(m.indent)
+                .min(prefix.chars().count() - target)
+    };
     let mut splices = vec![Splice {
         range: start..start + old,
         text: prefix,
@@ -489,6 +533,99 @@ mod tests {
         );
         // A blank line that the block resumes after counts on from above
         assert_eq!(renumbered("1. a\n\n1. b", 1..2), "1. a\n\n2. b");
+    }
+
+    #[test]
+    fn tab_indents_under_the_previous_item() {
+        each(
+            Action::Tab,
+            &[
+                // Anywhere on the line; the cursor stays on the same text
+                ("- a\n- b|", Some("- a\n    - b|")),
+                ("- a\n|- b", Some("- a\n    |- b")),
+                ("- a\n- |b", Some("- a\n    - |b")),
+                // Children move along, blank lines stay empty
+                (
+                    "- a\n- b|\n    - c\n\n      more\n- d",
+                    Some("- a\n    - b|\n        - c\n\n          more\n- d"),
+                ),
+                // A new sublist: ordered items start at 1, bullets keep theirs, boxes stay
+                ("1. a\n2. b|", Some("1. a\n    1. b|")),
+                ("* a\n* [x] b|", Some("* a\n    * [x] b|")),
+                // Joining the sublist already there takes its marker
+                ("1. a\n    - x\n2. b|", Some("1. a\n    - x\n    - b|")),
+                ("- a\n    3. x\n- b|", Some("- a\n    3. x\n    4. b|")),
+                // The unit is the parent's marker width when that is wider than tab_width
+                ("10. a\n11. b|", Some("10. a\n    1. b|")),
+                // The first item has nowhere to go: the key does nothing
+                ("- a|", Some("- a|")),
+                ("- a\n    - b\n    - c|", Some("- a\n    - b\n        - c|")),
+                ("- a\n    - b|", Some("- a\n    - b|")),
+                // Outside lists, or in fenced code: plain Tab
+                ("a|", None),
+                ("```\n- a\n- b|\n```", None),
+            ],
+        );
+        // A tab width under the marker width still nests the child
+        let rope = Rope::from_str("1. a\n2. b");
+        let mut marks = HighlightCache::default();
+        let mut cx = Ctx {
+            rope: &rope,
+            marks: &mut marks,
+            head: 9,
+            tab_width: 2,
+        };
+        let change = intent(&Action::Tab, &mut cx).unwrap();
+        assert_eq!(change.splices[0].text, "   1. ");
+    }
+
+    #[test]
+    fn shift_tab_outdents_to_the_parent() {
+        each(
+            Action::BackTab,
+            &[
+                ("- a\n    - b|", Some("- a\n- b|")),
+                ("- a\n    |- b", Some("- a\n|- b")),
+                // Children move along
+                (
+                    "- a\n    - b|\n        - c\n- d",
+                    Some("- a\n- b|\n    - c\n- d"),
+                ),
+                // Out to the parent's level, taking its marker
+                ("1. a\n    - b|", Some("1. a\n2. b|")),
+                (
+                    "- a\n    - b\n        - [ ] c|",
+                    Some("- a\n    - b\n    - [ ] c|"),
+                ),
+                // No parent: out to the left edge
+                ("  - a|", Some("- a|")),
+                // At the top level, and on other lines, nothing
+                ("- a|", Some("- a|")),
+                ("a|", None),
+            ],
+        );
+    }
+
+    #[test]
+    fn backspace_at_the_text_start() {
+        each(
+            Action::DeleteBack,
+            &[
+                // A top-level item loses its marker, task box included
+                ("- |a", Some("|a")),
+                ("12. |a", Some("|a")),
+                ("- [ ] |a", Some("|a")),
+                ("- a\n- |", Some("- a\n|")),
+                // A nested one moves out a level
+                ("- a\n    - |b", Some("- a\n- |b")),
+                // Anywhere else, plain Backspace: inside the text, inside the marker, or at the
+                // line start, which joins with the line above and keeps the marker
+                ("- a|", None),
+                ("- [ ]| a", None),
+                ("- a\n|- b", None),
+                ("|- a", None),
+            ],
+        );
     }
 
     #[test]

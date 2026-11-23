@@ -1,6 +1,8 @@
 //! Editing semantics, decoupled from keys. All variants were fixed in M1 and M4 adds or removes none;
-//! the only deliberate revisions are four: `OpenSettings` for the settings panel, `OpenHelp` for
-//! the help panel, `Tab`, and find (`OpenFind`, `FindNext`, `FindPrev`). `Editor::apply` ignores variants that M1 left unbound or unimplemented.
+//! the only deliberate revisions are five: `OpenSettings` for the settings panel, `OpenHelp` for
+//! the help panel, `Tab`, find (`OpenFind`, `FindNext`, `FindPrev`), and the list keys (`BackTab`,
+//! `OpenLineAbove`), which are named after keys too: what they do depends on the line, which the
+//! Editor decides. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
 
 use crate::input::KeyEvent;
 
@@ -10,6 +12,8 @@ pub enum Action {
     /// Tab key: inserts tab_width spaces in the body; in the title it moves to the body (like Enter).
     /// Not expanded into `Insert` in the keymap, or the title couldn't tell Tab from typed spaces.
     Tab,
+    /// Shift+Tab: moves a list item out a level; does nothing elsewhere
+    BackTab,
     Paste(String),
     Newline,
     DeleteBack,

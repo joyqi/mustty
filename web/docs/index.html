@@ -142,6 +142,10 @@ irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps
 <td><code>Esc</code></td>
 </tr>
 <tr>
+<td>Indent / outdent list item</td>
+<td><code>Tab</code> / <code>Shift+Tab</code></td>
+</tr>
+<tr>
 <td>Delete previous word</td>
 <td><code>Ctrl+Backspace</code>, <code>Ctrl+W</code></td>
 </tr>
@@ -170,7 +174,8 @@ irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps
 <td><code>Ctrl+P</code> / <code>Ctrl+G</code></td>
 </tr>
 </tbody></table>
-<p><code>Home</code> and <code>End</code> act on the wrapped screen line, not the logical line. <code>Ctrl+C</code> copies rather than quitting, <code>Ctrl+Z</code> undoes rather than suspending, and <code>Ctrl+V</code> pastes mustty&#39;s internal register rather than the system clipboard. Since 0.1.6, <code>Ctrl+F</code> opens find and <code>Ctrl+O</code> toggles focus mode. <code>Tab</code> inserts <code>tab_width</code> spaces; <code>Shift+Tab</code> does nothing. In the keys panel, scroll with <code>↑</code>, <code>↓</code>, <code>PgUp</code>, <code>PgDn</code>, <code>Home</code> or <code>End</code>, and close with <code>Esc</code> or <code>Ctrl+G</code>.</p>
+<p><code>Home</code> and <code>End</code> act on the wrapped screen line, not the logical line. <code>Ctrl+C</code> copies rather than quitting, <code>Ctrl+Z</code> undoes rather than suspending, and <code>Ctrl+V</code> pastes mustty&#39;s internal register rather than the system clipboard. Since 0.1.6, <code>Ctrl+F</code> opens find and <code>Ctrl+O</code> toggles focus mode. Outside a list item, <code>Tab</code> inserts <code>tab_width</code> spaces and <code>Shift+Tab</code> does nothing. In the keys panel, scroll with <code>↑</code>, <code>↓</code>, <code>PgUp</code>, <code>PgDn</code>, <code>Home</code> or <code>End</code>, and close with <code>Esc</code> or <code>Ctrl+G</code>.</p>
+<p>Lists continue as you write. On a bullet, checkbox or numbered item, <code>Enter</code> at the end starts the next item (a new checkbox starts unchecked) and <code>Enter</code> in the middle splits the item. <code>Enter</code> on an empty item ends the list, or moves a nested item out one level. <code>Tab</code> makes the item a sub-item of the one above, carrying its own sub-items along, and <code>Shift+Tab</code> moves it back out. <code>Backspace</code> at the start of the item&#39;s text removes the marker, or moves a nested item out one level; at the very start of the line it joins with the line above as usual. Numbered lists renumber themselves whenever items are added, removed, moved or pasted, each nesting level counting on its own from the number of its first item. None of this applies in fenced code or quotes.</p>
 <h2 id="vim">Vim keys</h2>
 <p>Optional Normal, Visual and Insert modes for modal movement and editing.</p>
 <p>Vim keys are off by default. Turn them on in the settings panel (<code>Ctrl+P</code> → <code>Vim keys</code>) or set <code>vim = true</code> in <code>~/.mustty.toml</code>. Even with vim keys enabled, mustty starts in Insert mode, not Normal. The status bar shows <code>INS</code>, <code>NOR</code> or <code>VIS</code> before the file name. The cursor is a block in Normal and Visual modes and uses your configured shape in Insert mode.</p>

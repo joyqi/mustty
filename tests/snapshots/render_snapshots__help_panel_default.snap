@@ -7,17 +7,18 @@ expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
  9: "    Ctrl+← / Ctrl+→" NONE | "Previous / next word" DIM
 10: "    Ctrl+Home / Ctrl+End" NONE | "Start / end of the document" DIM
 11: "    Shift+↑↓←→" NONE | "Extend the selection (Shift + any move key)" DIM
-12: "    Ctrl+Backspace / Ctrl+W" NONE | "Delete the previous word" DIM
-13: "    Ctrl+A" NONE | "Select the whole body" DIM
-14: "    Ctrl+C / Ctrl+X / Ctrl+V" NONE | "Copy / cut / paste (copies also via OSC 52)" DIM
-15: "    Ctrl+Z / Ctrl+Y" NONE | "Undo / redo" DIM
-16: "    Esc" NONE | "Clear the selection / close the save prompt" DIM
-17: "    Ctrl+S" NONE | "Save" DIM
-18: "    Ctrl+Q" NONE | "Quit (twice if changes cannot be saved)" DIM
-19: "    Ctrl+F / Ctrl+N / Ctrl+B" NONE | "Find / next / previous match" DIM
-20: "    Ctrl+T / Ctrl+O" NONE | "Typewriter / Focus mode" DIM
-21: "    Ctrl+P" NONE | "Settings" DIM
-22: "    Ctrl+G" NONE | "This list of keys" DIM
+12: "    Tab / Shift+Tab" NONE | "Indent / outdent a list item" DIM
+13: "    Ctrl+Backspace / Ctrl+W" NONE | "Delete the previous word" DIM
+14: "    Ctrl+A" NONE | "Select the whole body" DIM
+15: "    Ctrl+C / Ctrl+X / Ctrl+V" NONE | "Copy / cut / paste (copies also via OSC 52)" DIM
+16: "    Ctrl+Z / Ctrl+Y" NONE | "Undo / redo" DIM
+17: "    Esc" NONE | "Clear the selection / close the save prompt" DIM
+18: "    Ctrl+S" NONE | "Save" DIM
+19: "    Ctrl+Q" NONE | "Quit (twice if changes cannot be saved)" DIM
+20: "    Ctrl+F / Ctrl+N / Ctrl+B" NONE | "Find / next / previous match" DIM
+21: "    Ctrl+T / Ctrl+O" NONE | "Typewriter / Focus mode" DIM
+22: "    Ctrl+P" NONE | "Settings" DIM
+23: "    Ctrl+G" NONE | "This list of keys" DIM
 43: "↑↓ PgUp/PgDn Home/End scroll  Esc close" DIM
 
 "                                                                                "
@@ -32,6 +33,7 @@ expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 "    Ctrl+← / Ctrl+→           Previous / next word                              "
 "    Ctrl+Home / Ctrl+End      Start / end of the document                       "
 "    Shift+↑↓←→                Extend the selection (Shift + any move key)       "
+"    Tab / Shift+Tab           Indent / outdent a list item                      "
 "    Ctrl+Backspace / Ctrl+W   Delete the previous word                          "
 "    Ctrl+A                    Select the whole body                             "
 "    Ctrl+C / Ctrl+X / Ctrl+V  Copy / cut / paste (copies also via OSC 52)       "
@@ -43,7 +45,6 @@ expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 "    Ctrl+T / Ctrl+O           Typewriter / Focus mode                           "
 "    Ctrl+P                    Settings                                          "
 "    Ctrl+G                    This list of keys                                 "
-"                                                                                "
 "                                                                                "
 "                                                                                "
 "                                                                                "

@@ -1045,6 +1045,8 @@ mod tests {
             Action::DeleteLine,
             Action::OpenLineBelow,
             Action::Newline,
+            Action::Tab,
+            Action::BackTab,
             Action::Cancel,
         ];
         prop_oneof![
@@ -1054,6 +1056,9 @@ mod tests {
             (prop::sample::select(motions.to_vec()), any::<bool>())
                 .prop_map(|(m, e)| Op::Act(Action::Move(m, e))),
             Just(Op::Paste("```\n".into())),
+            Just(Op::Paste("\n1. a\n1. b\n    - [ ] c\n".into())),
+            prop::sample::select(vec!["- ", "1. ", "    ", "2) "])
+                .prop_map(|s| Op::Insert(s.into())),
         ]
     }
 
@@ -1062,7 +1067,7 @@ mod tests {
         /// and the cursor stays inside the document; undoing everything restores the original text.
         #[test]
         fn caches_stay_consistent(ops in prop::collection::vec(op(), 1..60)) {
-            let mut ed = editor("一二三四五六七八九十 **hello** world\n```\n代码\n```\n第二行\n");
+            let mut ed = editor("一二三四五六七八九十 **hello** world\n```\n代码\n```\n第二行\n1. one\n    - two\n2. three\n");
             let original = body(&ed);
             let t0 = Instant::now();
             for (i, o) in ops.iter().enumerate() {
