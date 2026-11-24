@@ -77,10 +77,11 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
     }
 }
 
-/// Hands an http(s) URL to the system's opener and waits for it to return (`open` and `xdg-open`
-/// return once the browser has it). False when the opener is missing or fails, as `xdg-open` does
-/// over SSH with no desktop. Windows goes through `rundll32` rather than `cmd /c start`, which
-/// would run whatever follows an `&` in the URL as a command.
+/// Hands an http(s) URL to the system's opener without waiting for it, so a terminal browser in
+/// `$BROWSER` or a hung `xdg-open` can't freeze the editor. False only when the opener can't be
+/// started (missing); a launcher that starts and then fails (as `xdg-open` does over SSH) goes
+/// unreported. Windows goes through `rundll32` rather than `cmd /c start`, which would run
+/// whatever follows an `&` in the URL as a command.
 fn open_url(url: &str) -> bool {
     let mut cmd = if cfg!(target_os = "macos") {
         std::process::Command::new("open")
@@ -96,8 +97,8 @@ fn open_url(url: &str) -> bool {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+        .spawn()
+        .is_ok()
 }
 
 /// Owns the terminal. `Drop` restores mouse, paste, focus events, cursor shape, window title, raw
