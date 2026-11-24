@@ -41,7 +41,12 @@ export async function mountTerminal(host) {
     term.refresh(0, term.rows - 1);
   });
 
-  const session = new Session(term.cols, term.rows, (bytes) => term.write(bytes));
+  const session = new Session(
+    term.cols,
+    term.rows,
+    (bytes) => term.write(bytes),
+    (url) => window.open(url, "_blank", "noopener"),
+  );
   term.onData((data) => session.feed(data));
   term.onResize(({ cols, rows }) => session.resize(cols, rows));
   new ResizeObserver(() => fit.fit()).observe(host);

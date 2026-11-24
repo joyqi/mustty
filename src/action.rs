@@ -1,8 +1,8 @@
 //! Editing semantics, decoupled from keys. All variants were fixed in M1 and M4 adds or removes none;
-//! the only deliberate revisions are five: `OpenSettings` for the settings panel, `OpenHelp` for
-//! the help panel, `Tab`, find (`OpenFind`, `FindNext`, `FindPrev`), and the list keys (`BackTab`,
+//! the only deliberate revisions are six: `OpenSettings` for the settings panel, `OpenHelp` for
+//! the help panel, `Tab`, find (`OpenFind`, `FindNext`, `FindPrev`), the list keys (`BackTab`,
 //! `OpenLineAbove`), which are named after keys too: what they do depends on the line, which the
-//! Editor decides. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
+//! Editor decides, and `OpenLink`. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
 
 use crate::input::KeyEvent;
 
@@ -43,6 +43,9 @@ pub enum Action {
     OpenSettings,
     /// Ctrl+G (nano's ^G help) / `?` in vim Normal mode: open the help panel; consumed by App
     OpenHelp,
+    /// Ctrl+L / vim `gx`, Normal-mode `Enter`: open the link under the cursor in the browser;
+    /// consumed by App
+    OpenLink,
     /// Ctrl+F: open the find bar; consumed by App
     OpenFind,
     /// Ctrl+N / vim `n`: jump to the next match of the find query, wrapping; consumed by App

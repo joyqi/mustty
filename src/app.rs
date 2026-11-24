@@ -17,13 +17,15 @@ use crate::find::{self, Find, Origin};
 use crate::help::{self, Help};
 #[cfg(feature = "native")]
 use crate::host::native::{FsConfigStore, FsDocStore};
-use crate::host::{ConfigStore, CursorStyle, DocStore, HostCaps, HostOp, Pump, WindowTitle};
+use crate::host::{self, ConfigStore, CursorStyle, DocStore, HostCaps, HostOp, Pump, WindowTitle};
 use crate::i18n::{t, t_args};
 use crate::input::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
 use crate::io::file::IoError;
 use crate::keymap::{Keymap, Mode};
+use crate::markdown;
 use crate::settings::{Outcome, Settings};
 use crate::status::{Prompt, StatusModel};
+use crate::text::wrap::line_text;
 use crate::view;
 use crate::view::layout::{Layout, compute_layout};
 use crate::view::mouse::{DRAG_SCROLL_INTERVAL, DragState, map_mouse};
@@ -553,6 +555,7 @@ impl App {
             }
             Action::OpenSettings => self.settings = Some(Settings::open(&self.config)),
             Action::OpenHelp => self.help = Some(Help::default()),
+            Action::OpenLink => self.open_link(),
             Action::Paste(s) if self.find.bar.is_some() => {
                 self.find.paste(&s);
                 self.find_preview(now);
@@ -679,6 +682,35 @@ impl App {
         if let Effect::Copied(text) = effect {
             self.copy_to_clipboard(&text, now);
         }
+    }
+
+    /// Asks the host to open the link under the body cursor. Not on a link: nothing happens. On
+    /// one that isn't a web address, the status bar says so.
+    fn open_link(&mut self) {
+        if self.editor.focus != Focus::Body {
+            return;
+        }
+        let head = self.editor.cursor.head;
+        let (doc, _, highlight) = self.editor.view();
+        let rope = doc.body();
+        let line = rope.char_to_line(head);
+        let ranges = highlight.ranges(rope, line);
+        let at = head - rope.line_to_char(line);
+        let Some(target) = markdown::url_at(&line_text(rope, line), ranges, at) else {
+            return;
+        };
+        match host::web_url(&target) {
+            Some(url) => self.output.push(HostOp::OpenUrl(url)),
+            None => self.open_url_failed(&target),
+        }
+    }
+
+    /// The host couldn't open `url` (or it wasn't a web address): show it, so it can still be
+    /// copied by hand. Stays until the next key.
+    pub fn open_url_failed(&mut self, url: &str) {
+        self.status
+            .error(t_args("msg-open-link-failed", &[("url", url)]));
+        self.needs_redraw = true;
     }
 
     /// The Editor has already filled the internal register; this also writes the system clipboard via OSC 52, which works through SSH / tmux.
@@ -1321,6 +1353,71 @@ mod tests {
 
     fn body(app: &App) -> String {
         app.editor.doc().body().to_string()
+    }
+
+    /// Ctrl+L under the cursor: a web link goes to the host as OpenUrl; any other scheme is shown
+    /// in the status bar instead; off a link, nothing happens
+    #[test]
+    fn open_link_sends_web_urls_to_the_host() {
+        crate::i18n::init_for_test("en");
+        let ctrl_l = Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        let open = |text: &str, rights: usize| {
+            let doc = Document::parse(text, lf_meta(None));
+            let mut app = App::new(doc, Size::new(80, 24), false);
+            app.take_ops();
+            for _ in 0..rights {
+                app.handle(press(KeyCode::Right));
+            }
+            app.handle(ctrl_l.clone());
+            let ops: Vec<HostOp> = app
+                .take_ops()
+                .into_iter()
+                .filter(|op| matches!(op, HostOp::OpenUrl(_)))
+                .collect();
+            let message = app.status.message.as_ref().map(|m| m.text.clone());
+            (ops, message)
+        };
+        let url = |u: &str| vec![HostOp::OpenUrl(u.into())];
+        assert_eq!(open("see https://x.io now", 6), (url("https://x.io"), None));
+        assert_eq!(open("see https://x.io", 16), (url("https://x.io"), None));
+        assert_eq!(open("[t](www.x.io)", 1), (url("https://www.x.io"), None));
+        assert_eq!(
+            open("[t](file:///etc/passwd)", 0),
+            (vec![], Some("Can't open file:///etc/passwd".into()))
+        );
+        assert_eq!(open("plain text", 2), (vec![], None));
+        // The host reports a failure the same way
+        let mut app = App::new(
+            Document::parse("x", lf_meta(None)),
+            Size::new(80, 24),
+            false,
+        );
+        app.needs_redraw = false;
+        app.open_url_failed("https://x.io");
+        assert!(app.needs_redraw);
+        assert_eq!(
+            app.status.message.as_ref().map(|m| m.text.as_str()),
+            Some("Can't open https://x.io")
+        );
+    }
+
+    #[test]
+    fn vim_gx_and_enter_open_the_link() {
+        for keys in ["gx", "\n"] {
+            let mut app = vim_app("https://x.io");
+            typed(&mut app, "\x1b");
+            app.take_ops();
+            match keys {
+                "\n" => app.handle(press(KeyCode::Enter)),
+                _ => typed(&mut app, keys),
+            }
+            let ops = app.take_ops();
+            assert!(
+                ops.contains(&HostOp::OpenUrl("https://x.io".into())),
+                "{keys:?}: {ops:?}"
+            );
+            assert_eq!(body(&app), "https://x.io", "{keys:?} leaves the text alone");
+        }
     }
 
     #[test]

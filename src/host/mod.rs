@@ -26,11 +26,14 @@ pub enum HostOp {
     Title(String),
     Cursor(CursorStyle),
     MouseCapture(bool),
+    /// Open an http(s) URL (one that passed [`web_url`]) in the browser
+    OpenUrl(String),
 }
 
 impl HostOp {
     /// The escape sequence a terminal understands for this operation. The native host sends mouse
-    /// capture through crossterm instead, since Windows sets it through the console API.
+    /// capture through crossterm instead, since Windows sets it through the console API. Opening a
+    /// URL is no terminal's job: it encodes to nothing, and each host launches the browser itself.
     pub fn to_ansi(&self) -> String {
         match self {
             Self::Clipboard(text) => osc52(text),
@@ -38,8 +41,25 @@ impl HostOp {
             Self::Cursor(style) => style.to_ansi(),
             Self::MouseCapture(true) => ENABLE_MOUSE_CAPTURE.to_owned(),
             Self::MouseCapture(false) => DISABLE_MOUSE_CAPTURE.to_owned(),
+            Self::OpenUrl(_) => String::new(),
         }
     }
+}
+
+/// The URL to open for a link target, or None when it isn't a web address: only `http://` and
+/// `https://` pass, and `www.` gains `https://`. Everything else (`javascript:`, `file:`,
+/// `mailto:`, a relative path) is refused, as is a target with whitespace or control characters.
+pub fn web_url(target: &str) -> Option<String> {
+    let lower = target.to_ascii_lowercase();
+    let (url, prefix) = if lower.starts_with("https://") || lower.starts_with("http://") {
+        (target.to_owned(), target.find("//")? + 2)
+    } else if lower.starts_with("www.") {
+        (format!("https://{target}"), "https://".len() + 4)
+    } else {
+        return None;
+    };
+    let clean = !url.chars().any(|c| c.is_whitespace() || c.is_control());
+    (clean && url.len() > prefix).then_some(url)
 }
 
 /// Same sequences, in the same order, as crossterm's `EnableMouseCapture` / `DisableMouseCapture`.
@@ -197,6 +217,34 @@ mod tests {
     }
 
     #[test]
+    fn web_url_allows_http_only() {
+        let cases = [
+            ("https://x.io/a?b=1&c", Some("https://x.io/a?b=1&c")),
+            ("http://x.io", Some("http://x.io")),
+            ("HTTPS://X.IO", Some("HTTPS://X.IO")),
+            ("www.x.io/p", Some("https://www.x.io/p")),
+            ("WWW.x.io", Some("https://WWW.x.io")),
+            ("javascript:alert(1)", None),
+            ("JavaScript:alert(1)", None),
+            ("file:///etc/passwd", None),
+            ("mailto:a@b.c", None),
+            ("data:text/html,hi", None),
+            ("ftp://x.io", None),
+            ("//x.io", None),
+            ("x.io", None),
+            ("notes.md", None),
+            ("https://", None),
+            ("www.", None),
+            ("https://x.io/\x1b]2;x", None),
+            ("https://x.io/a b", None),
+            ("", None),
+        ];
+        for (target, want) in cases {
+            assert_eq!(web_url(target).as_deref(), want, "{target:?}");
+        }
+    }
+
+    #[test]
     fn window_title_is_sent_only_when_it_changes() {
         let mut w = WindowTitle::default();
         assert_eq!(w.update("Notes").as_deref(), Some("\x1b]2;Notes\x07"));
@@ -242,6 +290,8 @@ mod tests {
         );
         assert_eq!(HostOp::Title("a\x07b".into()).to_ansi(), osc2("a\x07b"));
         assert_eq!(HostOp::Clipboard("hi".into()).to_ansi(), osc52("hi"));
+        // Nothing reaches the terminal: the host opens the browser
+        assert_eq!(HostOp::OpenUrl("https://x.io".into()).to_ansi(), "");
     }
 
     /// `std::time::Instant::now()` panics on wasm and `SystemTime::now()` has no clock there: outside

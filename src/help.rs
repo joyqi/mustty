@@ -156,6 +156,7 @@ fn base_entries(vim: bool) -> Vec<Entry> {
             "help-find",
             vec![a(OpenFind), a(FindNext), a(FindPrev)],
         ),
+        entry("Ctrl+L", "help-open-link", a(OpenLink)),
         each(
             "Ctrl+T / Ctrl+O",
             "help-modes",
@@ -204,6 +205,7 @@ fn normal_entries() -> Vec<Entry> {
             "help-vim-find-step",
             vec![a(FindNext), a(FindPrev)],
         ),
+        entry("gx / Enter", "help-open-link", a(OpenLink)),
         entry("?", "help-help", a(OpenHelp)),
     ]
 }
@@ -571,7 +573,8 @@ mod tests {
             | Action::OpenHelp
             | Action::OpenFind
             | Action::FindNext
-            | Action::FindPrev => false,
+            | Action::FindPrev
+            | Action::OpenLink => false,
         }
     }
 

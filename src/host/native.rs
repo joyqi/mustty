@@ -32,6 +32,11 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
             match op {
                 // Through crossterm: on Windows, mouse capture is a console mode, not an escape sequence
                 HostOp::MouseCapture(on) => set_mouse_capture(backend, on)?,
+                HostOp::OpenUrl(url) => {
+                    if !open_url(&url) {
+                        app.open_url_failed(&url);
+                    }
+                }
                 // The window title (OSC 2) also goes straight to stdout: it doesn't move the cursor and bypasses ratatui's Buffer
                 op => {
                     backend.write_all(op.to_ansi().as_bytes())?;
@@ -42,7 +47,8 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
         if written {
             terminal.backend_mut().flush()?;
         }
-        if turn.redraw {
+        // A failed open puts a message up after the turn
+        if turn.redraw || app.needs_redraw {
             terminal.draw(|frame| view::render(frame, app))?;
             app.needs_redraw = false;
         }
@@ -69,6 +75,29 @@ pub fn run(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()> 
             return Ok(());
         }
     }
+}
+
+/// Hands an http(s) URL to the system's opener and waits for it to return (`open` and `xdg-open`
+/// return once the browser has it). False when the opener is missing or fails, as `xdg-open` does
+/// over SSH with no desktop. Windows goes through `rundll32` rather than `cmd /c start`, which
+/// would run whatever follows an `&` in the URL as a command.
+fn open_url(url: &str) -> bool {
+    let mut cmd = if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else if cfg!(windows) {
+        let mut cmd = std::process::Command::new("rundll32");
+        cmd.arg("url.dll,FileProtocolHandler");
+        cmd
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    // Nothing may reach the screen the TUI is drawing
+    cmd.arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 /// Owns the terminal. `Drop` restores mouse, paste, focus events, cursor shape, window title, raw

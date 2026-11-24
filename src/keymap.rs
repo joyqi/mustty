@@ -95,6 +95,7 @@ fn default_map(key: &KeyEvent, extend: bool) -> Option<Action> {
         KeyCode::Char('b' | 'B') => Some(Action::FindPrev),
         KeyCode::Char('p' | 'P') => Some(Action::OpenSettings),
         KeyCode::Char('g' | 'G') => Some(Action::OpenHelp),
+        KeyCode::Char('l' | 'L') => Some(Action::OpenLink),
         KeyCode::Backspace if ctrl => Some(Action::DeleteWordBack),
         KeyCode::Enter => Some(Action::Newline),
         KeyCode::Backspace => Some(Action::DeleteBack),
@@ -154,6 +155,8 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
         return match key.code {
             KeyCode::Esc if visual => (Some(Action::Cancel), leave_visual),
             KeyCode::Esc => (None, normal),
+            // Enter can't start a new line in Normal mode, so it opens the link under the cursor
+            KeyCode::Enter if !visual => (Some(Action::OpenLink), normal),
             KeyCode::Left
             | KeyCode::Right
             | KeyCode::Up
@@ -168,6 +171,7 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
     match (pending, c) {
         (Some('g'), 'g') => mv(DocStart),
         (Some('d'), 'd') => (Some(Action::DeleteLine), normal),
+        (Some('g'), 'x') => (Some(Action::OpenLink), normal),
         // Invalid sequence: drop the pending operator and ignore the second key too
         (Some(_), _) => (None, normal),
         (None, 'i') => (visual.then_some(Action::Cancel), Mode::Insert),
@@ -293,6 +297,7 @@ mod tests {
             ),
             (key(Char('t'), ctrl), Some(Action::ToggleTypewriter)),
             (key(Char('f'), ctrl), Some(Action::OpenFind)),
+            (key(Char('l'), ctrl), Some(Action::OpenLink)),
             (key(Char('o'), ctrl), Some(Action::ToggleFocusMode)),
             (key(Char('n'), ctrl), Some(Action::FindNext)),
             (key(Char('b'), ctrl), Some(Action::FindPrev)),
@@ -485,11 +490,33 @@ mod tests {
         let home = key(KeyCode::Home, KeyModifiers::NONE);
         assert_eq!(one(NOR, home), (m(LineStart), NOR));
         // Editing keys have no effect in Normal mode
-        for code in [KeyCode::Enter, KeyCode::Backspace, KeyCode::Tab] {
+        for code in [KeyCode::Backspace, KeyCode::Tab] {
             assert_eq!(
                 one(NOR, key(code, KeyModifiers::NONE)),
                 (None, NOR),
                 "{code:?}"
+            );
+        }
+    }
+
+    /// gx and Enter open the link under the cursor in Normal mode; Ctrl+L works in every mode
+    #[test]
+    fn vim_open_link_keys() {
+        let enter = key(KeyCode::Enter, KeyModifiers::NONE);
+        let seq = vim(NOR, &[ch('g'), ch('x')], false);
+        assert_eq!(seq[1], (Some(Action::OpenLink), NOR));
+        assert_eq!(one(NOR, enter.clone()), (Some(Action::OpenLink), NOR));
+        assert_eq!(
+            one(VIS, enter),
+            (None, VIS),
+            "Enter does nothing in Visual mode"
+        );
+        let ctrl_l = key(KeyCode::Char('l'), KeyModifiers::CONTROL);
+        for mode in [NOR, VIS, Mode::Insert] {
+            assert_eq!(
+                one(mode, ctrl_l.clone()).0,
+                Some(Action::OpenLink),
+                "{mode:?}"
             );
         }
     }
@@ -535,7 +562,7 @@ mod tests {
             ]
         );
         // Invalid sequence: drop the pending operator and ignore the second key too
-        for (first, second) in [('g', 'x'), ('d', 'j'), ('g', 'd'), ('d', 'g')] {
+        for (first, second) in [('g', 'y'), ('d', 'j'), ('g', 'd'), ('d', 'g')] {
             let seq = vim(NOR, &[ch(first), ch(second)], false);
             assert_eq!(seq[1], (None, NOR), "{first}{second}");
         }
@@ -650,7 +677,8 @@ mod tests {
         // Prefix sequences and invalid sequences
         ("g", NOR, None, PEND_G),
         ("d", NOR, None, PEND_D),
-        ("gx", NOR, None, NOR),
+        ("gx", NOR, Some(Action::OpenLink), NOR),
+        ("gy", NOR, None, NOR),
         ("dj", NOR, None, NOR),
         ("g/", NOR, None, NOR),
         ("gn", NOR, None, NOR),

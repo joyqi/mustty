@@ -177,6 +177,38 @@ pub fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockSt
     (out, BlockState::Normal)
 }
 
+/// The target of the link under char `at` in a line scanned into `ranges`: the `(url)` of a
+/// Markdown link when `at` is anywhere from its `[` to its `)`, or a bare URL itself. `at` may sit
+/// right after either, where the cursor lands after typing one. A Markdown target loses its
+/// `"title"` and `<>`; whether it can be opened is up to the caller.
+pub fn url_at(line: &str, ranges: &[StyledRange], at: usize) -> Option<String> {
+    let chars: Vec<char> = line.chars().collect();
+    let text = |start, end| chars[start..end].iter().collect::<String>();
+    ranges
+        .iter()
+        .filter(|r| r.token == Token::LinkText)
+        .find_map(|t| {
+            // A Markdown link's text is followed by `](` and its URL; a bare URL by neither
+            let url = ranges
+                .iter()
+                .find(|u| u.token == Token::LinkUrl && u.start == t.end + 2);
+            match url {
+                Some(u) if (t.start - 1..=u.end + 1).contains(&at) => {
+                    let target = text(u.start, u.end);
+                    let target = target.split_whitespace().next().unwrap_or("");
+                    Some(
+                        target
+                            .trim_start_matches('<')
+                            .trim_end_matches('>')
+                            .to_owned(),
+                    )
+                }
+                None if (t.start..=t.end).contains(&at) => Some(text(t.start, t.end)),
+                _ => None,
+            }
+        })
+}
+
 /// `---`, `***`, `___` (spaces allowed in between, at least 3 marks)
 fn is_rule(chars: &[char]) -> bool {
     let marks: Vec<char> = chars
@@ -653,6 +685,41 @@ mod tests {
         // Inside a URL, `_` is not emphasis
         let (ranges, _) = scan_line("https://x.io/_a_ b", BlockState::Normal);
         assert!(ranges.iter().all(|r| r.token != Token::Emph));
+    }
+
+    #[test]
+    fn url_at_finds_the_link_under_the_cursor() {
+        let at = |line: &str, at| url_at(line, &scan_line(line, BlockState::Normal).0, at);
+        let md = "see [the docs](https://x.io/a \"Title\") now";
+        // On `[`, the text, `](`, the URL, `)`, and right after it
+        for i in [4, 5, 13, 14, 16, 30, 37, 38] {
+            assert_eq!(at(md, i).as_deref(), Some("https://x.io/a"), "{i}");
+        }
+        // Before `[` and past the char after `)`
+        for i in [0, 3, 39] {
+            assert_eq!(at(md, i), None, "{i}");
+        }
+        let bare = "go https://x.io/p, then";
+        assert_eq!(at(bare, 3).as_deref(), Some("https://x.io/p"));
+        assert_eq!(
+            at(bare, 17).as_deref(),
+            Some("https://x.io/p"),
+            "right after it"
+        );
+        assert_eq!(at(bare, 18), None, "past the comma");
+        assert_eq!(at(bare, 2), None);
+        assert_eq!(at("www.x.io", 0).as_deref(), Some("www.x.io"));
+        assert_eq!(
+            at("[a](<https://x.io/b c>)", 1).as_deref(),
+            Some("https://x.io/b")
+        );
+        assert_eq!(
+            at("[a](javascript:alert(1))", 1).as_deref(),
+            Some("javascript:alert(1")
+        );
+        assert_eq!(at("[](https://x.io)", 0).as_deref(), Some("https://x.io"));
+        assert_eq!(at("no link here", 3), None);
+        assert_eq!(at("`https://x.io`", 3), None, "code is not a link");
     }
 
     #[test]

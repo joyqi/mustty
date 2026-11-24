@@ -32,13 +32,16 @@ pub struct Session {
     parser: InputParser,
     /// Receives the bytes for xterm.js's `write`, as a `Uint8Array`
     write: Function,
+    /// Opens an http(s) URL (a string) in a new tab; throwing means it couldn't
+    open_url: Function,
 }
 
 #[wasm_bindgen]
 impl Session {
     /// Opens the sample document in a `cols` × `rows` terminal and writes the first frame right away.
+    /// `open_url` is called with each link the user opens (`Ctrl+L`).
     #[wasm_bindgen(constructor)]
-    pub fn new(cols: u16, rows: u16, write: Function) -> Session {
+    pub fn new(cols: u16, rows: u16, write: Function, open_url: Function) -> Session {
         std::panic::set_hook(Box::new(|info| {
             web_sys::console::error_1(&info.to_string().into());
         }));
@@ -74,6 +77,7 @@ impl Session {
             terminal,
             parser: InputParser::default(),
             write,
+            open_url,
         };
         session.frame();
         session
@@ -156,6 +160,16 @@ impl Session {
                 }
                 // Not wired up yet: no system clipboard
                 HostOp::Clipboard(_) => {}
+                // Called from onData, inside the key press, so the browser doesn't block the tab
+                HostOp::OpenUrl(url) => {
+                    if self
+                        .open_url
+                        .call1(&JsValue::NULL, &url.as_str().into())
+                        .is_err()
+                    {
+                        self.app.open_url_failed(&url);
+                    }
+                }
             }
         }
     }

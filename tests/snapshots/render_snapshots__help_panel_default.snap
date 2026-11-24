@@ -16,9 +16,10 @@ expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 18: "    Ctrl+S" NONE | "Save" DIM
 19: "    Ctrl+Q" NONE | "Quit (twice if changes cannot be saved)" DIM
 20: "    Ctrl+F / Ctrl+N / Ctrl+B" NONE | "Find / next / previous match" DIM
-21: "    Ctrl+T / Ctrl+O" NONE | "Typewriter / Focus mode" DIM
-22: "    Ctrl+P" NONE | "Settings" DIM
-23: "    Ctrl+G" NONE | "This list of keys" DIM
+21: "    Ctrl+L" NONE | "Open the link under the cursor in the browser" DIM
+22: "    Ctrl+T / Ctrl+O" NONE | "Typewriter / Focus mode" DIM
+23: "    Ctrl+P" NONE | "Settings" DIM
+24: "    Ctrl+G" NONE | "This list of keys" DIM
 43: "↑↓ PgUp/PgDn Home/End scroll  Esc close" DIM
 
 "                                                                                "
@@ -42,10 +43,10 @@ expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 "    Ctrl+S                    Save                                              "
 "    Ctrl+Q                    Quit (twice if changes cannot be saved)           "
 "    Ctrl+F / Ctrl+N / Ctrl+B  Find / next / previous match                      "
+"    Ctrl+L                    Open the link under the cursor in the browser     "
 "    Ctrl+T / Ctrl+O           Typewriter / Focus mode                           "
 "    Ctrl+P                    Settings                                          "
 "    Ctrl+G                    This list of keys                                 "
-"                                                                                "
 "                                                                                "
 "                                                                                "
 "                                                                                "
