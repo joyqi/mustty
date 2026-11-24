@@ -241,7 +241,14 @@ pub fn shape(rope: &Rope, marks: &mut HighlightCache, lines: Range<usize>) -> Ve
 /// the first item above to the last line before a line that is not an item, indented text, or a
 /// blank line followed by either. Each level counts on its own from the number its first item
 /// has; a change of bullet or delimiter starts a new list.
-pub fn renumber(rope: &Rope, marks: &mut HighlightCache, lines: Range<usize>) -> Vec<Splice> {
+/// `start` is a line and the number its list starts at when that line begins one: the list lost
+/// its first item to the edit and keeps its start.
+pub fn renumber(
+    rope: &Rope,
+    marks: &mut HighlightCache,
+    lines: Range<usize>,
+    start: Option<(usize, u32)>,
+) -> Vec<Splice> {
     struct Level {
         indent: usize,
         kind: MarkerKind,
@@ -302,8 +309,25 @@ pub fn renumber(rope: &Rope, marks: &mut HighlightCache, lines: Range<usize>) ->
                             top.next = top.next.saturating_add(1);
                         }
                     }
-                    Some(top) if top.indent == m.indent => *top = start_of(&m),
-                    _ => stack.push(start_of(&m)),
+                    top => {
+                        let mut m = m;
+                        if let (Some((_, n)), MarkerKind::Ordered { number, delim }) =
+                            (start.filter(|s| s.0 == l), m.kind)
+                        {
+                            if n != number {
+                                let at = rope.line_to_char(l) + m.indent;
+                                out.push(Splice {
+                                    range: at..at + m.width - 2,
+                                    text: n.to_string(),
+                                });
+                            }
+                            m.kind = MarkerKind::Ordered { number: n, delim };
+                        }
+                        match top {
+                            Some(top) if top.indent == m.indent => *top = start_of(&m),
+                            _ => stack.push(start_of(&m)),
+                        }
+                    }
                 }
                 false
             }
@@ -317,6 +341,35 @@ pub fn renumber(rope: &Rope, marks: &mut HighlightCache, lines: Range<usize>) ->
         l += 1;
     }
     out
+}
+
+/// When replacing the chars in `gone` takes out the whole marker of a numbered list's first item:
+/// the line of the first item of that list below `gone`, and the number the list started at.
+pub fn heir(rope: &Rope, marks: &mut HighlightCache, gone: Range<usize>) -> Option<(usize, u32)> {
+    let lines = rope.char_to_line(gone.start)..=rope.char_to_line(gone.end);
+    let (line, m, number) = lines.into_iter().find_map(|l| {
+        let m = item_at(rope, marks, l)?;
+        let MarkerKind::Ordered { number, .. } = m.kind else {
+            return None;
+        };
+        let at = rope.line_to_char(l) + m.indent;
+        let first =
+            prev_sibling(rope, marks, l, m.indent).is_none_or(|(_, p)| !same_list(p.kind, m.kind));
+        (gone.start <= at && at + m.width <= gone.end && first).then_some((l, m, number))
+    })?;
+    for l in line + 1..rope.len_lines() {
+        match classify(rope, marks, l) {
+            Line::Item(n) if n.indent == m.indent && same_list(n.kind, m.kind) => {
+                if rope.line_to_char(l) + n.indent >= gone.end {
+                    return Some((l, number));
+                }
+            }
+            Line::Item(n) if n.indent <= m.indent => return None,
+            Line::Other => return None,
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Leading spaces of a line.
@@ -499,7 +552,7 @@ mod tests {
     fn renumbered(before: &str, lines: Range<usize>) -> String {
         let mut rope = Rope::from_str(before);
         let mut marks = HighlightCache::default();
-        let mut splices = renumber(&rope, &mut marks, lines);
+        let mut splices = renumber(&rope, &mut marks, lines, None);
         splices.sort_by_key(|s| std::cmp::Reverse(s.range.start));
         for s in splices {
             rope.remove(s.range.clone());

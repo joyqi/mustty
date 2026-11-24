@@ -42,10 +42,26 @@ pub fn intent(action: &Action, cx: &mut Ctx) -> Option<Change> {
 
 /// The structure `settle` looks at on some lines, taken before an edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Shape(Vec<list::Line>);
+pub struct Shape {
+    lines: Vec<list::Line>,
+    /// When the edit removes the first item of a numbered list: the item the list goes on with
+    /// (counted in lines from the end of the body, which the edit does not change) and the
+    /// number the list started at
+    heir: Option<(usize, u32)>,
+}
 
-pub fn shape(rope: &Rope, marks: &mut HighlightCache, lines: Range<usize>) -> Shape {
-    Shape(list::shape(rope, marks, lines))
+/// `lines` and the chars in `gone` are what the edit is about to replace.
+pub fn shape(
+    rope: &Rope,
+    marks: &mut HighlightCache,
+    lines: Range<usize>,
+    gone: Range<usize>,
+) -> Shape {
+    let heir = list::heir(rope, marks, gone).map(|(l, n)| (rope.len_lines() - l, n));
+    Shape {
+        lines: list::shape(rope, marks, lines),
+        heir,
+    }
 }
 
 /// Follow-up edits for `lines` (after the edit) that were `before` before it: when the edit
@@ -56,10 +72,12 @@ pub fn settle(
     lines: Range<usize>,
     before: &Shape,
 ) -> Vec<Splice> {
-    if shape(rope, marks, lines.clone()) == *before {
+    if list::shape(rope, marks, lines.clone()) == before.lines {
         return Vec::new();
     }
-    list::renumber(rope, marks, lines)
+    let start = before.heir.map(|(back, n)| (rope.len_lines() - back, n));
+    let end = start.map_or(lines.end, |(l, _)| lines.end.max(l + 1));
+    list::renumber(rope, marks, lines.start..end, start)
 }
 
 /// Where `pos` ends up after `splices` (non-overlapping, in coordinates before them). A position

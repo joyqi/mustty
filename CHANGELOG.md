@@ -12,6 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Tab` makes a list item a sub-item of the one above, bringing its own sub-items along, and `Shift+Tab` moves it back out. A moved item takes the marker of the list it joins. Outside lists `Tab` still inserts `tab_width` spaces.
 - `Backspace` at the start of an item's text removes the marker, or moves a nested item out one level. At the very start of the line it joins with the line above as before, marker and all.
 - Numbered lists renumber themselves when items are added, deleted, moved, pasted or nested, each level counting on its own from the number of its first item; undo puts the old numbers back with the edit. A list written as `1.` on every line becomes 1, 2, 3 once you edit it.
+- Deleting the first item of a numbered list keeps the list's start: the next item takes its number, so `1, 2, 3` becomes `1, 2` and a list starting at 5 still starts at 5.
 - vim: `O` opens a new line above and enters Insert mode. On a list item, `o` and `O` open an empty item with the right marker.
 - The help panel (`Ctrl+G`) lists `Tab / Shift+Tab`, and `o / O` under vim.
 

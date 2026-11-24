@@ -480,7 +480,7 @@ impl Editor {
         let to = splices.iter().map(|s| s.range.end).max().unwrap_or(0);
         let (first, last) = (rope.char_to_line(from), rope.char_to_line(to));
         let count = rope.len_lines();
-        let shape = ops::shape(rope, &mut self.highlight, first..last + 1);
+        let shape = ops::shape(rope, &mut self.highlight, first..last + 1, from..to);
         let mut edits = self.write_splices(splices);
         let rope = self.doc.body();
         let end = (last + 1 + rope.len_lines())
@@ -955,25 +955,81 @@ mod tests {
         assert!(!ed.is_dirty(), "back at the opening revision");
         run(&mut ed, &[Action::Redo]);
         assert_eq!(body(&ed), "1. a\n2. \n3. b\n4. c");
-        // dd, then p elsewhere: each step fixes the numbers. The first item sets where a list
-        // starts, so removing it leaves the list starting at the next number
+        // dd, then p elsewhere: each step fixes the numbers. Removing the first item leaves the
+        // list starting where it did
         let mut ed = editor("1. a\n2. b\n3. c\n4. d\n\npara");
         run(&mut ed, &[mv(Motion::Down), Action::DeleteLine]);
         assert_eq!(body(&ed), "1. a\n2. c\n3. d\n\npara");
         run(&mut ed, &[mv(Motion::Down), Action::PasteRegister]);
         assert_eq!(body(&ed), "1. a\n2. c\n3. d\n4. b\n\npara");
         run(&mut ed, &[mv(Motion::DocStart), Action::DeleteLine]);
-        assert_eq!(body(&ed), "2. c\n3. d\n4. b\n\npara");
+        assert_eq!(body(&ed), "1. c\n2. d\n3. b\n\npara");
         // A cut and a paste
         run(&mut ed, &[mv(Motion::Down), ext(Motion::Down), Action::Cut]);
-        assert_eq!(body(&ed), "2. c\n3. b\n\npara");
+        assert_eq!(body(&ed), "1. c\n2. b\n\npara");
         run(
             &mut ed,
             &[mv(Motion::DocEnd), Action::Paste("\n1. x\n1. y".into())],
         );
-        assert_eq!(body(&ed), "2. c\n3. b\n\npara\n1. x\n2. y");
+        assert_eq!(body(&ed), "1. c\n2. b\n\npara\n1. x\n2. y");
         run(&mut ed, &[Action::Paste("\n\n1. z".into())]);
-        assert_eq!(body(&ed), "2. c\n3. b\n\npara\n1. x\n2. y\n\n3. z");
+        assert_eq!(body(&ed), "1. c\n2. b\n\npara\n1. x\n2. y\n\n3. z");
+    }
+
+    #[test]
+    fn a_list_keeps_its_start_when_it_loses_its_first_item() {
+        // Before (`|` is the cursor), keys, after; each is one undo step back to before
+        let cases: &[(&str, &[Action], &str)] = &[
+            // dd on the first item
+            ("|1. a\n2. b\n3. c", &[Action::DeleteLine], "1. b\n2. c"),
+            // Backspace on the marker of the first item
+            ("1. |a\n2. b\n3. c", &[Action::DeleteBack], "a\n1. b\n2. c"),
+            // A list starting at 5 still starts at 5
+            ("|5. a\n6. b\n7. c", &[Action::DeleteLine], "5. b\n6. c"),
+            // Deleting only the number is not deleting the item: nothing to inherit
+            (
+                "1|. a\n2. b\n3. c",
+                &[Action::DeleteBack],
+                ". a\n2. b\n3. c",
+            ),
+            // Backspace on a middle item: the first item is still there
+            ("1. a\n2. |b\n3. c", &[Action::DeleteBack], "1. a\nb\n3. c"),
+            // Moving the first nested item out: the sublist goes on from 1
+            (
+                "1. a\n    1. |x\n    2. y\n    3. z",
+                &[Action::BackTab],
+                "1. a\n2. x\n    1. y\n    2. z",
+            ),
+            // Cutting a list along with the paragraph after it leaves the next list alone
+            (
+                "|1. a\n2. b\n\npara\n\n5. q\n6. r",
+                &[
+                    ext(Motion::Down),
+                    ext(Motion::Down),
+                    ext(Motion::Down),
+                    ext(Motion::LineEnd),
+                    Action::Cut,
+                ],
+                "\n\n5. q\n6. r",
+            ),
+        ];
+        for &(before, keys, want) in cases {
+            let at = before.find('|').unwrap();
+            let text = before.replace('|', "");
+            let mut ed = editor(&text);
+            ed.cursor.set(text[..at].chars().count());
+            run(&mut ed, keys);
+            assert_eq!(body(&ed), want, "{before:?}");
+            run(&mut ed, &[Action::Undo]);
+            assert_eq!(body(&ed), text, "undo {before:?}");
+            assert!(!ed.is_dirty(), "{before:?}");
+            run(&mut ed, &[Action::Redo]);
+            assert_eq!(body(&ed), want, "redo {before:?}");
+        }
+        // Typing a new number on the first item after deleting the old one: the list counts from it
+        let mut ed = editor("1. a\n2. b\n3. c");
+        run(&mut ed, &[mv(Motion::Right), Action::DeleteBack, ins("3")]);
+        assert_eq!(body(&ed), "3. a\n4. b\n5. c");
     }
 
     #[test]
