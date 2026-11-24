@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-25
+
 ### Added
 
 - Lists continue as you write ([#2](https://github.com/joyqi/mustty/issues/2)). On a bullet, checkbox or numbered item, `Enter` at the end starts the next item (a new checkbox starts unchecked) and `Enter` in the middle splits the item, moving the text after the cursor to the new one. `Enter` on an empty item ends the list, or moves a nested item out one level.
