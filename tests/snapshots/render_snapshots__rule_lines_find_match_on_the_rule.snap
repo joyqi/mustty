@@ -1,0 +1,32 @@
+---
+source: tests/render_snapshots.rs
+expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
+---
+ 2: "notes" DIM
+ 4: "  第 一 段" NONE
+ 6: "--" REVERSED fg=Yellow | "-" DIM
+ 8: "  第 二 段" NONE
+10: "--" UNDERLINED fg=Yellow | "-" DIM
+12: "────────────────────────────────────" DIM
+15: "  查 找 : --" NONE | "1/2" DIM
+
+"                                        "
+"                                        "
+"                 notes                  "
+"                                        "
+"  第一段                                " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"                                        "
+"  ---                                   "
+"                                        "
+"  第二段                                " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"                                        "
+"  ---                                   "
+"                                        "
+"  ────────────────────────────────────  "
+"                                        "
+"                                        "
+"  查找: --                         1/2  " Hidden by multi-width symbols: [(3, " "), (5, " ")]
+"                                        "
+"                                        "
+
+cursor: Position { x: 10, y: 15 } visible: true

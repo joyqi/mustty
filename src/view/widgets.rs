@@ -128,6 +128,11 @@ pub struct BodyWidget<'a> {
     pub code_highlight: bool,
     /// Link text and bare URLs; `None` for the text color
     pub link_color: Option<Color>,
+    /// Draw thematic breaks as a line across the text column, unless the line is revealed: the
+    /// cursor is on it, the selection touches it or a find match falls on it
+    pub rule_lines: bool,
+    /// The body cursor's logical line (None when the title has focus)
+    pub cursor_line: Option<usize>,
     /// Find highlighting: each visible line is searched as it's drawn, so this never needs the
     /// full match list
     pub find: Option<Marks<'a>>,
@@ -142,18 +147,22 @@ impl Widget for BodyWidget<'_> {
         let link = self.link_color;
         let dimmed = |line: usize| self.focus.as_ref().is_some_and(|f| !f.contains(&line));
         // Layers, later ones on top: markdown / code, focus mode DIM, matches, the current match,
-        // and the selection (in the draw loop below)
+        // and the selection (in the draw loop below). Also whether to draw the line as a rule.
         let styles_of = |hl: &mut HighlightCache, line: usize, text: &str| {
             let len = text.chars().count();
-            let mut styles = line_styles(hl.ranges(self.rope, line), len, code, link, highlight);
+            let ranges = hl.ranges(self.rope, line);
+            let is_rule = ranges.first().is_some_and(|r| r.token == Token::Rule);
+            let mut styles = line_styles(ranges, len, code, link, highlight);
             if dimmed(line) {
                 styles
                     .iter_mut()
                     .for_each(|s| *s = s.add_modifier(Modifier::DIM));
             }
+            let start = self.rope.line_to_char(line);
+            let mut matched = false;
             if let Some(marks) = &self.find {
-                let start = self.rope.line_to_char(line);
                 for m in marks.needle.line_matches(text) {
+                    matched = true;
                     let style = if marks.caret == Some(start + m.start) {
                         theme::find_current()
                     } else {
@@ -162,10 +171,16 @@ impl Widget for BodyWidget<'_> {
                     styles[m].iter_mut().for_each(|s| *s = s.patch(style));
                 }
             }
-            styles
+            let selected = self
+                .selection
+                .as_ref()
+                .is_some_and(|s| s.start < start + len && s.end > start);
+            let revealed = self.cursor_line == Some(line) || selected || matched;
+            let as_rule = self.rule_lines && is_rule && !revealed;
+            (styles, as_rule)
         };
         let mut text = line_text(self.rope, line);
-        let mut styles = styles_of(self.highlight, line, &text);
+        let (mut styles, mut as_rule) = styles_of(self.highlight, line, &text);
         let first = area
             .top()
             .saturating_add(self.top_padding)
@@ -174,23 +189,31 @@ impl Widget for BodyWidget<'_> {
             let rows = self.wrap.rows(self.rope, line);
             let r = rows[row];
             let last_row = row + 1 == rows.len();
-            let seg: String = text.chars().skip(r.start).take(r.end - r.start).collect();
-            let line_start = self.rope.line_to_char(line);
-            let sel = self.selection.clone();
-            draw_styled(buf, area.x, y, area.width, &seg, 0, tab, |c| {
-                let local = r.start + c;
-                let style = styles[local];
-                match &sel {
-                    Some(s) if s.contains(&(line_start + local)) => style.patch(theme::selection()),
-                    _ => style,
-                }
-            });
+            if as_rule {
+                // One line per visual row, in the rule's own style (DIM, plus Focus mode's DIM)
+                let rule = "─".repeat(area.width as usize);
+                draw_text(buf, area.x, y, area.width, &rule, styles[0], 0, tab);
+            } else {
+                let seg: String = text.chars().skip(r.start).take(r.end - r.start).collect();
+                let line_start = self.rope.line_to_char(line);
+                let sel = self.selection.clone();
+                draw_styled(buf, area.x, y, area.width, &seg, 0, tab, |c| {
+                    let local = r.start + c;
+                    let style = styles[local];
+                    match &sel {
+                        Some(s) if s.contains(&(line_start + local)) => {
+                            style.patch(theme::selection())
+                        }
+                        _ => style,
+                    }
+                });
+            }
             if !last_row {
                 row += 1;
             } else if line + 1 < self.rope.len_lines() {
                 (line, row) = (line + 1, 0);
                 text = line_text(self.rope, line);
-                styles = styles_of(self.highlight, line, &text);
+                (styles, as_rule) = styles_of(self.highlight, line, &text);
             } else {
                 break;
             }

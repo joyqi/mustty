@@ -17,6 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The help panel (`Ctrl+G`) lists `Tab / Shift+Tab`, and `o / O` under vim.
 - Plain URLs (`http://…`, `https://…`, `www.…`) are underlined like Markdown link text ([#4](https://github.com/joyqi/mustty/issues/4)). Trailing punctuation, an unmatched `)` and text after the URL in another script (`x.io，还有`) are left out; URLs inside inline code or inside `[text](url)` are not styled twice.
 - A `link_color` setting colors link text and plain URLs with one of the 8 terminal colors, so it follows your light or dark theme. It is `none` by default, which keeps links in the text color, underlined. Set it in `~/.mustty.toml` or with the `Ctrl+P` settings panel (the row under Code highlighting).
+- A `rule_lines` setting, off by default ([#3](https://github.com/joyqi/mustty/issues/3)). On, a `---`, `***` or `___` line is drawn as a line across the text column, and follows the window when it resizes. Put the cursor on it, select into it or find text on it and it shows its characters again.
 
 ## [0.1.6] - 2026-11-18
 

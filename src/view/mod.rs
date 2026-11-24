@@ -103,6 +103,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             code_color,
             code_highlight: app.config.code_highlight,
             link_color: app.config.link_color.map(|c| c.color()),
+            rule_lines: app.config.rule_lines,
+            cursor_line: (focus == Focus::Body).then(|| doc.body().char_to_line(caret.head)),
             find: marks,
         },
         body,
@@ -279,4 +281,88 @@ fn current_paragraph(
         end += 1;
     }
     start..end
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+    use ratatui::Terminal;
+    use ratatui::backend::{Backend, TestBackend};
+    use ratatui::layout::{Position, Size};
+
+    use super::render;
+    use crate::app::App;
+    use crate::config::Config;
+    use crate::editor::cursor::Affinity;
+    use crate::editor::document::{Document, lf_meta};
+    use crate::input::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use crate::view::layout::compute_layout;
+
+    /// Renders `app` and returns the hardware cursor.
+    fn frame(app: &mut App, w: u16, h: u16) -> Position {
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+        terminal.draw(|f| render(f, app)).unwrap();
+        terminal.backend_mut().get_cursor_position().unwrap()
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        /// rule_lines only changes what a rule row draws: with it on or off, every char maps to
+        /// the same visual position, every body cell maps back to the same char, and the
+        /// hardware cursor lands in the same cell, after any run of moves and selections.
+        #[test]
+        fn rule_lines_leaves_the_mapping_alone(
+            lines in prop::collection::vec(
+                prop::sample::select(vec![
+                    "---", "* * *", "___", "- - - - - - - - - - - - - - - - - - - - - -",
+                    "text", "一段中文", "", "a b c d e f g h i j k l m n o p q r s t",
+                ]),
+                1..12,
+            ),
+            w in 24u16..70,
+            keys in prop::collection::vec(0usize..6, 1..12),
+        ) {
+            crate::i18n::init_for_test("en");
+            let h = 16;
+            let text = format!("title\n{}", lines.join("\n"));
+            let app = |rule_lines| {
+                let config = Config { rule_lines, ..Config::default() };
+                let doc = Document::parse(&text, lf_meta(Some("n.md")));
+                App::with_config(doc, Size::new(w, h), &config)
+            };
+            let (mut off, mut on) = (app(false), app(true));
+            let body = compute_layout(ratatui::layout::Rect::new(0, 0, w, h), off.config.width).body;
+            for k in keys {
+                let ev = match k {
+                    0 => KeyEvent::from(KeyCode::Down),
+                    1 => KeyEvent::from(KeyCode::Up),
+                    2 => KeyEvent::from(KeyCode::Right),
+                    3 => KeyEvent::from(KeyCode::End),
+                    4 => KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT),
+                    _ => KeyEvent::from(KeyCode::PageDown),
+                };
+                off.handle(Event::Key(ev));
+                on.handle(Event::Key(ev));
+                prop_assert_eq!(frame(&mut off, w, h), frame(&mut on, w, h));
+                let (a, b) = (off.screen.unwrap(), on.screen.unwrap());
+                let (doc_a, wrap_a, _) = off.editor.view();
+                let (doc_b, wrap_b, _) = on.editor.view();
+                let (ra, rb) = (doc_a.body().clone(), doc_b.body().clone());
+                for idx in 0..=ra.len_chars() {
+                    for aff in [Affinity::Upstream, Affinity::Downstream] {
+                        let (pa, pb) = (wrap_a.char_to_visual(&ra, idx, aff), wrap_b.char_to_visual(&rb, idx, aff));
+                        prop_assert_eq!(pa, pb);
+                        prop_assert_eq!(wrap_a.visual_to_char(&ra, pa), wrap_b.visual_to_char(&rb, pb));
+                    }
+                }
+                for y in body.top()..body.bottom() {
+                    for x in body.left()..body.right() {
+                        let p = Position::new(x, y);
+                        prop_assert_eq!(a.body_char(p, wrap_a, &ra), b.body_char(p, wrap_b, &rb));
+                    }
+                }
+            }
+        }
+    }
 }

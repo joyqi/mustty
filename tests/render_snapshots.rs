@@ -992,3 +992,87 @@ fn link_color_with_selection_and_find() {
     let b = draw_with(&config, raw, 60, 6, &events, false);
     insta::assert_snapshot!(styled(&b));
 }
+
+// ---- rule lines ----
+
+const RULES: &str = "第一段\n\n---\n\n第二段\n\n* * *\n";
+
+/// A 16-row frame of `RULES` with `rule_lines` and `focus_mode` set, as styled runs and text.
+fn rule_frame(rule_lines: bool, focus_mode: bool, w: u16, events: &[Event]) -> String {
+    let config = mustty::config::Config {
+        rule_lines,
+        focus_mode,
+        ..Default::default()
+    };
+    let b = draw_with(&config, RULES, w, 16, events, false);
+    format!("{}\n{}", styled(&b), snapshot(b.clone()))
+}
+
+#[test]
+fn rule_lines_off_shows_the_characters() {
+    let off = rule_frame(false, false, 40, &[]);
+    assert!(off.contains("---") && !off.contains('─'));
+    insta::assert_snapshot!(off);
+}
+
+/// Cursor on the first paragraph: both rules are lines across the text column
+#[test]
+fn rule_lines_on_cursor_away() {
+    insta::assert_snapshot!(rule_frame(true, false, 40, &[]));
+}
+
+/// The cursor's own line shows its characters; the other rule stays a line
+#[test]
+fn rule_lines_cursor_on_the_rule() {
+    let events = [key(KeyCode::Down), key(KeyCode::Down)];
+    insta::assert_snapshot!(rule_frame(true, false, 40, &events));
+}
+
+/// A selection that reaches into a rule reveals it
+#[test]
+fn rule_lines_selection_over_the_rule() {
+    let shift = |code| Event::Key(KeyEvent::new(code, KeyModifiers::SHIFT));
+    let events = [
+        shift(KeyCode::Down),
+        shift(KeyCode::Down),
+        shift(KeyCode::Right),
+    ];
+    insta::assert_snapshot!(rule_frame(true, false, 40, &events));
+}
+
+/// A rule with a find match on it shows its characters, so the match is visible. The cursor
+/// previews the first match; the second rule is revealed by its match alone.
+#[test]
+fn rule_lines_find_match_on_the_rule() {
+    let config = mustty::config::Config {
+        rule_lines: true,
+        ..Default::default()
+    };
+    let raw = "第一段\n\n---\n\n第二段\n\n---\n\n* * *\n";
+    let b = draw_with(&config, raw, 40, 18, &find_keys("--"), false);
+    insta::assert_snapshot!(format!("{}\n{}", styled(&b), snapshot(b.clone())));
+}
+
+/// A rule too long for a narrow window wraps; each of its rows is a line
+#[test]
+fn rule_lines_narrow_window_wraps() {
+    let config = mustty::config::Config {
+        rule_lines: true,
+        ..Default::default()
+    };
+    let raw = "段落\n\n- - - - - - - - - - - - - - - - - -\n\n后文\n";
+    let b = draw_with(&config, raw, 24, 12, &[], false);
+    let rows: Vec<String> = format!("{b}")
+        .lines()
+        .filter(|l| l.contains('─'))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(rows.len(), 2, "one line per visual row");
+    insta::assert_snapshot!(format!("{}\n{}", styled(&b), snapshot(b.clone())));
+}
+
+/// Focus mode dims the rules outside the current paragraph as it dims text
+#[test]
+fn rule_lines_in_focus_mode() {
+    insta::assert_snapshot!(rule_frame(true, true, 40, &[]));
+}
