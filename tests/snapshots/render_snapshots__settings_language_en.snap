@@ -18,15 +18,19 @@ expression: snapshot(en.clone())
 "    Tab width                                                   ‹ 4 › spaces    "
 "    Code color                                                    ‹ ■ cyan ›    "
 "    Code highlighting                                                     On    "
+"    Link color                                                      ‹ none ›    "
+"    Rule lines                                                           Off    "
 "    Cursor                                                           ‹ bar ›    "
 "    Cursor blink                                                         Off    "
 "    Language                                                     ‹ English ›    "
 "                                                                                "
 "    Interface language; Auto follows your locale settings                       "
 "                                                                                "
+"                                                                                "
+"                                                                                "
 "    ↑↓ select  ←→ adjust  Enter save  Esc cancel                                "
 "                                                                                "
 "                                                                                "
 "                                                                                "
 
-cursor: Position { x: 74, y: 20 } visible: true
+cursor: Position { x: 74, y: 22 } visible: true

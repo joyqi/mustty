@@ -31,9 +31,13 @@ pub struct Config {
     pub scrolloff: u16,
     pub tab_width: u16,
     /// Stores the choice itself rather than a `Color`: `white` and `gray` both map to `Color::Gray`, so it can't be reversed
-    pub code_color: CodeColor,
+    pub code_color: AnsiColor,
     /// Color code blocks by their language; off, they are one color (`code_color`) as before
     pub code_highlight: bool,
+    /// Foreground of link text and bare URLs; `None` leaves them in the text color, underlined
+    pub link_color: Option<AnsiColor>,
+    /// Draw a thematic break (`---`) as a line across the text column while the cursor is away
+    pub rule_lines: bool,
     /// Cursor shape while editing (vim Normal mode ignores it and always uses a block)
     pub cursor: CursorShape,
     pub cursor_blink: bool,
@@ -53,8 +57,10 @@ impl Default for Config {
             focus_mode: false,
             scrolloff: 3,
             tab_width: 4,
-            code_color: CodeColor::Cyan,
+            code_color: AnsiColor::Cyan,
             code_highlight: true,
+            link_color: None,
+            rule_lines: false,
             cursor: CursorShape::Bar,
             cursor_blink: false,
             lang: i18n::AUTO,
@@ -102,7 +108,7 @@ impl CursorShape {
 /// so `white` (and `gray`, as the spec spells it) both map to `Color::Gray`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum CodeColor {
+pub enum AnsiColor {
     Black,
     Red,
     Green,
@@ -114,9 +120,9 @@ pub enum CodeColor {
     White,
 }
 
-impl CodeColor {
+impl AnsiColor {
     /// Cycle order in the settings panel, which is SGR 30–37 order.
-    pub const ALL: [CodeColor; 8] = [
+    pub const ALL: [AnsiColor; 8] = [
         Self::Black,
         Self::Red,
         Self::Green,
@@ -141,6 +147,12 @@ impl CodeColor {
         }
     }
 
+    /// A color name from the config file, case-insensitive (`gray` is `white`).
+    fn parse(value: &toml::Value) -> Option<Self> {
+        let lowered = toml::Value::String(value.as_str()?.to_lowercase());
+        lowered.try_into().ok()
+    }
+
     pub fn color(self) -> Color {
         match self {
             Self::Black => Color::Black,
@@ -155,6 +167,9 @@ impl CodeColor {
     }
 }
 
+/// `link_color`'s spelling for "no color".
+pub const NONE: &str = "none";
+
 /// The config file layer: missing (or invalid) keys are None and keep their defaults on merge.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PartialConfig {
@@ -167,8 +182,11 @@ pub struct PartialConfig {
     pub focus_mode: Option<bool>,
     pub scrolloff: Option<u16>,
     pub tab_width: Option<u16>,
-    pub code_color: Option<CodeColor>,
+    pub code_color: Option<AnsiColor>,
     pub code_highlight: Option<bool>,
+    /// `Some(None)` is an explicit `none`
+    pub link_color: Option<Option<AnsiColor>>,
+    pub rule_lines: Option<bool>,
     pub cursor: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
     pub lang: Option<&'static str>,
@@ -187,7 +205,7 @@ impl ConfigWarning {
     }
 }
 
-pub const KEYS: [&str; 14] = [
+pub const KEYS: [&str; 16] = [
     "width",
     "vim",
     "mouse",
@@ -199,6 +217,8 @@ pub const KEYS: [&str; 14] = [
     "tab_width",
     "code_color",
     "code_highlight",
+    "link_color",
+    "rule_lines",
     "cursor",
     "cursor_blink",
     "lang",
@@ -267,6 +287,7 @@ impl PartialConfig {
                 "typewriter" => p.typewriter = boolean(&mut warn),
                 "focus_mode" => p.focus_mode = boolean(&mut warn),
                 "code_highlight" => p.code_highlight = boolean(&mut warn),
+                "rule_lines" => p.rule_lines = boolean(&mut warn),
                 "cursor_blink" => p.cursor_blink = boolean(&mut warn),
                 "cursor" => {
                     // Case-insensitive
@@ -281,14 +302,22 @@ impl PartialConfig {
                     }
                 }
                 "code_color" => {
-                    // Case-insensitive
-                    let lowered = value
-                        .as_str()
-                        .map(|s| toml::Value::String(s.to_lowercase()));
-                    p.code_color = lowered.and_then(|v| v.try_into().ok());
+                    p.code_color = AnsiColor::parse(value);
                     if p.code_color.is_none() {
                         let value = value.to_string();
                         warn(t_args("config-invalid-color", &[("value", &value)]));
+                    }
+                }
+                "link_color" => {
+                    let none = value.as_str().is_some_and(|s| s.eq_ignore_ascii_case(NONE));
+                    p.link_color = if none {
+                        Some(None)
+                    } else {
+                        AnsiColor::parse(value).map(Some)
+                    };
+                    if p.link_color.is_none() {
+                        let value = value.to_string();
+                        warn(t_args("config-invalid-link-color", &[("value", &value)]));
                     }
                 }
                 "lang" => {
@@ -335,6 +364,8 @@ impl Config {
         self.tab_width = p.tab_width.unwrap_or(self.tab_width);
         self.code_color = p.code_color.unwrap_or(self.code_color);
         self.code_highlight = p.code_highlight.unwrap_or(self.code_highlight);
+        self.link_color = p.link_color.unwrap_or(self.link_color);
+        self.rule_lines = p.rule_lines.unwrap_or(self.rule_lines);
         self.cursor = p.cursor.unwrap_or(self.cursor);
         self.cursor_blink = p.cursor_blink.unwrap_or(self.cursor_blink);
         self.lang = p.lang.unwrap_or(self.lang);
@@ -391,6 +422,8 @@ impl Config {
             "tab_width" => Scalar::Int(self.tab_width.into()),
             "code_color" => Scalar::Str(self.code_color.name()),
             "code_highlight" => Scalar::Bool(self.code_highlight),
+            "link_color" => Scalar::Str(self.link_color.map_or(NONE, AnsiColor::name)),
+            "rule_lines" => Scalar::Bool(self.rule_lines),
             "cursor" => Scalar::Str(self.cursor.name()),
             "cursor_blink" => Scalar::Bool(self.cursor_blink),
             "lang" => Scalar::Str(self.lang),
@@ -505,6 +538,8 @@ mod tests {
             tab_width = 2
             code_color = "yellow"
             code_highlight = false
+            link_color = "blue"
+            rule_lines = true
             cursor = "underline"
             cursor_blink = true
             lang = "zh-CN"
@@ -519,8 +554,10 @@ mod tests {
             focus_mode: true,
             scrolloff: 5,
             tab_width: 2,
-            code_color: CodeColor::Yellow,
+            code_color: AnsiColor::Yellow,
             code_highlight: false,
+            link_color: Some(AnsiColor::Blue),
+            rule_lines: true,
             cursor: CursorShape::Underline,
             cursor_blink: true,
             lang: "zh-CN",
@@ -708,7 +745,7 @@ mod tests {
 
     #[test]
     fn code_color_names() {
-        use CodeColor::*;
+        use AnsiColor::*;
         let names = [
             ("black", Black, Color::Black),
             ("red", Red, Color::Red),
@@ -746,10 +783,82 @@ mod tests {
             let (c, w) = parse(&format!("code_color = {bad}"));
             assert_eq!(
                 (c.code_color, keys(&w)),
-                (CodeColor::Cyan, vec![Some("code_color")]),
+                (AnsiColor::Cyan, vec![Some("code_color")]),
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn link_color_is_none_or_a_color() {
+        crate::i18n::init_for_test("en");
+        assert_eq!(Config::default().link_color, None);
+        // (value, effective color, warned?)
+        let cases = [
+            ("\"none\"", None, false),
+            ("\"NONE\"", None, false),
+            ("\"blue\"", Some(AnsiColor::Blue), false),
+            ("\"Magenta\"", Some(AnsiColor::Magenta), false),
+            ("\"gray\"", Some(AnsiColor::White), false),
+            ("\"orange\"", None, true),
+            ("\"\"", None, true),
+            ("false", None, true),
+            ("4", None, true),
+        ];
+        for (value, want, warned) in cases {
+            let (c, w) = parse(&format!("link_color = {value}"));
+            assert_eq!(c.link_color, want, "{value}");
+            assert_eq!(
+                keys(&w),
+                if warned {
+                    vec![Some("link_color")]
+                } else {
+                    vec![]
+                },
+                "{value}"
+            );
+        }
+        // A bad value keeps what the lower layer had rather than forcing none
+        let blue = Config {
+            link_color: Some(AnsiColor::Blue),
+            ..Config::default()
+        };
+        let (p, _) = PartialConfig::from_toml_str("link_color = \"orange\"");
+        assert_eq!(blue.clone().merge(&p).link_color, Some(AnsiColor::Blue));
+        let (p, _) = PartialConfig::from_toml_str("link_color = \"none\"");
+        assert_eq!(blue.merge(&p).link_color, None);
+        let (_, w) = parse("link_color = \"orange\"");
+        assert!(
+            w[0].message.contains("none or one of black"),
+            "{}",
+            w[0].message
+        );
+    }
+
+    #[test]
+    fn rule_lines_is_a_bool_defaulting_off() {
+        assert!(!Config::default().rule_lines);
+        assert!(parse("rule_lines = true").0.rule_lines);
+        let (c, w) = parse("rule_lines = \"yes\"");
+        assert_eq!((c.rule_lines, keys(&w)), (false, vec![Some("rule_lines")]));
+    }
+
+    #[test]
+    fn write_back_link_color_and_rule_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".mustty.toml");
+        std::fs::write(&path, "link_color = \"red\"\n").unwrap();
+        let old = loaded("link_color = \"red\"\n");
+        let new = Config {
+            link_color: None,
+            rule_lines: true,
+            ..old.clone()
+        };
+        assert_eq!(changed_keys(&old, &new), vec!["link_color", "rule_lines"]);
+        write_back(&mut FsConfigStore::new(&path), &old, &new).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(written, "link_color = \"none\"\nrule_lines = true\n");
+        assert_eq!(loaded(&written), new);
     }
 
     #[test]
@@ -792,7 +901,7 @@ mod tests {
             (64, true, true, false)
         );
         // Keys absent from the file keep their defaults; an empty layer changes nothing
-        assert_eq!((c.tab_width, c.code_color), (4, CodeColor::Cyan));
+        assert_eq!((c.tab_width, c.code_color), (4, AnsiColor::Cyan));
         assert_eq!(c.clone().merge(&PartialConfig::default()), c);
     }
 
@@ -824,7 +933,7 @@ mod tests {
         let new = Config {
             width: 64,
             tab_width: 8,
-            code_color: CodeColor::White,
+            code_color: AnsiColor::White,
             ..old.clone()
         };
         write_back(&mut FsConfigStore::new(&path), &old, &new).unwrap();
@@ -950,7 +1059,7 @@ mod tests {
             prop_oneof![
                 "[a-z_]{1,16} = -?[0-9]{1,20}",
                 "[a-z_]{1,16} = \"[^\"\\\\]{0,10}\"",
-                "(width|vim|mouse|tab_width|code_color|code_highlight|scrolloff) = (true|false|[0-9]{1,6}|\"[a-z]{0,8}\"|\\[1, 2\\])",
+                "(width|vim|mouse|tab_width|code_color|code_highlight|link_color|rule_lines|scrolloff) = (true|false|[0-9]{1,6}|\"[a-z]{0,8}\"|\\[1, 2\\])",
                 "\\[[a-z]{1,5}\\]",
                 ".{0,20}",
             ],

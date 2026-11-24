@@ -102,6 +102,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             focus: paragraph,
             code_color,
             code_highlight: app.config.code_highlight,
+            link_color: app.config.link_color.map(|c| c.color()),
             find: marks,
         },
         body,

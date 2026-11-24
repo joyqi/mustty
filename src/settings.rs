@@ -1,4 +1,4 @@
-//! Settings panel: 14 table-driven options and the panel state machine. Rendering lives in `view::settings`.
+//! Settings panel: 16 table-driven options and the panel state machine. Rendering lives in `view::settings`.
 //!
 //! The panel only reads and writes a copy of `Config`. App calls `apply_config` after every change,
 //! and decides on close whether to keep it or roll back.
@@ -8,7 +8,7 @@ use std::time::Duration;
 use crate::input::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::config::{
-    AUTOSAVE_IDLE_RANGE, CodeColor, Config, CursorShape, SCROLLOFF_RANGE, TAB_WIDTH_RANGE,
+    AUTOSAVE_IDLE_RANGE, AnsiColor, Config, CursorShape, SCROLLOFF_RANGE, TAB_WIDTH_RANGE,
     WIDTH_RANGE,
 };
 use crate::i18n::{self, t};
@@ -29,6 +29,8 @@ pub enum Field {
     TabWidth,
     CodeColor,
     CodeHighlight,
+    LinkColor,
+    RuleLines,
     Cursor,
     CursorBlink,
     Lang,
@@ -51,7 +53,9 @@ pub enum Kind {
 pub enum Value {
     Bool(bool),
     Int(i64),
-    Color(CodeColor),
+    Color(AnsiColor),
+    /// `None` is "no color"
+    LinkColor(Option<AnsiColor>),
     Cursor(CursorShape),
     /// `i18n::AUTO` or a locale tag
     Lang(&'static str),
@@ -68,7 +72,7 @@ fn range<T: Into<i64>>((lo, hi): (T, T)) -> (i64, i64) {
 
 impl Field {
     /// Display order.
-    pub const ALL: [Field; 14] = [
+    pub const ALL: [Field; 16] = [
         Self::Width,
         Self::Vim,
         Self::Mouse,
@@ -80,6 +84,8 @@ impl Field {
         Self::TabWidth,
         Self::CodeColor,
         Self::CodeHighlight,
+        Self::LinkColor,
+        Self::RuleLines,
         Self::Cursor,
         Self::CursorBlink,
         Self::Lang,
@@ -99,6 +105,8 @@ impl Field {
             Self::TabWidth => "tab_width",
             Self::CodeColor => "code_color",
             Self::CodeHighlight => "code_highlight",
+            Self::LinkColor => "link_color",
+            Self::RuleLines => "rule_lines",
             Self::Cursor => "cursor",
             Self::CursorBlink => "cursor_blink",
             Self::Lang => "lang",
@@ -120,6 +128,8 @@ impl Field {
             Self::TabWidth => t("settings-tab-width"),
             Self::CodeColor => t("settings-code-color"),
             Self::CodeHighlight => t("settings-code-highlight"),
+            Self::LinkColor => t("settings-link-color"),
+            Self::RuleLines => t("settings-rule-lines"),
             Self::Cursor if vim => t("settings-cursor-vim"),
             Self::CursorBlink if vim => t("settings-cursor-blink-vim"),
             Self::Cursor => t("settings-cursor"),
@@ -142,6 +152,8 @@ impl Field {
             Self::TabWidth => t("settings-tab-width-help"),
             Self::CodeColor => t("settings-code-color-help"),
             Self::CodeHighlight => t("settings-code-highlight-help"),
+            Self::LinkColor => t("settings-link-color-help"),
+            Self::RuleLines => t("settings-rule-lines-help"),
             Self::Cursor if vim => t("settings-cursor-help-vim"),
             Self::CursorBlink if vim => t("settings-cursor-blink-help-vim"),
             Self::Cursor => t("settings-cursor-help"),
@@ -163,13 +175,14 @@ impl Field {
             Self::AutosaveIdle => int(range(AUTOSAVE_IDLE_RANGE_I64), 500, t("settings-unit-ms")),
             Self::Scrolloff => int(range(SCROLLOFF_RANGE), 1, t("settings-unit-lines")),
             Self::TabWidth => int(range(TAB_WIDTH_RANGE), 1, t("settings-unit-spaces")),
-            Self::CodeColor | Self::Cursor | Self::Lang => Kind::Choice,
+            Self::CodeColor | Self::LinkColor | Self::Cursor | Self::Lang => Kind::Choice,
             Self::Vim
             | Self::Mouse
             | Self::Autosave
             | Self::Typewriter
             | Self::FocusMode
             | Self::CodeHighlight
+            | Self::RuleLines
             | Self::CursorBlink => Kind::Toggle,
         }
     }
@@ -187,6 +200,8 @@ impl Field {
             Self::TabWidth => Value::Int(c.tab_width.into()),
             Self::CodeColor => Value::Color(c.code_color),
             Self::CodeHighlight => Value::Bool(c.code_highlight),
+            Self::LinkColor => Value::LinkColor(c.link_color),
+            Self::RuleLines => Value::Bool(c.rule_lines),
             Self::Cursor => Value::Cursor(c.cursor),
             Self::CursorBlink => Value::Bool(c.cursor_blink),
             Self::Lang => Value::Lang(c.lang),
@@ -213,6 +228,8 @@ impl Field {
             (Self::TabWidth, Value::Int(i)) => c.tab_width = clamp(i) as u16,
             (Self::CodeColor, Value::Color(color)) => c.code_color = color,
             (Self::CodeHighlight, Value::Bool(b)) => c.code_highlight = b,
+            (Self::LinkColor, Value::LinkColor(color)) => c.link_color = color,
+            (Self::RuleLines, Value::Bool(b)) => c.rule_lines = b,
             (Self::Cursor, Value::Cursor(shape)) => c.cursor = shape,
             (Self::CursorBlink, Value::Bool(b)) => c.cursor_blink = b,
             (Self::Lang, Value::Lang(lang)) => {
@@ -232,12 +249,22 @@ impl Field {
             (Value::Int(i), Kind::Int { min, max, step, .. }) => {
                 Value::Int((i + steps * step).clamp(min, max))
             }
-            (Value::Color(color), _) => Value::Color(cycle(&CodeColor::ALL, color, steps)),
+            (Value::Color(color), _) => Value::Color(cycle(&AnsiColor::ALL, color, steps)),
+            (Value::LinkColor(color), _) => {
+                Value::LinkColor(cycle(&link_color_options(), color, steps))
+            }
             (Value::Cursor(shape), _) => Value::Cursor(cycle(&CursorShape::ALL, shape, steps)),
             (Value::Lang(lang), _) => Value::Lang(cycle(&lang_options(), lang, steps)),
             (v, _) => v,
         }
     }
+}
+
+/// Choices for the link color: none, then the 8 colors.
+fn link_color_options() -> Vec<Option<AnsiColor>> {
+    std::iter::once(None)
+        .chain(AnsiColor::ALL.map(Some))
+        .collect()
 }
 
 /// Cycles a choice by one step (direction is the sign of `steps`).
@@ -251,16 +278,16 @@ const AUTOSAVE_IDLE_RANGE_I64: (i64, i64) =
     (AUTOSAVE_IDLE_RANGE.0 as i64, AUTOSAVE_IDLE_RANGE.1 as i64);
 
 /// Color name (translated).
-pub fn color_name(c: CodeColor) -> &'static str {
+pub fn color_name(c: AnsiColor) -> &'static str {
     match c {
-        CodeColor::Black => t("color-black"),
-        CodeColor::Red => t("color-red"),
-        CodeColor::Green => t("color-green"),
-        CodeColor::Yellow => t("color-yellow"),
-        CodeColor::Blue => t("color-blue"),
-        CodeColor::Magenta => t("color-magenta"),
-        CodeColor::Cyan => t("color-cyan"),
-        CodeColor::White => t("color-white"),
+        AnsiColor::Black => t("color-black"),
+        AnsiColor::Red => t("color-red"),
+        AnsiColor::Green => t("color-green"),
+        AnsiColor::Yellow => t("color-yellow"),
+        AnsiColor::Blue => t("color-blue"),
+        AnsiColor::Magenta => t("color-magenta"),
+        AnsiColor::Cyan => t("color-cyan"),
+        AnsiColor::White => t("color-white"),
     }
 }
 
@@ -394,8 +421,10 @@ mod tests {
             Value::Bool(true),
             Value::Int(7),
             Value::Int(8),
-            Value::Color(CodeColor::Magenta),
+            Value::Color(AnsiColor::Magenta),
             Value::Bool(false),
+            Value::LinkColor(Some(AnsiColor::Blue)),
+            Value::Bool(true),
             Value::Cursor(CursorShape::Underline),
             Value::Bool(true),
             Value::Lang("zh-CN"),
@@ -474,15 +503,40 @@ mod tests {
         }
         assert_eq!(seen.first(), seen.last(), "back to the start after 8 steps");
         let mut distinct = seen[..8].to_vec();
-        distinct.sort_by_key(|x| CodeColor::ALL.iter().position(|y| y == x));
+        distinct.sort_by_key(|x| AnsiColor::ALL.iter().position(|y| y == x));
         distinct.dedup();
-        assert_eq!(distinct, CodeColor::ALL.to_vec());
-        c.code_color = CodeColor::Black;
+        assert_eq!(distinct, AnsiColor::ALL.to_vec());
+        c.code_color = AnsiColor::Black;
         assert_eq!(
             Field::CodeColor.adjust(&c, -1),
-            Value::Color(CodeColor::White),
+            Value::Color(AnsiColor::White),
             "going left wraps from the first to the last"
         );
+    }
+
+    #[test]
+    fn link_color_cycles_through_none() {
+        assert_eq!(Field::LinkColor.kind(), Kind::Choice);
+        assert_eq!(Field::RuleLines.kind(), Kind::Toggle);
+        let mut c = Config::default();
+        let mut seen = vec![c.link_color];
+        for _ in 0..9 {
+            let v = Field::LinkColor.adjust(&c, 1);
+            Field::LinkColor.set(&mut c, v);
+            seen.push(c.link_color);
+        }
+        assert_eq!(seen[..9], link_color_options(), "none, then SGR 30–37");
+        assert_eq!(seen[9], None, "back to none after 9 steps");
+        assert_eq!(
+            Field::LinkColor.adjust(&c, -1),
+            Value::LinkColor(Some(AnsiColor::White)),
+            "going left wraps from none to the last color"
+        );
+        // The two new rows sit between code_highlight and cursor
+        let at = |f| Field::ALL.iter().position(|&x| x == f).unwrap();
+        assert_eq!(at(Field::LinkColor), at(Field::CodeHighlight) + 1);
+        assert_eq!(at(Field::RuleLines), at(Field::LinkColor) + 1);
+        assert_eq!(at(Field::Cursor), at(Field::RuleLines) + 1);
     }
 
     #[test]

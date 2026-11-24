@@ -7,7 +7,8 @@ use crate::keymap::Mode;
 use crate::markdown::Token;
 
 /// `code` is the foreground color for inline code and code blocks (the code_color setting, limited to the 8 basic ANSI colors).
-pub fn style(token: Token, code: Color) -> Style {
+/// `link` is the link_color setting: link text and bare URLs, `None` for the text color.
+pub fn style(token: Token, code: Color, link: Option<Color>) -> Style {
     let m = |m: Modifier| Style::default().add_modifier(m);
     match token {
         Token::HeadingMark
@@ -23,8 +24,17 @@ pub fn style(token: Token, code: Color) -> Style {
         Token::Heading(_) | Token::Strong => m(Modifier::BOLD),
         Token::Emph | Token::Quote => m(Modifier::ITALIC),
         Token::Code | Token::FencedCode => Style::default().fg(code),
-        Token::LinkText => m(Modifier::UNDERLINED),
+        Token::LinkText => self::link(link),
         Token::Syntax(t) => syntax(t, code),
+    }
+}
+
+/// Link text and bare URLs: underlined, in `color` when one is set.
+pub fn link(color: Option<Color>) -> Style {
+    let style = Style::default().add_modifier(Modifier::UNDERLINED);
+    match color {
+        Some(c) => style.fg(c),
+        None => style,
     }
 }
 
@@ -84,7 +94,7 @@ mod tests {
     #[test]
     fn code_tokens_follow_scheme_b() {
         let code = Color::Yellow;
-        let style = |t| style(Token::Syntax(t), code);
+        let style = |t| style(Token::Syntax(t), code, None);
         let base = Style::default().fg(code);
         assert_eq!(
             style(code::Token::Keyword),
@@ -102,5 +112,24 @@ mod tests {
             Style::default().fg(Color::Green)
         );
         assert_eq!(style(code::Token::DiffDel), Style::default().fg(Color::Red));
+    }
+
+    /// link_color colors link text and bare URLs only; none keeps today's underline
+    #[test]
+    fn link_color_colors_link_text_only() {
+        let underlined = Style::default().add_modifier(Modifier::UNDERLINED);
+        let blue = Some(Color::Blue);
+        assert_eq!(style(Token::LinkText, Color::Cyan, None), underlined);
+        assert_eq!(
+            style(Token::LinkText, Color::Cyan, blue),
+            underlined.fg(Color::Blue)
+        );
+        for t in [Token::LinkPunct, Token::LinkUrl, Token::Code, Token::Emph] {
+            assert_eq!(
+                style(t, Color::Cyan, blue),
+                style(t, Color::Cyan, None),
+                "{t:?}"
+            );
+        }
     }
 }

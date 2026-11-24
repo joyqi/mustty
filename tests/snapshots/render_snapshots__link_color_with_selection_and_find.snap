@@ -1,0 +1,7 @@
+---
+source: tests/render_snapshots.rs
+expression: styled(&b)
+---
+ 0: "notes" DIM
+ 1: "[" DIM | REVERSED | "文" UNDERLINED | REVERSED fg=Blue | "字" UNDERLINED | REVERSED fg=Blue | "](https://x." DIM | REVERSED | "io" REVERSED fg=Yellow | ")" DIM | " 与" NONE | "https://y." UNDERLINED fg=Blue | "io" UNDERLINED fg=Yellow | " 和" NONE | "www.z." UNDERLINED fg=Blue | "io" UNDERLINED fg=Yellow
+ 5: "VIS" NONE fg=Yellow | " notes.md" DIM | "9 字" DIM | " · 1:16" DIM

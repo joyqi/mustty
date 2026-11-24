@@ -126,6 +126,8 @@ pub struct BodyWidget<'a> {
     pub code_color: Color,
     /// Show code blocks' syntax colors; off, code blocks are one color
     pub code_highlight: bool,
+    /// Link text and bare URLs; `None` for the text color
+    pub link_color: Option<Color>,
     /// Find highlighting: each visible line is searched as it's drawn, so this never needs the
     /// full match list
     pub find: Option<Marks<'a>>,
@@ -137,12 +139,13 @@ impl Widget for BodyWidget<'_> {
         let tab = self.wrap.tab_width();
         let code = self.code_color;
         let highlight = self.code_highlight;
+        let link = self.link_color;
         let dimmed = |line: usize| self.focus.as_ref().is_some_and(|f| !f.contains(&line));
         // Layers, later ones on top: markdown / code, focus mode DIM, matches, the current match,
         // and the selection (in the draw loop below)
         let styles_of = |hl: &mut HighlightCache, line: usize, text: &str| {
             let len = text.chars().count();
-            let mut styles = line_styles(hl.ranges(self.rope, line), len, code, highlight);
+            let mut styles = line_styles(hl.ranges(self.rope, line), len, code, link, highlight);
             if dimmed(line) {
                 styles
                     .iter_mut()
@@ -197,12 +200,18 @@ impl Widget for BodyWidget<'_> {
 
 /// Layer a line's style ranges in order into one style per char (outer first, inner overrides).
 /// Without `highlight`, code blocks' syntax ranges are skipped.
-fn line_styles(ranges: &[StyledRange], len: usize, code: Color, highlight: bool) -> Vec<Style> {
+fn line_styles(
+    ranges: &[StyledRange],
+    len: usize,
+    code: Color,
+    link: Option<Color>,
+    highlight: bool,
+) -> Vec<Style> {
     let mut styles = vec![Style::default(); len];
     let shown = |r: &&StyledRange| highlight || !matches!(r.token, Token::Syntax(_));
     for r in ranges.iter().filter(shown) {
         for s in &mut styles[r.start.min(len)..r.end.min(len)] {
-            *s = s.patch(theme::style(r.token, code));
+            *s = s.patch(theme::style(r.token, code, link));
         }
     }
     styles
@@ -381,8 +390,8 @@ mod tests {
                 token: Token::Syntax(crate::code::Token::Keyword),
             },
         ];
-        let on = line_styles(&ranges, 6, Color::Cyan, true);
-        let off = line_styles(&ranges, 6, Color::Cyan, false);
+        let on = line_styles(&ranges, 6, Color::Cyan, None, true);
+        let off = line_styles(&ranges, 6, Color::Cyan, None, false);
         assert_eq!(
             on[0],
             Style::default()

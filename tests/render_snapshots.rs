@@ -411,7 +411,7 @@ fn settings_cursor_rows(vim: bool, events: &[Event]) -> TestBackend {
         autosave: false,
         ..mustty::config::Config::default()
     };
-    draw_with(&config, "# 标题\n\n正文\n", 80, 24, events, false)
+    draw_with(&config, "# 标题\n\n正文\n", 80, 28, events, false)
 }
 
 /// How many rows down the settings panel lists a field
@@ -633,7 +633,7 @@ fn settings_language_switches_live() {
     };
     mustty::i18n::init_for_test("zh-CN");
     // Tall enough for the whole list, so every label is on screen
-    let (w, h) = (80, 26);
+    let (w, h) = (80, 30);
     let doc = Document::parse("# 标题\n\n正文\n", lf_meta(Some("notes.md")));
     let mut app = App::with_config(doc, Size::new(w, h), &config);
     let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
@@ -817,7 +817,7 @@ fn style_at(b: &TestBackend, text: &str) -> ratatui::style::Style {
 fn code_colors_follow_code_color() {
     use ratatui::style::{Color, Modifier};
     let config = mustty::config::Config {
-        code_color: mustty::config::CodeColor::Yellow,
+        code_color: mustty::config::AnsiColor::Yellow,
         ..Default::default()
     };
     let raw = "段落\n\n```rust\nlet s = \"str\"; // note\n```\n";
@@ -921,7 +921,7 @@ fn find_highlight_styles() {
 #[test]
 fn find_highlight_in_code_block() {
     let config = mustty::config::Config {
-        code_color: mustty::config::CodeColor::Cyan,
+        code_color: mustty::config::AnsiColor::Cyan,
         ..Default::default()
     };
     let raw = "段落\n\n```rust\nlet value = \"value\"; // value\n```\n";
@@ -967,5 +967,28 @@ fn find_selection_covers_matches() {
     events.push(key(KeyCode::Enter));
     events.push(key(KeyCode::Char('n')));
     let b = draw_with(&config, raw, 40, 6, &events, false);
+    insta::assert_snapshot!(styled(&b));
+}
+
+// ---- links ----
+
+/// link_color paints link text and bare URLs; the URL in `(…)` stays dim. A selection reverses
+/// the colored text and a find match keeps its yellow over the link color.
+#[test]
+fn link_color_with_selection_and_find() {
+    let config = mustty::config::Config {
+        vim: true,
+        link_color: Some(mustty::config::AnsiColor::Blue),
+        ..Default::default()
+    };
+    let raw = "[文字](https://x.io) 与 https://y.io 和 www.z.io\n";
+    let mut events = vec![
+        key(KeyCode::Esc),
+        key(KeyCode::Char('v')),
+        key(KeyCode::Char('/')),
+    ];
+    events.extend("io".chars().map(|c| key(KeyCode::Char(c))));
+    events.push(key(KeyCode::Enter));
+    let b = draw_with(&config, raw, 60, 6, &events, false);
     insta::assert_snapshot!(styled(&b));
 }

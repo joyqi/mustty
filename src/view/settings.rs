@@ -48,6 +48,12 @@ fn value_spans(field: Field, config: &Config) -> Vec<(String, Style)> {
             ("■".to_owned(), Style::default().fg(c.color())),
             (format!(" {} ›", color_name(c)), plain),
         ],
+        (Value::LinkColor(None), _) => vec![(format!("‹ {} ›", t("color-none")), plain)],
+        (Value::LinkColor(Some(c)), _) => vec![
+            ("‹ ".to_owned(), plain),
+            ("■".to_owned(), Style::default().fg(c.color())),
+            (format!(" {} ›", color_name(c)), plain),
+        ],
         // After Auto, show the effective language in DIM. Language names are written natively, never translated
         (Value::Cursor(c), _) => vec![(format!("‹ {} ›", cursor_name(c)), plain)],
         (Value::Lang(i18n::AUTO), _) => vec![
@@ -152,6 +158,10 @@ impl Widget for SettingsWidget<'_> {
                 let sample = Style::default().fg(self.config.code_color.color());
                 put(buf, x + 2, y, help_right, "`code`", sample);
             }
+            if field == Field::LinkColor {
+                let sample = theme::link(self.config.link_color.map(|c| c.color()));
+                put(buf, x + 2, y, help_right, "https://mustty.com", sample);
+            }
         }
     }
 }
@@ -162,11 +172,11 @@ mod tests {
 
     #[test]
     fn rows_fit_or_scroll() {
-        // 14 fields: when they fit, the list, a blank row, then the help line
-        assert_eq!(list_rows(20), (14, Some(15)));
-        assert_eq!(list_rows(16), (14, Some(15)));
-        assert_eq!(list_rows(15), (14, Some(14)));
-        assert_eq!(list_rows(14), (13, Some(13)));
+        // 16 fields: when they fit, the list, a blank row, then the help line
+        assert_eq!(list_rows(20), (16, Some(17)));
+        assert_eq!(list_rows(18), (16, Some(17)));
+        assert_eq!(list_rows(17), (16, Some(16)));
+        assert_eq!(list_rows(16), (15, Some(15)));
         assert_eq!(list_rows(6), (5, Some(5)));
         assert_eq!(list_rows(1), (1, None));
     }
