@@ -408,10 +408,14 @@ fn scan_inline(chars: &[char], from: usize, out: &mut Vec<StyledRange>) {
     }
 }
 
+/// CJK and fullwidth punctuation: it ends a bare URL, so `x.io，还有` links only `x.io`.
+const CJK_PUNCT: &str = "，。、；：！？「」『』（）《》〈〉【】…—～·";
+
 /// The end of a bare URL starting at `at`, as GitHub autolinks it: a scheme or `www.` after a
-/// non-ASCII-alphanumeric (or the line start), running to whitespace, `<`, `>` or a claimed char, minus
-/// trailing punctuation and any `)` without a matching `(` inside the URL. Unlike GitHub it also
-/// stops at the first non-ASCII char, so CJK text right after a URL (`x.io，还有`) stays text.
+/// non-ASCII-alphanumeric (or the line start, so `见https://…` works), running to whitespace, an
+/// ASCII control char, `<`, `>`, CJK punctuation or a claimed char, minus trailing punctuation and
+/// any `)` without a matching `(` inside the URL. Other non-ASCII letters stay in the URL
+/// (`…/wiki/春`).
 fn bare_url(chars: &[char], taken: &[bool], at: usize) -> Option<usize> {
     if at > 0 && chars[at - 1].is_ascii_alphanumeric() {
         return None;
@@ -428,7 +432,14 @@ fn bare_url(chars: &[char], taken: &[bool], at: usize) -> Option<usize> {
         .find(|p| starts(p))?
         .len();
     let mut end = (at..chars.len())
-        .find(|&k| taken[k] || !chars[k].is_ascii_graphic() || matches!(chars[k], '<' | '>'))
+        .find(|&k| {
+            let c = chars[k];
+            taken[k]
+                || c.is_whitespace()
+                || c.is_control()
+                || matches!(c, '<' | '>')
+                || CJK_PUNCT.contains(c)
+        })
         .unwrap_or(chars.len());
     loop {
         let unbalanced = || {
@@ -438,6 +449,7 @@ fn bare_url(chars: &[char], taken: &[bool], at: usize) -> Option<usize> {
         match chars[end - 1] {
             '.' | ',' | ':' | ';' | '!' | '?' | '\'' | '"' | '*' | '_' | '~' => end -= 1,
             ')' if unbalanced() => end -= 1,
+            c if CJK_PUNCT.contains(c) => end -= 1,
             _ => break,
         }
     }
@@ -645,7 +657,7 @@ mod tests {
     /// Bare URLs, as (line, the LinkText runs the scanner finds)
     #[test]
     fn bare_urls() {
-        let cases: [(&str, &[&str]); 19] = [
+        let cases: [(&str, &[&str]); 23] = [
             ("see https://x.io/a_b now", &["https://x.io/a_b"]),
             ("http://x.io", &["http://x.io"]),
             ("www.x.io/path?q=1", &["www.x.io/path?q=1"]),
@@ -671,6 +683,13 @@ mod tests {
             ("www.", &[]),
             ("a https://x.io/`b` c", &["https://x.io/"]),
             ("见https://x.io，还有", &["https://x.io"]),
+            (
+                "见 https://zh.wikipedia.org/wiki/春 一文",
+                &["https://zh.wikipedia.org/wiki/春"],
+            ),
+            ("https://x.io/文章，还有", &["https://x.io/文章"]),
+            ("详见 https://x.io/路径。", &["https://x.io/路径"]),
+            ("（见 https://x.io/页）", &["https://x.io/页"]),
         ];
         for (line, want) in cases {
             let chars: Vec<char> = line.chars().collect();
