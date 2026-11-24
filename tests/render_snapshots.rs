@@ -152,7 +152,7 @@ fn styled(backend: &TestBackend) -> String {
     out
 }
 
-const MARKDOWN: &str = "# 高亮演示\n\n## 二级 **标题**\n普通 *强调* 与 **加粗** 与 `code`\n**未闭合的加粗 后文不应变粗\n> 引用\n- [ ] 列表 [链接](https://x.io)\n---\n```rust\nlet a = 1; // **不是加粗**\n```\n栅栏之后恢复正常\n";
+const MARKDOWN: &str = "# 高亮演示\n\n## 二级 **标题**\n普通 *强调* 与 **加粗** 与 `code`\n**未闭合的加粗 后文不应变粗\n> 引用\n- [ ] 列表 [链接](https://x.io)\n---\n```rust\nlet a = 1; // **不是加粗**\n```\n栅栏之后恢复正常\n裸链接 https://x.io/a_b，还有 www.y.io。\n";
 
 #[test]
 fn markdown_highlight_styles() {

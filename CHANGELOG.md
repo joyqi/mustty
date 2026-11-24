@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Deleting the first item of a numbered list keeps the list's start: the next item takes its number, so `1, 2, 3` becomes `1, 2` and a list starting at 5 still starts at 5.
 - vim: `O` opens a new line above and enters Insert mode. On a list item, `o` and `O` open an empty item with the right marker.
 - The help panel (`Ctrl+G`) lists `Tab / Shift+Tab`, and `o / O` under vim.
+- Plain URLs (`http://…`, `https://…`, `www.…`) are underlined like Markdown link text ([#4](https://github.com/joyqi/mustty/issues/4)). Trailing punctuation, an unmatched `)` and text after the URL in another script (`x.io，还有`) are left out; URLs inside inline code or inside `[text](url)` are not styled twice.
 
 ## [0.1.6] - 2026-11-18
 

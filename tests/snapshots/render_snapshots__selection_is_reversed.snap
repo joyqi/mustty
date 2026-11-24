@@ -13,7 +13,8 @@ expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 12: "let" BOLD fg=Cyan | " a = 1;" NONE fg=Cyan | "// **不" DIM fg=Cyan | "是" DIM fg=Cyan | "加" DIM fg=Cyan | "粗" DIM fg=Cyan | "**" DIM fg=Cyan
 13: "```" DIM
 14: "  栅 栏 之 后 恢 复 正 常" NONE
-20: "hl.md" DIM | "53 字" DIM | " · 3:4" DIM
+15: "  裸 链 接" NONE | "https://x.io/a_b" UNDERLINED | "， 还 有" NONE | "www.y.io" UNDERLINED | "。" NONE
+20: "hl.md" DIM | "62 字" DIM | " · 3:4" DIM
 
 "                                                            "
 "                                                            "
@@ -30,12 +31,12 @@ expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 "  let a = 1; // **不是加粗**                                " Hidden by multi-width symbols: [(19, " "), (21, " "), (23, " "), (25, " ")]
 "  ```                                                       "
 "  栅栏之后恢复正常                                          " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " ")]
+"  裸链接 https://x.io/a_b，还有 www.y.io。                  " Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " "), (26, " "), (28, " "), (30, " "), (41, " ")]
 "                                                            "
 "                                                            "
 "                                                            "
 "                                                            "
-"                                                            "
-"  hl.md                                        53 字 · 3:4  " Hidden by multi-width symbols: [(51, " ")]
+"  hl.md                                        62 字 · 3:4  " Hidden by multi-width symbols: [(51, " ")]
 "                                                            "
 "                                                            "
 "                                                            "

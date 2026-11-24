@@ -330,6 +330,24 @@ fn scan_inline(chars: &[char], from: usize, out: &mut Vec<StyledRange>) {
         i = k + 1;
     }
 
+    // Bare URLs: `http://`, `https://`, `www.`, outside code, link URLs and link text
+    let linked: Vec<Range<usize>> = out
+        .iter()
+        .filter(|r| r.token == Token::LinkText)
+        .map(|r| r.start..r.end)
+        .collect();
+    let mut i = from;
+    while i < n {
+        let free = !taken[i] && !linked.iter().any(|r| r.contains(&i));
+        match bare_url(chars, &taken, i).filter(|_| free) {
+            Some(end) => {
+                push(out, &mut taken, i..end, Token::LinkText, true);
+                i = end;
+            }
+            None => i += 1,
+        }
+    }
+
     // Strong before emphasis, so emphasis can nest inside strong text
     for (width, mark, content) in [
         (2, Token::StrongMark, Token::Strong),
@@ -356,6 +374,42 @@ fn scan_inline(chars: &[char], from: usize, out: &mut Vec<StyledRange>) {
             }
         }
     }
+}
+
+/// The end of a bare URL starting at `at`, as GitHub autolinks it: a scheme or `www.` after a
+/// non-ASCII-alphanumeric (or the line start), running to whitespace, `<`, `>` or a claimed char, minus
+/// trailing punctuation and any `)` without a matching `(` inside the URL. Unlike GitHub it also
+/// stops at the first non-ASCII char, so CJK text right after a URL (`x.io，还有`) stays text.
+fn bare_url(chars: &[char], taken: &[bool], at: usize) -> Option<usize> {
+    if at > 0 && chars[at - 1].is_ascii_alphanumeric() {
+        return None;
+    }
+    let starts = |prefix: &str| {
+        prefix.chars().enumerate().all(|(k, p)| {
+            chars
+                .get(at + k)
+                .is_some_and(|c| c.eq_ignore_ascii_case(&p))
+        })
+    };
+    let prefix = ["https://", "http://", "www."]
+        .into_iter()
+        .find(|p| starts(p))?
+        .len();
+    let mut end = (at..chars.len())
+        .find(|&k| taken[k] || !chars[k].is_ascii_graphic() || matches!(chars[k], '<' | '>'))
+        .unwrap_or(chars.len());
+    loop {
+        let unbalanced = || {
+            let count = |c| chars[at..end].iter().filter(|&&x| x == c).count();
+            count(')') > count('(')
+        };
+        match chars[end - 1] {
+            '.' | ',' | ':' | ';' | '!' | '?' | '\'' | '"' | '*' | '_' | '~' => end -= 1,
+            ')' if unbalanced() => end -= 1,
+            _ => break,
+        }
+    }
+    (end > at + prefix).then_some(end)
 }
 
 fn run_len(chars: &[char], at: usize, c: char) -> usize {
@@ -554,6 +608,51 @@ mod tests {
             "-不是列表",
         ];
         insta::assert_snapshot!(lines.map(show).concat());
+    }
+
+    /// Bare URLs, as (line, the LinkText runs the scanner finds)
+    #[test]
+    fn bare_urls() {
+        let cases: [(&str, &[&str]); 19] = [
+            ("see https://x.io/a_b now", &["https://x.io/a_b"]),
+            ("http://x.io", &["http://x.io"]),
+            ("www.x.io/path?q=1", &["www.x.io/path?q=1"]),
+            ("HTTPS://X.IO", &["HTTPS://X.IO"]),
+            ("end https://x.io.", &["https://x.io"]),
+            (
+                "list https://a.io, https://b.io; done",
+                &["https://a.io", "https://b.io"],
+            ),
+            ("(see https://x.io)", &["https://x.io"]),
+            (
+                "https://en.wikipedia.org/wiki/Foo_(bar)",
+                &["https://en.wikipedia.org/wiki/Foo_(bar)"],
+            ),
+            ("<https://x.io>", &["https://x.io"]),
+            ("*https://x.io*", &["https://x.io"]),
+            ("`https://x.io` in code", &[]),
+            ("[text](https://x.io)", &["text"]),
+            ("[see https://x.io](https://y.io)", &["see https://x.io"]),
+            ("snake_case_name", &[]),
+            ("xhttp://x.io", &[]),
+            ("https://", &[]),
+            ("www.", &[]),
+            ("a https://x.io/`b` c", &["https://x.io/"]),
+            ("见https://x.io，还有", &["https://x.io"]),
+        ];
+        for (line, want) in cases {
+            let chars: Vec<char> = line.chars().collect();
+            let (ranges, _) = scan_line(line, BlockState::Normal);
+            let got: Vec<String> = ranges
+                .iter()
+                .filter(|r| r.token == Token::LinkText)
+                .map(|r| chars[r.start..r.end].iter().collect())
+                .collect();
+            assert_eq!(got, want, "{line:?}");
+        }
+        // Inside a URL, `_` is not emphasis
+        let (ranges, _) = scan_line("https://x.io/_a_ b", BlockState::Normal);
+        assert!(ranges.iter().all(|r| r.token != Token::Emph));
     }
 
     #[test]

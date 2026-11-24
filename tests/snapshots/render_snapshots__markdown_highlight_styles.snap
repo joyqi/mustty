@@ -13,4 +13,5 @@ expression: "styled(&draw(Some(\"hl.md\"), MARKDOWN, 60, 24, &[]))"
 12: "let" BOLD fg=Cyan | " a = 1;" NONE fg=Cyan | "// **不" DIM fg=Cyan | "是" DIM fg=Cyan | "加" DIM fg=Cyan | "粗" DIM fg=Cyan | "**" DIM fg=Cyan
 13: "```" DIM
 14: "  栅 栏 之 后 恢 复 正 常" NONE
-20: "hl.md" DIM | "53 字" DIM | " · 1:1" DIM
+15: "  裸 链 接" NONE | "https://x.io/a_b" UNDERLINED | "， 还 有" NONE | "www.y.io" UNDERLINED | "。" NONE
+20: "hl.md" DIM | "62 字" DIM | " · 1:1" DIM
