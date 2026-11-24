@@ -65,8 +65,10 @@ mustty [FILE]
 Pass a file to open or create it on first save, or omit `FILE` to start an Untitled document (`-h` / `--help` and `-V` / `--version` are the only flags).
 
 - Press `Ctrl+G` inside the app (or `?` in vim Normal mode) to see the shortcuts worth knowing.
-- Press `Ctrl+P` to open the live settings panel. Changes apply immediately and write back to `~/.mustty.toml` (`width`, `vim`, `mouse`, `autosave`, `autosave_idle_ms`, `typewriter`, `focus_mode`, `scrolloff`, `tab_width`, `code_color`, `code_highlight`, `cursor`, `cursor_blink`, `lang`).
+- Press `Ctrl+L` (or `gx` / `Enter` in vim Normal mode) to open the link under the cursor in your browser; only `http(s)://` and `www.` addresses open.
+- Press `Ctrl+P` to open the live settings panel. Changes apply immediately and write back to `~/.mustty.toml` (`width`, `vim`, `mouse`, `autosave`, `autosave_idle_ms`, `typewriter`, `focus_mode`, `scrolloff`, `tab_width`, `code_color`, `code_highlight`, `link_color`, `rule_lines`, `cursor`, `cursor_blink`, `lang`).
   `code_highlight` (on by default) colors code blocks whose fence names a language (` ```rust `, ` ```py `, ` ```diff `, 30 languages): keywords bold, strings green, comments dim, diff lines green and red. Off, code blocks are one color, `code_color`.
+  `link_color` (`none` by default, or one of the 8 `code_color` names) colors link text and plain `http(s)://` / `www.` URLs, which are underlined either way. `rule_lines` (off by default) draws `---`, `***` and `___` as a line across the text column, showing the characters again while the cursor, the selection or a find match is on it.
   `cursor` is `bar`, `block`, or `underline`, previewed live in the panel; with vim on, `cursor` and `cursor_blink` only affect Insert mode (Normal and Visual always use a block).
 
 ## License

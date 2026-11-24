@@ -166,6 +166,10 @@ irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps
 <td><code>Ctrl+F</code> / <code>Ctrl+N</code> / <code>Ctrl+B</code></td>
 </tr>
 <tr>
+<td>Open the link under the cursor</td>
+<td><code>Ctrl+L</code></td>
+</tr>
+<tr>
 <td>Typewriter mode / focus mode</td>
 <td><code>Ctrl+T</code> / <code>Ctrl+O</code></td>
 </tr>
@@ -175,6 +179,7 @@ irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps
 </tr>
 </tbody></table>
 <p><code>Home</code> and <code>End</code> act on the wrapped screen line, not the logical line. <code>Ctrl+C</code> copies rather than quitting, <code>Ctrl+Z</code> undoes rather than suspending, and <code>Ctrl+V</code> pastes mustty&#39;s internal register rather than the system clipboard. Since 0.1.6, <code>Ctrl+F</code> opens find and <code>Ctrl+O</code> toggles focus mode. Outside a list item, <code>Tab</code> inserts <code>tab_width</code> spaces and <code>Shift+Tab</code> does nothing. In the keys panel, scroll with <code>↑</code>, <code>↓</code>, <code>PgUp</code>, <code>PgDn</code>, <code>Home</code> or <code>End</code>, and close with <code>Esc</code> or <code>Ctrl+G</code>.</p>
+<p><code>Ctrl+L</code> opens the link under the cursor in your browser: the <code>(url)</code> of a Markdown link when the cursor is anywhere on it, or a plain URL. Only <code>http://</code> and <code>https://</code> addresses open (<code>www.</code> gets <code>https://</code>). For anything else, or when no browser can be started (over SSH, for example), the status bar shows the address instead.</p>
 <p>Lists continue as you write. On a bullet, checkbox or numbered item, <code>Enter</code> at the end starts the next item (a new checkbox starts unchecked) and <code>Enter</code> in the middle splits the item. <code>Enter</code> on an empty item ends the list, or moves a nested item out one level. <code>Tab</code> makes the item a sub-item of the one above, carrying its own sub-items along, and <code>Shift+Tab</code> moves it back out. <code>Backspace</code> at the start of the item&#39;s text removes the marker, or moves a nested item out one level; at the very start of the line it joins with the line above as usual. Numbered lists renumber themselves whenever items are added, removed, moved or pasted, each nesting level counting on its own from the number of its first item. None of this applies in fenced code or quotes.</p>
 <h2 id="vim">Vim keys</h2>
 <p>Optional Normal, Visual and Insert modes for modal movement and editing.</p>
@@ -232,6 +237,11 @@ irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps
 <td>Normal</td>
 <td><code>/</code> / <code>n</code> / <code>N</code></td>
 <td>Find / next match / previous match</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>gx</code> / <code>Enter</code></td>
+<td>Open the link under the cursor</td>
 </tr>
 <tr>
 <td>Normal</td>
@@ -359,6 +369,20 @@ cursor = &quot;bar&quot;
 <td>Highlight fenced code blocks naming a supported language</td>
 </tr>
 <tr>
+<td><code>link_color</code></td>
+<td>string</td>
+<td><code>&quot;none&quot;</code></td>
+<td><code>none</code> or a <code>code_color</code> name</td>
+<td>Colour of link text and plain URLs (<code>none</code>: underlined, in the text colour)</td>
+</tr>
+<tr>
+<td><code>rule_lines</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td><code>true</code>, <code>false</code></td>
+<td>Draw <code>---</code>, <code>***</code> and <code>___</code> as a line across the text column, except while the cursor, the selection or a find match is on it</td>
+</tr>
+<tr>
 <td><code>cursor</code></td>
 <td>string</td>
 <td><code>&quot;bar&quot;</code></td>
@@ -397,7 +421,7 @@ cursor = &quot;bar&quot;
 </tr>
 <tr>
 <td>Markdown</td>
-<td>Syntax markers stay visible but dimmed while headings, emphasis, code, links, lists and quotes are styled in place. Fenced blocks naming one of 30 languages (such as <code>```rust</code>) are highlighted when <code>code_highlight</code> is on; see the <a href="https://github.com/joyqi/mustty/blob/main/CHANGELOG.md">changelog</a> for the list and aliases.</td>
+<td>Syntax markers stay visible but dimmed while headings, emphasis, code, links, lists and quotes are styled in place. Plain <code>http://</code>, <code>https://</code> and <code>www.</code> URLs are underlined like link text. Fenced blocks naming one of 30 languages (such as <code>```rust</code>) are highlighted when <code>code_highlight</code> is on; see the <a href="https://github.com/joyqi/mustty/blob/main/CHANGELOG.md">changelog</a> for the list and aliases.</td>
 </tr>
 <tr>
 <td>Wrapping and CJK</td>
