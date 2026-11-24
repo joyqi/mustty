@@ -145,23 +145,37 @@ impl Widget for SettingsWidget<'_> {
             } else {
                 right
             };
-            let x = put(
-                buf,
-                area.x,
-                y,
-                help_right,
-                field.help(self.config.vim),
-                Style::from(Modifier::DIM),
-            );
-            // Code color: append a colored sample after the help text
-            if field == Field::CodeColor {
-                let sample = Style::default().fg(self.config.code_color.color());
-                put(buf, x + 2, y, help_right, "`code`", sample);
+            let help = field.help(self.config.vim);
+            let dim = Style::from(Modifier::DIM);
+            match self.sample(field) {
+                // Reserve the sample and its two-cell gap first, then fit the help text in what is left
+                Some((text, style)) => {
+                    let reserve = 2 + text.width() as u16;
+                    let help_end = help_right.saturating_sub(reserve).max(area.x);
+                    let x = put(buf, area.x, y, help_end, help, dim);
+                    put(buf, x + 2, y, help_right, text, style);
+                }
+                None => {
+                    put(buf, area.x, y, help_right, help, dim);
+                }
             }
-            if field == Field::LinkColor {
-                let sample = theme::link(self.config.link_color.map(|c| c.color()));
-                put(buf, x + 2, y, help_right, "https://mustty.com", sample);
-            }
+        }
+    }
+}
+
+impl SettingsWidget<'_> {
+    /// A colored sample drawn after a field's help text, for the fields that have one.
+    fn sample(&self, field: Field) -> Option<(&'static str, Style)> {
+        match field {
+            Field::CodeColor => Some((
+                "`code`",
+                Style::default().fg(self.config.code_color.color()),
+            )),
+            Field::LinkColor => Some((
+                "https://mustty.com",
+                theme::link(self.config.link_color.map(|c| c.color())),
+            )),
+            _ => None,
         }
     }
 }
@@ -226,6 +240,65 @@ mod tests {
         assert_eq!(cursor_position(short), Some((short.right() - 2, 2 + 5)));
         // With only one row there is no help line, so no cursor either (that row is the reversed selected row)
         assert_eq!(cursor_position(Rect::new(4, 2, 72, 1)), None);
+    }
+
+    /// The help line of `field` rendered in `area`, as text.
+    fn help_line(field: Field, area: Rect) -> (Buffer, String) {
+        let c = Config::default();
+        let selected = Field::ALL.iter().position(|&f| f == field).unwrap();
+        let mut buf = Buffer::empty(area);
+        SettingsWidget {
+            config: &c,
+            selected,
+            scroll: 0,
+        }
+        .render(area, &mut buf);
+        let (_, y) = cursor_position(area).unwrap();
+        // Skip the cell after each wide character, which holds no text of its own
+        let mut line = String::new();
+        let mut x = area.x;
+        while x < area.right() {
+            let s = buf[(x, y)].symbol();
+            line.push_str(s);
+            x += s.width().max(1) as u16;
+        }
+        (buf, line)
+    }
+
+    #[test]
+    fn help_line_keeps_room_for_the_sample() {
+        for lang in ["en", "zh-CN"] {
+            crate::i18n::init_for_test(lang);
+            let area = Rect::new(4, 2, 72, 20);
+            for (field, sample) in [
+                (Field::LinkColor, "https://mustty.com"),
+                (Field::CodeColor, "`code`"),
+            ] {
+                let (buf, line) = help_line(field, area);
+                assert!(line.contains(sample), "{lang} {field:?}: {line}");
+                let (x, y) = cursor_position(area).unwrap();
+                assert!(blank_from(&buf, area, x, y), "{lang} {field:?}: {line}");
+                // At the default width the help text is not truncated either
+                let help = field.help(false);
+                assert!(line.contains(help), "{lang} {field:?}: {line}");
+            }
+        }
+    }
+
+    #[test]
+    fn narrow_help_line_still_draws_the_sample() {
+        crate::i18n::init_for_test("en");
+        let area = Rect::new(4, 2, 40, 20);
+        let (buf, line) = help_line(Field::LinkColor, area);
+        assert!(line.contains("https://mustty.com"), "{line}");
+        let (x, y) = cursor_position(area).unwrap();
+        assert!(blank_from(&buf, area, x, y), "{line}");
+        // Too narrow for the whole sample: it is cut at the cursor column, which stays blank
+        let area = Rect::new(4, 2, 12, 20);
+        let (buf, line) = help_line(Field::LinkColor, area);
+        assert!(line.contains("https://"), "{line}");
+        let (x, y) = cursor_position(area).unwrap();
+        assert!(blank_from(&buf, area, x, y), "{line}");
     }
 
     #[test]

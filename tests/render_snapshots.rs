@@ -399,6 +399,13 @@ fn settings_panel_width_72() {
 }
 
 #[test]
+fn settings_panel_link_color_sample() {
+    // Link color selected: the whole URL sample fits after the help text
+    let downs = row_of(Field::LinkColor);
+    insta::assert_snapshot!(settings_panel(72, 80, 24, downs));
+}
+
+#[test]
 fn settings_panel_scrolls_when_short() {
     insta::assert_snapshot!(settings_panel(72, 80, 12, 7));
 }
