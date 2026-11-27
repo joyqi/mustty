@@ -325,6 +325,8 @@ pub struct PromptWidget<'a> {
     /// Right-aligned text and its style (the find bar's match count). Left out when the bar is
     /// too narrow to keep at least 8 columns for the input
     pub right: Option<(&'a str, Style)>,
+    /// Display columns of the input drawn as selected (the save prompt's prefilled stem)
+    pub selection: Option<Range<u16>>,
     pub tab_width: u16,
 }
 
@@ -374,6 +376,11 @@ impl Widget for PromptWidget<'_> {
             scroll,
             tab,
         );
+        for col in self.selection.into_iter().flatten() {
+            if (scroll..scroll + avail).contains(&col) {
+                buf[(area.x + label_w + col - scroll, area.y)].set_style(theme::selection());
+            }
+        }
     }
 }
 
@@ -443,6 +450,36 @@ mod tests {
         assert_eq!(t("abcdefghijklmnop", Some(2)), (0, 0));
     }
 
+    /// The save prompt's selected stem is drawn reversed, scrolled with the input.
+    #[test]
+    fn prompt_draws_the_selection_reversed() {
+        let p = |cursor_col| PromptWidget {
+            label: "Save as: ",
+            input: "名字.md",
+            cursor_col,
+            right: None,
+            selection: Some(0..4),
+            tab_width: 4,
+        };
+        let reversed = |p: PromptWidget, w: u16| {
+            let mut buf = Buffer::empty(Rect::new(0, 0, w, 1));
+            p.render(buf.area, &mut buf);
+            (0..w)
+                .map(|x| {
+                    let c = &buf[(x, 0)];
+                    if c.modifier.contains(Modifier::REVERSED) {
+                        '#'
+                    } else {
+                        '.'
+                    }
+                })
+                .collect::<String>()
+        };
+        assert_eq!(reversed(p(4), 20), ".........####.......");
+        // Only 4 columns for the input and the cursor at the end: scrolled past the stem
+        assert_eq!(reversed(p(7), 13), ".............");
+    }
+
     fn prompt_row(p: PromptWidget, w: u16) -> (String, u16) {
         let x = p.cursor_x(w);
         let mut buf = Buffer::empty(Rect::new(0, 0, w, 1));
@@ -459,6 +496,7 @@ mod tests {
             input,
             cursor_col,
             right,
+            selection: None,
             tab_width: 4,
         };
         // Wide enough: right-aligned, the input keeps the rest

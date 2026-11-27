@@ -584,7 +584,7 @@ impl App {
                 }
                 None => {
                     let name = self.docs.untitled_name(&self.save_dir);
-                    self.status.prompt = Some(Prompt::with_input(name));
+                    self.status.prompt = Some(Prompt::save_as(name));
                 }
             },
             Action::PromptInput(key) if self.find.bar.is_some() => self.find_key(key, now),
@@ -2369,13 +2369,14 @@ mod tests {
             .text
             .chars()
             .count();
+        app.handle(press(KeyCode::End));
         for _ in 0..n {
             app.handle(press(KeyCode::Backspace));
         }
         assert_eq!(app.status.prompt.as_ref().unwrap().line.text, "");
     }
 
-    /// Ctrl+S on a document without a path prefills untitled.md with the cursor at the end; Enter saves, and the next document avoids that name.
+    /// Ctrl+S on a document without a path prefills untitled.md with the stem selected and the cursor before `.md`; Enter saves, and the next document avoids that name.
     #[test]
     fn untitled_save_prefills_a_free_name() {
         crate::i18n::init_for_test("en");
@@ -2388,9 +2389,9 @@ mod tests {
         let prompt = app.status.prompt.as_ref().expect("prompt is open");
         assert_eq!(prompt.line.text, "untitled.md");
         assert_eq!(
-            prompt.line.cursor,
-            "untitled.md".len(),
-            "cursor at the end of the file name"
+            (prompt.line.cursor, prompt.line.selection()),
+            ("untitled".len(), Some(0.."untitled".len())),
+            "the stem selected, the cursor before .md"
         );
         assert!(!prompt.confirm_overwrite);
         app.handle(press(KeyCode::Enter));
@@ -2432,6 +2433,54 @@ mod tests {
         assert!(app.status.prompt.is_none());
         assert_eq!(std::fs::read_to_string(&saved).unwrap(), "two");
         assert!(!dir.path().join("untitled-2.md").exists());
+    }
+
+    /// Typing in the save prompt replaces the selected stem and keeps `.md`; ← / → first collapse
+    /// the selection, after which keys edit as usual.
+    #[test]
+    fn save_prompt_typing_replaces_the_stem() {
+        crate::i18n::init_for_test("en");
+        let dir = tempfile::tempdir().unwrap();
+        let open = || {
+            let mut app = App::new(lf_doc(""), Size::new(80, 24), false);
+            app.save_dir = dir.path().to_path_buf();
+            typed(&mut app, "hello");
+            app.handle(ctrl('s'));
+            app
+        };
+        let line = |app: &App| {
+            let l = &app.status.prompt.as_ref().unwrap().line;
+            (l.text.clone(), l.cursor)
+        };
+        let mut app = open();
+        typed(&mut app, "notes");
+        assert_eq!(line(&app), ("notes.md".into(), 5));
+        app.handle(press(KeyCode::Enter));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("notes.md")).unwrap(),
+            "hello"
+        );
+        // A paste replaces it too; Backspace deletes it
+        let mut app = open();
+        app.handle(Event::Paste("a b".into()));
+        assert_eq!(line(&app), ("a b.md".into(), 3));
+        let mut app = open();
+        app.handle(press(KeyCode::Backspace));
+        assert_eq!(line(&app), (".md".into(), 0));
+        // ← collapses to the start of the stem, → to its end; typing then inserts
+        let mut app = open();
+        app.handle(press(KeyCode::Left));
+        typed(&mut app, "my-");
+        assert_eq!(line(&app), ("my-untitled.md".into(), 3));
+        let mut app = open();
+        app.handle(press(KeyCode::Right));
+        typed(&mut app, "-2");
+        assert_eq!(line(&app), ("untitled-2.md".into(), 10));
+        // The find bar starts empty, with no selection
+        let mut app = App::new(lf_doc("x"), Size::new(80, 24), false);
+        app.handle(ctrl('f'));
+        let bar = &app.find.bar.as_ref().unwrap().line;
+        assert_eq!((bar.cursor, bar.selection()), (0, None));
     }
 
     fn lf_doc(text: &str) -> Document {

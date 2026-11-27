@@ -107,15 +107,10 @@ fn untitled_save_as_prompt() {
         KeyCode::Char('s'),
         KeyModifiers::CONTROL,
     )));
-    // Prefilled with untitled.md, cursor at the end
+    // Prefilled with untitled.md, the stem selected and the cursor before .md
     insta::assert_snapshot!("untitled_save_as_prompt_prefilled", shot(&mut app));
-    // Delete the prefill and type a.md instead
-    for _ in 0.."untitled.md".len() {
-        app.handle(key(KeyCode::Backspace));
-    }
-    for c in "a.md".chars() {
-        app.handle(key(KeyCode::Char(c)));
-    }
+    // Typing replaces the stem: a.md
+    app.handle(key(KeyCode::Char('a')));
     insta::assert_snapshot!(shot(&mut app));
 }
 

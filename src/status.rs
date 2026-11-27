@@ -1,5 +1,6 @@
 //! Status bar state: messages and the "Save as: " prompt.
 
+use std::ops::Range;
 use std::path::Path;
 use std::time::Duration;
 
@@ -22,6 +23,9 @@ pub struct LineInput {
     pub text: String,
     /// Char index
     pub cursor: usize,
+    /// When `Some`, `[min(anchor, cursor), max)` is selected and typing or pasting replaces it.
+    /// Only the save prompt sets one (the prefilled stem); any cursor key drops it
+    pub anchor: Option<usize>,
 }
 
 /// What one key did to a `LineInput`.
@@ -36,62 +40,99 @@ pub enum LineEdit {
 }
 
 impl LineInput {
-    /// Prefills `text` with the cursor at the end.
-    pub fn with_text(text: String) -> Self {
-        Self {
-            cursor: text.chars().count(),
-            text,
-        }
+    /// The selected char range, if non-empty.
+    pub fn selection(&self) -> Option<Range<usize>> {
+        let anchor = self.anchor.filter(|&a| a != self.cursor)?;
+        Some(anchor.min(self.cursor)..anchor.max(self.cursor))
     }
 
-    /// Pastes at the cursor, turning newlines into spaces.
+    /// Deletes the selected text, leaving the cursor where it started.
+    fn delete_selection(&mut self) {
+        if let Some(r) = self.selection() {
+            self.text
+                .replace_range(byte(&self.text, r.start)..byte(&self.text, r.end), "");
+            self.cursor = r.start;
+        }
+        self.anchor = None;
+    }
+
+    /// Pastes at the cursor (over the selection), turning newlines into spaces.
     pub fn paste(&mut self, s: &str) {
+        self.delete_selection();
         let s = s.replace("\r\n", " ").replace(['\r', '\n'], " ");
         let at = byte(&self.text, self.cursor);
         self.text.insert_str(at, &s);
         self.cursor += s.chars().count();
     }
 
-    /// Handles one key: editing, cursor movement by grapheme, Home / End, and Enter.
+    /// Handles one key: editing, cursor movement by grapheme, Home / End, and Enter. With a
+    /// selection, a character replaces it, Backspace / Delete delete it, and ← / → collapse it to
+    /// its start / end, as in a text field.
     pub fn edit(&mut self, key: KeyEvent) -> LineEdit {
         let len = self.text.chars().count();
-        match key.code {
+        let sel = self.selection();
+        let changed = match key.code {
             KeyCode::Enter => return LineEdit::Submit,
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.delete_selection();
                 let at = byte(&self.text, self.cursor);
                 self.text.insert(at, c);
                 self.cursor += 1;
+                true
+            }
+            KeyCode::Backspace | KeyCode::Delete if sel.is_some() => {
+                self.delete_selection();
+                true
             }
             KeyCode::Backspace if self.cursor > 0 => {
                 let prev = prev_boundary(&self.text, self.cursor);
                 let range = byte(&self.text, prev)..byte(&self.text, self.cursor);
                 self.text.replace_range(range, "");
                 self.cursor = prev;
+                true
             }
             KeyCode::Delete if self.cursor < len => {
                 let next = next_boundary(&self.text, self.cursor);
                 let range = byte(&self.text, self.cursor)..byte(&self.text, next);
                 self.text.replace_range(range, "");
+                true
             }
-            KeyCode::Left => self.cursor = prev_boundary(&self.text, self.cursor),
-            KeyCode::Right => self.cursor = next_boundary(&self.text, self.cursor),
-            KeyCode::Home => self.cursor = 0,
-            KeyCode::End => self.cursor = len,
-            _ => {}
-        }
-        match key.code {
-            KeyCode::Char(_) | KeyCode::Backspace | KeyCode::Delete
-                if self.text.chars().count() != len =>
-            {
-                LineEdit::Changed
+            KeyCode::Left => {
+                self.cursor =
+                    sel.map_or_else(|| prev_boundary(&self.text, self.cursor), |r| r.start);
+                false
             }
-            _ => LineEdit::Unchanged,
+            KeyCode::Right => {
+                self.cursor = sel.map_or_else(|| next_boundary(&self.text, self.cursor), |r| r.end);
+                false
+            }
+            KeyCode::Home => {
+                self.cursor = 0;
+                false
+            }
+            KeyCode::End => {
+                self.cursor = len;
+                false
+            }
+            // Ignored keys keep the selection
+            _ => return LineEdit::Unchanged,
+        };
+        self.anchor = None;
+        if changed {
+            LineEdit::Changed
+        } else {
+            LineEdit::Unchanged
         }
     }
 
     /// The text left of the cursor.
     pub fn before_cursor(&self) -> &str {
-        &self.text[..byte(&self.text, self.cursor)]
+        self.prefix(self.cursor)
+    }
+
+    /// The first `chars` characters of the text.
+    pub fn prefix(&self, chars: usize) -> &str {
+        &self.text[..byte(&self.text, chars)]
     }
 }
 
@@ -109,10 +150,16 @@ pub struct Prompt {
 }
 
 impl Prompt {
-    /// Prefills the input with the cursor at the end.
-    pub fn with_input(input: String) -> Self {
+    /// Prefills the file name with its stem selected and the cursor before `.md`, so typing
+    /// replaces the stem and keeps the extension (as in a save dialog).
+    pub fn save_as(name: String) -> Self {
+        let stem = name.strip_suffix(".md").unwrap_or(&name).chars().count();
         Self {
-            line: LineInput::with_text(input),
+            line: LineInput {
+                text: name,
+                cursor: stem,
+                anchor: Some(0),
+            },
             confirm_overwrite: false,
         }
     }
@@ -402,7 +449,8 @@ mod tests {
     #[test]
     fn line_input_reports_changes() {
         let k = |c| KeyEvent::new(c, KeyModifiers::NONE);
-        let mut l = LineInput::with_text("ab".into());
+        let mut l = LineInput::default();
+        l.paste("ab");
         assert_eq!(l.edit(k(KeyCode::Char('c'))), LineEdit::Changed);
         assert_eq!(
             l.edit(k(KeyCode::Delete)),

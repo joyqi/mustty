@@ -124,6 +124,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 input: &p.line.text,
                 cursor_col: text_width(p.line.before_cursor(), tab),
                 right: None,
+                selection: p.line.selection().map(|r| {
+                    text_width(p.line.prefix(r.start), tab)..text_width(p.line.prefix(r.end), tab)
+                }),
                 tab_width: tab,
             };
             cursor = Some(Position::new(r.x + prompt.cursor_x(r.width), r.y));
@@ -149,6 +152,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 input: &bar.line.text,
                 cursor_col: text_width(bar.line.before_cursor(), tab),
                 right,
+                selection: None,
                 tab_width: tab,
             };
             cursor = Some(Position::new(r.x + prompt.cursor_x(r.width), r.y));
