@@ -108,8 +108,9 @@ pub trait DocStore {
     fn save(&mut self, doc: &Document, path: &Path, check_disk: bool)
     -> Result<DiskStamp, IoError>;
     fn exists(&self, path: &Path) -> bool;
-    /// The name prefilled when saving a document that has no path yet.
-    fn untitled_name(&self, dir: &Path) -> String;
+    /// The name prefilled when saving a document that has no path yet: `{stem}.md`, or the
+    /// first free `{stem}-N.md` when that is taken in `dir`.
+    fn free_name(&self, dir: &Path, stem: &str) -> String;
 }
 
 /// The config file's text. Parsing and editing it stay in `config`, so every store keeps the

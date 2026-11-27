@@ -200,18 +200,18 @@ impl DocStore for FsDocStore {
         path.exists()
     }
 
-    fn untitled_name(&self, dir: &Path) -> String {
-        untitled_name(dir)
+    fn free_name(&self, dir: &Path, stem: &str) -> String {
+        free_md_name(dir, stem)
     }
 }
 
-/// The first free `untitled*.md` in `dir`. A dangling symlink counts as taken (a write would follow it somewhere else).
-pub fn untitled_name(dir: &Path) -> String {
+/// The first free `{stem}*.md` in `dir`. A dangling symlink counts as taken (a write would follow it somewhere else).
+pub fn free_md_name(dir: &Path, stem: &str) -> String {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     free_name(
-        "untitled",
+        stem,
         "md",
         |name| fs::symlink_metadata(dir.join(name)).is_ok(),
         stamp,
@@ -259,19 +259,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn untitled_name_checks_the_directory() {
+    fn free_md_name_checks_the_directory() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(untitled_name(dir.path()), "untitled.md");
+        assert_eq!(free_md_name(dir.path(), "untitled"), "untitled.md");
         fs::write(dir.path().join("untitled.md"), "").unwrap();
-        assert_eq!(untitled_name(dir.path()), "untitled-2.md");
+        assert_eq!(free_md_name(dir.path(), "untitled"), "untitled-2.md");
         // A directory counts as taken
         fs::create_dir(dir.path().join("untitled-2.md")).unwrap();
-        assert_eq!(untitled_name(dir.path()), "untitled-3.md");
+        assert_eq!(free_md_name(dir.path(), "untitled"), "untitled-3.md");
         // So does a dangling symlink
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink("nowhere", dir.path().join("untitled-3.md")).unwrap();
-            assert_eq!(untitled_name(dir.path()), "untitled-4.md");
+            assert_eq!(free_md_name(dir.path(), "untitled"), "untitled-4.md");
         }
     }
 }

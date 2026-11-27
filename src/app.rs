@@ -20,7 +20,7 @@ use crate::host::native::{FsConfigStore, FsDocStore};
 use crate::host::{self, ConfigStore, CursorStyle, DocStore, HostCaps, HostOp, Pump, WindowTitle};
 use crate::i18n::{t, t_args};
 use crate::input::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
-use crate::io::file::IoError;
+use crate::io::file::{self, IoError};
 use crate::keymap::{Keymap, Mode, NormalState};
 use crate::markdown;
 use crate::settings::{Outcome, Settings};
@@ -583,7 +583,10 @@ impl App {
                     self.save(path, false);
                 }
                 None => {
-                    let name = self.docs.untitled_name(&self.save_dir);
+                    // The first save offers the H1 title as the file name; after that the two
+                    // don't follow each other
+                    let stem = file::title_stem(self.editor.doc().title_text());
+                    let name = self.docs.free_name(&self.save_dir, &stem);
                     self.status.prompt = Some(Prompt::save_as(name));
                 }
             },
@@ -2433,6 +2436,63 @@ mod tests {
         assert!(app.status.prompt.is_none());
         assert_eq!(std::fs::read_to_string(&saved).unwrap(), "two");
         assert!(!dir.path().join("untitled-2.md").exists());
+    }
+
+    /// The first save of a new document offers its H1 title as the file name, without the
+    /// characters a file name can't hold; the next free name on a collision; untitled.md when
+    /// nothing is left. After that the title and the file name don't follow each other.
+    #[test]
+    fn first_save_offers_the_title_as_the_file_name() {
+        crate::i18n::init_for_test("en");
+        let dir = tempfile::tempdir().unwrap();
+        let prefill = |text: &str| {
+            let mut app = App::new(lf_doc(text), Size::new(80, 24), false);
+            app.save_dir = dir.path().to_path_buf();
+            app.handle(ctrl('s'));
+            let line = &app.status.prompt.as_ref().unwrap().line;
+            (line.text.clone(), line.selection())
+        };
+        assert_eq!(
+            prefill("# My Notes\n\nbody"),
+            ("My Notes.md".into(), Some(0..8))
+        );
+        assert_eq!(prefill("# a/b\\c: d\n\nbody").0, "abc d.md");
+        assert_eq!(prefill("# 中文标题\n").0, "中文标题.md");
+        assert_eq!(prefill("no title").0, "untitled.md");
+        std::fs::write(dir.path().join("My Notes.md"), "").unwrap();
+        assert_eq!(
+            prefill("# My Notes\n\nbody"),
+            ("My Notes-2.md".into(), Some(0..10)),
+            "a collision takes the next free name"
+        );
+
+        // A title of spaces only, typed into the title of an empty document
+        let mut app = App::new(lf_doc(""), Size::new(80, 24), false);
+        app.save_dir = dir.path().to_path_buf();
+        app.handle(press(KeyCode::Up));
+        assert_eq!(app.editor.focus, Focus::Title);
+        typed(&mut app, "   ");
+        app.handle(ctrl('s'));
+        assert_eq!(app.status.prompt.as_ref().unwrap().line.text, "untitled.md");
+
+        // Saved once: a new heading doesn't rename the file, Ctrl+S writes the same path
+        let mut app = App::new(lf_doc("# Draft\n\nbody"), Size::new(80, 24), false);
+        app.save_dir = dir.path().to_path_buf();
+        app.handle(ctrl('s'));
+        app.handle(press(KeyCode::Enter));
+        let saved = dir.path().join("Draft.md");
+        assert_eq!(app.editor.doc().meta.path.as_deref(), Some(saved.as_path()));
+        app.handle(press(KeyCode::Up));
+        typed(&mut app, " v2");
+        app.handle(ctrl('s'));
+        assert!(app.status.prompt.is_none());
+        assert_eq!(app.editor.doc().meta.path.as_deref(), Some(saved.as_path()));
+        assert!(
+            std::fs::read_to_string(&saved)
+                .unwrap()
+                .starts_with("# Draft v2\n")
+        );
+        assert!(!dir.path().join("Draft v2.md").exists());
     }
 
     /// Typing in the save prompt replaces the selected stem and keeps `.md`; ← / → first collapse

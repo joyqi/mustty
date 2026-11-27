@@ -116,14 +116,28 @@ pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, 
     disk_stamp(path).ok_or_else(|| std::io::Error::other(t("io-stat-after-save")).into())
 }
 
-/// If `untitled-N` is still taken up to this number, fall back to a timestamp.
-pub const MAX_UNTITLED: u32 = 1000;
+/// If `{base}-N` is still taken up to this number, fall back to a timestamp.
+pub const MAX_FREE_SUFFIX: u32 = 1000;
+
+/// The file name stem prefilled when a document is saved for the first time: its H1 title without
+/// the characters a file name can't hold on some system (`/`, `\`, `:`) and control characters,
+/// trimmed; `untitled` when nothing is left (no title, or only spaces and those characters).
+pub fn title_stem(title: &str) -> String {
+    let kept: String = title
+        .chars()
+        .filter(|&c| !matches!(c, '/' | '\\' | ':') && !c.is_control())
+        .collect();
+    match kept.trim() {
+        "" => "untitled".to_owned(),
+        stem => stem.to_owned(),
+    }
+}
 
 /// File name prefilled when saving a document without a path: `{base}.{ext}`, or if taken `{base}-2.{ext}`, `{base}-3.{ext}`, …
-/// The first free one wins; if everything up to `MAX_UNTITLED` is taken, use `{base}-{stamp}.{ext}`.
+/// The first free one wins; if everything up to `MAX_FREE_SUFFIX` is taken, use `{base}-{stamp}.{ext}`.
 /// `taken` reports whether a name is in use, so this function never touches the file system.
 pub fn free_name(base: &str, ext: &str, taken: impl Fn(&str) -> bool, stamp: u64) -> String {
-    (1..=MAX_UNTITLED)
+    (1..=MAX_FREE_SUFFIX)
         .map(|n| match n {
             1 => format!("{base}.{ext}"),
             n => format!("{base}-{n}.{ext}"),
@@ -167,6 +181,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn title_stem_drops_what_a_file_name_cannot_hold() {
+        assert_eq!(title_stem("Notes"), "Notes");
+        assert_eq!(title_stem("  中文 标题 "), "中文 标题");
+        assert_eq!(title_stem("a/b\\c: d"), "abc d");
+        assert_eq!(title_stem("tab\there\u{7}\u{9b}"), "tabhere");
+        // Nothing left: the old default
+        assert_eq!(title_stem(""), "untitled");
+        assert_eq!(title_stem("   "), "untitled");
+        assert_eq!(title_stem(" / : \\ "), "untitled");
+    }
+
+    #[test]
     fn free_name_skips_taken_names() {
         let free = |taken: &[&str]| free_name("untitled", "md", |n| taken.contains(&n), 42);
         assert_eq!(free(&[]), "untitled.md");
@@ -181,7 +207,7 @@ mod tests {
             free_name("untitled", "md", |_| true, 1_761_700_000),
             "untitled-1761700000.md"
         );
-        let last = format!("untitled-{MAX_UNTITLED}.md");
+        let last = format!("untitled-{MAX_FREE_SUFFIX}.md");
         assert_eq!(free_name("untitled", "md", |n| n != last, 7), last);
     }
 

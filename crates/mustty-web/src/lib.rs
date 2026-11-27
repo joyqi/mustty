@@ -210,7 +210,7 @@ impl DocStore for MemoryDocStore {
         self.files.contains_key(path)
     }
 
-    fn untitled_name(&self, _dir: &Path) -> String {
-        "untitled.md".into()
+    fn free_name(&self, _dir: &Path, stem: &str) -> String {
+        format!("{stem}.md")
     }
 }
