@@ -1,0 +1,10 @@
+---
+source: tests/render_snapshots.rs
+expression: styled(&b)
+---
+ 0: "notes" DIM
+ 1: "- [ ]" DIM | "待 办" NONE
+ 2: "- [x] 已" DIM | REVERSED | "完" REVERSED fg=Yellow | "成" REVERSED fg=Yellow | " **" DIM | "重" BOLD | DIM | "点" BOLD | DIM | "**" DIM
+ 3: "  - [X] 嵌" DIM | "套" DIM | "" DIM | "完" UNDERLINED fg=Yellow | "成" UNDERLINED fg=Yellow
+ 4: ">" DIM | "- [x]" DIM | ITALIC | "引" ITALIC | "用" ITALIC
+ 7: "VIS" NONE fg=Yellow | " notes.md" DIM | "16 字" DIM | " · 2:8" DIM

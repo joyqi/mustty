@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A checked task item (`- [x] …` or `- [X] …`) shows its text dimmed, so finished items recede while staying readable and editable; the characters are untouched. Selections, find matches and the cursor show on it as anywhere else. A box inside a code block or a quote is not a task and stays as it is.
+
 ## [0.1.7] - 2026-11-25
 
 ### Added

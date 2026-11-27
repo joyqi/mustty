@@ -42,6 +42,8 @@ pub enum Token {
     QuoteMark,
     Quote,
     ListMark,
+    /// A checked task item's text, after its `- [x] ` marker
+    Done,
     LinkPunct,
     LinkText,
     LinkUrl,
@@ -171,6 +173,14 @@ pub fn scan_line(line: &str, state_in: BlockState) -> (Vec<StyledRange>, BlockSt
             end: marker.end,
             token: Token::ListMark,
         });
+        // In a quote the box is part of the quoted text, not a task
+        if marker.task == Some(true) && pos == 0 {
+            out.push(StyledRange {
+                start: marker.end,
+                end: n,
+                token: Token::Done,
+            });
+        }
         pos = marker.end;
     }
     scan_inline(&chars, pos, &mut out);
@@ -787,6 +797,37 @@ mod tests {
         // After quote marks, the indent counts from `from`
         let chars: Vec<char> = "> - a".chars().collect();
         assert_eq!(list_marker(&chars, 2), m(0, Bullet('-'), None, 2, 4));
+    }
+
+    /// A checked item's text after the marker is `Done`; the marker keeps its own range
+    #[test]
+    fn checked_task_text_is_done() {
+        let done = |line: &str, state| {
+            let (ranges, _) = scan_line(line, state);
+            ranges
+                .iter()
+                .filter(|r| r.token == Token::Done)
+                .map(|r| (r.start, r.end))
+                .collect::<Vec<_>>()
+        };
+        let normal = BlockState::Normal;
+        assert_eq!(done("- [x] 完成", normal), [(6, 8)]);
+        assert_eq!(done("- [X] done", normal), [(6, 10)]);
+        assert_eq!(done("* [x] *a*", normal), [(6, 9)]);
+        assert_eq!(done("12. [x] b", normal), [(8, 9)]);
+        assert_eq!(done("    - [x] nested", normal), [(10, 16)]);
+        assert_eq!(done("- [x]", normal), [(5, 5)]);
+        assert_eq!(done("- [ ] open", normal), []);
+        assert_eq!(done("- [x]no space", normal), []);
+        assert_eq!(done("- plain", normal), []);
+        assert_eq!(done("> - [x] quoted", normal), []);
+        assert_eq!(done("- [x] fenced", FENCED), []);
+        let (ranges, _) = scan_line("- [x] a", normal);
+        assert!(ranges.contains(&StyledRange {
+            start: 0,
+            end: 6,
+            token: Token::ListMark
+        }));
     }
 
     #[test]

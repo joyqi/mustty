@@ -20,7 +20,8 @@ pub fn style(token: Token, code: Color, link: Option<Color>) -> Style {
         | Token::ListMark
         | Token::LinkPunct
         | Token::LinkUrl
-        | Token::Rule => m(Modifier::DIM),
+        | Token::Rule
+        | Token::Done => m(Modifier::DIM),
         Token::Heading(_) | Token::Strong => m(Modifier::BOLD),
         Token::Emph | Token::Quote => m(Modifier::ITALIC),
         Token::Code | Token::FencedCode => Style::default().fg(code),

@@ -1078,3 +1078,21 @@ fn rule_lines_narrow_window_wraps() {
 fn rule_lines_in_focus_mode() {
     insta::assert_snapshot!(rule_frame(true, true, 40, &[]));
 }
+
+// ---- task items ----
+
+/// A checked item's text is DIM, its marker as before; a selection and find matches layer on top
+#[test]
+fn checked_task_dims_its_text_under_selection_and_find() {
+    let config = mustty::config::Config {
+        vim: true,
+        ..Default::default()
+    };
+    let raw = "- [ ] 待办\n- [x] 已完成 **重点**\n  - [X] 嵌套 完成\n> - [x] 引用\n";
+    let mut events = vec![key(KeyCode::Char('j')), key(KeyCode::Char('v'))];
+    events.push(key(KeyCode::Char('/')));
+    events.extend("完成".chars().map(|c| key(KeyCode::Char(c))));
+    events.push(key(KeyCode::Enter));
+    let b = draw_with(&config, raw, 60, 8, &events, false);
+    insta::assert_snapshot!(styled(&b));
+}

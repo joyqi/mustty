@@ -49,6 +49,7 @@ expression: lines.map(show).concat()
   ListMark "- [ ] "
 - [x] 已完成
   ListMark "- [x] "
+  Done "已完成"
 [链接文字](https://example.com/a_b_c)
   LinkPunct "["
   LinkText "链接文字"
