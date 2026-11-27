@@ -10,7 +10,7 @@ use ratatui::layout::{Rect, Size};
 
 use crate::action::{Action, Motion, Target};
 use crate::config::{self, Config};
-use crate::editor::cursor::Cursor;
+use crate::editor::cursor::{Affinity, Cursor};
 use crate::editor::document::Document;
 use crate::editor::{Editor, Effect, Focus};
 use crate::find::{self, Find, Origin};
@@ -25,6 +25,7 @@ use crate::keymap::{Keymap, Mode};
 use crate::markdown;
 use crate::settings::{Outcome, Settings};
 use crate::status::{Prompt, StatusModel};
+use crate::text::grapheme::prev_boundary;
 use crate::text::wrap::line_text;
 use crate::view;
 use crate::view::layout::{Layout, compute_layout};
@@ -242,6 +243,43 @@ impl App {
         }
     }
 
+    /// vim Normal mode (not Visual) keeps the cursor on a character, as vim does: after any event
+    /// (`$`, `l` on the last character, `x` at the end, a click past the end of a line, leaving
+    /// Insert at the end) a cursor past the last character of its visual row moves back onto that
+    /// character. An empty line has none, so the cursor stays. `preferred_col` is kept, so `j` / `k`
+    /// through a short line still come back to the column they started from. The editing core knows
+    /// nothing of modes; Visual keeps its inclusive range and Insert may sit at the end.
+    fn clamp_normal_cursor(&mut self) {
+        if !matches!(self.mode, Mode::Normal(s) if !s.visual) {
+            return;
+        }
+        match self.editor.focus {
+            Focus::Body => {
+                let rope = self.editor.doc().body();
+                let c = self.editor.cursor;
+                let line = rope.char_to_line(c.head);
+                let start = rope.line_to_char(line);
+                let end = start + line_text(rope, line).chars().count();
+                // Upstream: shown after the last character of a soft-wrapped row
+                let past = c.head == end || c.affinity == Affinity::Upstream;
+                let head = if past && c.head > start {
+                    Cursor::prev(rope, c.head)
+                } else {
+                    c.head
+                };
+                self.editor.cursor.head = head;
+                self.editor.cursor.affinity = Affinity::Downstream;
+            }
+            Focus::Title => {
+                let text = self.editor.doc().title_text();
+                let len = text.chars().count();
+                if self.editor.title_cursor >= len && len > 0 {
+                    self.editor.title_cursor = prev_boundary(text, len);
+                }
+            }
+        }
+    }
+
     /// The cursor shape to show right now. vim Normal mode (including Visual) is always a block: it signals command mode and isn't a preference.
     /// While the settings panel is open, always use the configured shape so the panel can preview it; the find bar is an input, so it does too.
     pub(crate) fn cursor_style(&self) -> CursorStyle {
@@ -340,6 +378,15 @@ impl App {
         Some(lo..Cursor::next(self.editor.doc().body(), hi).max(lo))
     }
 
+    /// Whether the body cursor sits at the end of its logical line (always, on an empty line).
+    fn at_line_end(&self) -> bool {
+        let rope = self.editor.doc().body();
+        let head = self.editor.cursor.head;
+        let line = rope.char_to_line(head);
+        self.editor.focus == Focus::Body
+            && head == rope.line_to_char(line) + line_text(rope, line).chars().count()
+    }
+
     /// Selection to render: the inclusive range in vim Visual mode, the editing core's selection otherwise.
     pub(crate) fn visible_selection(&self) -> Option<Range<usize>> {
         match self.mode {
@@ -388,6 +435,7 @@ impl App {
 
     pub fn handle_at(&mut self, ev: Event, now: Instant) {
         self.handle_event(ev, now);
+        self.clamp_normal_cursor();
         // Mode switches, panels opening or closing and config changes can all change the cursor shape
         self.sync_cursor_style();
     }
@@ -475,6 +523,11 @@ impl App {
             self.edit(&Action::MoveTo(Target::Body(range.end), false), now);
             self.edit(&Action::MoveTo(Target::Body(range.start), true), now);
         }
+        // `a` (the only Normal → Insert key that moves right) inserts after the character under the
+        // cursor; an empty line has none, so it stays instead of crossing to the next line
+        let action = action.filter(|a| {
+            !(before && !after && *a == Action::Move(Motion::Right, false) && self.at_line_end())
+        });
         let history = matches!(action, Some(Action::Undo | Action::Redo));
         if let Some(action) = action {
             self.dispatch(action, now);
@@ -1447,6 +1500,94 @@ mod tests {
         assert_eq!(body(&app), "two\nthree");
     }
 
+    /// Normal mode keeps the cursor on a character: `$`, `l` on the last character and leaving
+    /// Insert at the end of a line all land on the last character; `a` there appends on the same line.
+    #[test]
+    fn vim_normal_cursor_stays_on_the_last_character() {
+        let head = |app: &App| app.editor.cursor.head;
+        let mut app = vim_app("one\ntwo");
+        typed(&mut app, "\x1b$");
+        assert_eq!(head(&app), 2, "$ lands on the e");
+        typed(&mut app, "l");
+        assert_eq!(head(&app), 2, "l at the last character stays");
+        app.handle(press(KeyCode::End));
+        app.handle(press(KeyCode::Right));
+        assert_eq!(head(&app), 2, "End and → too");
+        typed(&mut app, "a");
+        assert_eq!((app.mode_label(), head(&app)), (Some("INS"), 3));
+        typed(&mut app, "!");
+        assert_eq!(body(&app), "one!\ntwo", "a appends on the same line");
+        // Insert can sit at the end; back in Normal the cursor steps onto the last character
+        typed(&mut app, "\x1b");
+        assert_eq!((app.mode_label(), head(&app)), (Some("NOR"), 3));
+        // x on the last character leaves the cursor on the new last one
+        typed(&mut app, "x");
+        assert_eq!((body(&app).as_str(), head(&app)), ("one\ntwo", 2));
+        // G goes to the end of the document, onto its last character
+        typed(&mut app, "G");
+        assert_eq!(head(&app), 6);
+
+        // A trailing space is a character like any other: $ stops on it and a appends after it
+        let mut app = vim_app("ab \nc");
+        typed(&mut app, "\x1b$");
+        assert_eq!(head(&app), 2);
+        typed(&mut app, "ax");
+        assert_eq!(body(&app), "ab x\nc");
+
+        // An empty line has no character: the cursor stays where it is and a doesn't cross the line
+        let mut app = vim_app("one\n\ntwo");
+        typed(&mut app, "\x1bj$");
+        assert_eq!(head(&app), 4);
+        typed(&mut app, "ax");
+        assert_eq!(body(&app), "one\nx\ntwo");
+        let mut app = vim_app("one\n");
+        typed(&mut app, "\x1bGax");
+        assert_eq!(body(&app), "one\nx", "the empty last line too");
+
+        // j / k through a short line keep the column they started from
+        let mut app = vim_app("abcdef\nab\nabcdef");
+        typed(&mut app, "\x1bllllj");
+        assert_eq!(head(&app), 8, "on the b of the short line");
+        typed(&mut app, "j");
+        assert_eq!(head(&app), 14, "back in column 4");
+
+        // A soft-wrapped line: $ stops on the last character of the visual row, not after it
+        let words = "word ".repeat(20);
+        let mut app = vim_app(&words);
+        typed(&mut app, "\x1b$");
+        let cursor = app.editor.cursor;
+        let (doc, wrap, _) = app.editor.view();
+        let row_end = wrap.rows(doc.body(), 0)[0].end;
+        assert!(row_end < words.len(), "the line wraps");
+        let pos = cursor.visual(doc.body(), wrap);
+        assert_eq!((cursor.head, pos.row), (row_end - 1, 0));
+    }
+
+    /// Visual mode keeps its inclusive range ($ may sit after the last character) and Insert may
+    /// sit at the end; the title in Normal mode is clamped like a body line.
+    #[test]
+    fn vim_visual_and_insert_are_not_clamped() {
+        let mut app = vim_app("one\ntwo");
+        typed(&mut app, "\x1bv$");
+        assert_eq!(app.editor.cursor.head, 3);
+        // Like vim's v$: the range runs through the end of the line, newline included
+        assert_eq!(app.visible_selection(), Some(0..4));
+        typed(&mut app, "d");
+        assert_eq!(body(&app), "two");
+        // Insert: End goes past the last character
+        let mut app = vim_app("one");
+        typed(&mut app, "\x1bi");
+        app.handle(press(KeyCode::End));
+        assert_eq!(app.editor.cursor.head, 3);
+        // The title in Normal mode: $ stops on its last character
+        let mut app = vim_app("# Title\n\nbody");
+        typed(&mut app, "\x1bk$");
+        assert_eq!(
+            (app.editor.focus, app.editor.title_cursor),
+            (Focus::Title, 4)
+        );
+    }
+
     #[test]
     fn vim_open_line_on_list_items() {
         let mut app = vim_app("- [x] one\n- two");
@@ -1478,12 +1619,13 @@ mod tests {
 
     #[test]
     fn vim_visual_leaves_no_anchor_behind() {
-        // At the end of the document the inclusive range collapses to nothing: d / x / y / p
-        // find no selection, and the anchor must still go, or the next motion paints a selection
+        // At the end of the document (on an empty last line, where Normal mode lets the cursor
+        // sit) the inclusive range collapses to nothing: d / x / y / p find no selection, and the
+        // anchor must still go, or the next motion paints a selection
         for (text, keys, after) in [
-            ("a", "\x1b$vd", "a"),
-            ("a", "\x1bGvx", "a"),
-            ("one\ntwo", "\x1bGvy", "one\ntwo"),
+            ("a\n", "\x1bGvd", "a\n"),
+            ("a\n", "\x1bGvx", "a\n"),
+            ("one\ntwo\n", "\x1bGvy", "one\ntwo\n"),
             ("", "\x1bvd", ""),
             ("", "\x1bvp", ""),
         ] {
@@ -1504,7 +1646,7 @@ mod tests {
         // u after a Visual d brings the text back but not the selection; Ctrl+R likewise
         let mut app = vim_app("one\ntwo");
         typed(&mut app, "\x1b$vjd");
-        assert_eq!(body(&app), "one");
+        assert_eq!(body(&app), "on", "from the last e through the last o");
         typed(&mut app, "u");
         assert_eq!(
             (body(&app).as_str(), app.editor.cursor.anchor),
@@ -1899,6 +2041,37 @@ mod tests {
             // Inclusive: dragging to column 6 deletes the 'w' too
             ("orld\nsecond", Some("NOR"))
         );
+    }
+
+    /// A click past the end of a line in Normal mode lands on its last character.
+    #[test]
+    fn vim_normal_click_past_the_line_end() {
+        let doc = Document::parse("hello\n\nsecond", lf_meta(None));
+        let config = Config {
+            vim: true,
+            mouse: true,
+            autosave: false,
+            ..Config::default()
+        };
+        let mut app = App::with_config(doc, Size::new(80, 24), &config);
+        let click = |app: &mut App, x: u16, y: u16| {
+            rendered(
+                app,
+                mouse(MouseEventKind::Down(MouseButton::Left), 4 + x, 5 + y),
+                Instant::now(),
+            );
+        };
+        typed(&mut app, "\x1b");
+        click(&mut app, 30, 0);
+        assert_eq!(app.editor.cursor.head, 4);
+        click(&mut app, 30, 1);
+        assert_eq!(
+            app.editor.cursor.head, 6,
+            "an empty line: stays at its start"
+        );
+        typed(&mut app, "i");
+        click(&mut app, 30, 0);
+        assert_eq!(app.editor.cursor.head, 5, "Insert can sit at the end");
     }
 
     #[test]

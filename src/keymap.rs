@@ -175,6 +175,8 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
         // Invalid sequence: drop the pending operator and ignore the second key too
         (Some(_), _) => (None, normal),
         (None, 'i') => (visual.then_some(Action::Cancel), Mode::Insert),
+        // Normal mode keeps the cursor on a character, so one step right appends after it; App keeps
+        // the cursor where it is on an empty line, where there is no character to step over
         (None, 'a') => (Some(Action::Move(Right, false)), Mode::Insert),
         (None, 'o') => (Some(Action::OpenLineBelow), Mode::Insert),
         (None, 'O') => (Some(Action::OpenLineAbove), Mode::Insert),
