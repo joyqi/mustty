@@ -1,0 +1,19 @@
+---
+source: tests/render_snapshots.rs
+expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
+---
+ 0: "notes" DIM
+ 1: "- [x] 已" DIM | "完" DIM | "成" DIM
+ 2: "- [ ]" DIM | "买 牛 奶" NONE
+ 7: "notes.md" DIM | " *" NONE | "7 字" DIM | " · 2:7" DIM
+
+"                 notes                  "
+"  - [x] 已完成                          " Hidden by multi-width symbols: [(9, " "), (11, " "), (13, " ")]
+"  - [ ] 买牛奶                          " Hidden by multi-width symbols: [(9, " "), (11, " "), (13, " ")]
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"  notes.md *                7 字 · 2:7  " Hidden by multi-width symbols: [(31, " ")]
+
+cursor: Position { x: 8, y: 2 } visible: true

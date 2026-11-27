@@ -1096,3 +1096,17 @@ fn checked_task_dims_its_text_under_selection_and_find() {
     let b = draw_with(&config, raw, 60, 8, &events, false);
     insta::assert_snapshot!(styled(&b));
 }
+
+/// Ctrl+D on a plain line makes it an unchecked task item, the cursor after the box
+#[test]
+fn ctrl_d_turns_a_plain_line_into_a_task() {
+    let raw = "- [x] 已完成\n买牛奶\n";
+    let b = draw(
+        Some("notes.md"),
+        raw,
+        40,
+        8,
+        &[key(KeyCode::Down), ctrl('d')],
+    );
+    insta::assert_snapshot!(format!("{}\n{}", styled(&b), snapshot(b.clone())));
+}

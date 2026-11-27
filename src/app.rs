@@ -2241,6 +2241,36 @@ mod tests {
         Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
     }
 
+    /// Ctrl+D toggles the task box on the cursor's line: in the default keymap, and in vim
+    /// Normal and Insert mode, without changing the mode
+    #[test]
+    fn ctrl_d_toggles_a_task_in_default_and_vim_modes() {
+        let mut app = App::new(lf_doc("# T\n\n- a\n"), Size::new(80, 24), false);
+        app.handle(ctrl('d'));
+        assert_eq!(body(&app), "- [ ] a\n");
+        app.handle(ctrl('d'));
+        assert_eq!(body(&app), "- [x] a\n");
+        app.handle(ctrl('z'));
+        assert_eq!(body(&app), "- [ ] a\n");
+
+        let mut app = vim_app("# T\n\nplain\n");
+        assert!(matches!(app.mode, Mode::Normal(_)));
+        app.handle(ctrl('d'));
+        assert_eq!(body(&app), "- [ ] plain\n");
+        assert!(matches!(app.mode, Mode::Normal(_)));
+        typed(&mut app, "u");
+        assert_eq!(body(&app), "plain\n");
+        typed(&mut app, "i");
+        app.handle(press(KeyCode::End));
+        assert_eq!(app.mode, Mode::Insert);
+        app.handle(ctrl('d'));
+        typed(&mut app, "!");
+        assert_eq!(body(&app), "- [ ] plain!\n");
+        assert_eq!(app.mode, Mode::Insert);
+        app.handle(ctrl('d'));
+        assert_eq!(body(&app), "- [x] plain!\n");
+    }
+
     /// Window title: sent once at startup, then only when the final string actually changes (edits, undo, save, the unsaved mark).
     #[test]
     fn window_title_follows_the_document() {

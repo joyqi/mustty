@@ -9,6 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - A checked task item (`- [x] …` or `- [X] …`) shows its text dimmed, so finished items recede while staying readable and editable; the characters are untouched. Selections, find matches and the cursor show on it as anywhere else. A box inside a code block or a quote is not a task and stays as it is.
+- `Ctrl+D` checks or unchecks the task box on the cursor's line (`- [ ]` / `- [x]`, any marker, any indent), in the default keys and in every vim mode. On a list item without a box it adds `[ ] ` after the marker; on any other line, empty or not, it puts `- [ ] ` in front of the text. Each is one undo step. Inside a code block or a quote it does nothing. The help panel (`Ctrl+G`) lists it.
 
 ## [0.1.7] - 2026-11-25
 

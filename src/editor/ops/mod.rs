@@ -4,6 +4,7 @@
 //! same Transaction as their cause, so one key is one undo step.
 
 pub mod list;
+pub mod task;
 
 use std::ops::Range;
 
@@ -37,7 +38,7 @@ pub struct Ctx<'a> {
 
 /// The smart behaviour of `action` at the cursor, or None for the plain one.
 pub fn intent(action: &Action, cx: &mut Ctx) -> Option<Change> {
-    list::intent(action, cx)
+    list::intent(action, cx).or_else(|| task::intent(action, cx))
 }
 
 /// The structure `settle` looks at on some lines, taken before an edit.

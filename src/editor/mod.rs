@@ -707,6 +707,35 @@ mod tests {
         }
     }
 
+    /// Ctrl+D is one undo step in each of its cases, and undo restores the file byte for byte
+    #[test]
+    fn toggle_task_is_one_undo_step() {
+        let cases = [
+            ("# T\n\n- [ ] a\n", "# T\n\n- [x] a\n"),
+            ("# T\n\n- [X] a\n", "# T\n\n- [ ] a\n"),
+            ("# T\n\n  * a\n", "# T\n\n  * [ ] a\n"),
+            ("# T\n\nplain\n", "# T\n\n- [ ] plain\n"),
+            ("# T\n\n", "# T\n\n- [ ] "),
+            ("# T\n\n> - [ ] q\n", "# T\n\n> - [ ] q\n"),
+        ];
+        for (raw, toggled) in cases {
+            let mut ed = Editor::new(Document::parse(raw, lf_meta(None)), 20, 4);
+            let revision = ed.doc().revision();
+            run(&mut ed, &[Action::ToggleTask]);
+            assert_eq!(ed.doc().serialize(), toggled, "{raw:?}");
+            run(&mut ed, &[Action::Undo]);
+            assert_eq!(ed.doc().serialize(), raw, "{raw:?}: one undo restores it");
+            assert_eq!(ed.doc().revision(), revision, "{raw:?}");
+            assert_eq!(ed.cursor.head, 0, "{raw:?}");
+            run(&mut ed, &[Action::Redo]);
+            assert_eq!(ed.doc().serialize(), toggled, "{raw:?}");
+        }
+        // In the title it does nothing
+        let mut ed = editor("# 标题\n\n正文");
+        run(&mut ed, &[mv(Motion::Up), Action::ToggleTask]);
+        assert_eq!(ed.doc().serialize(), "# 标题\n\n正文");
+    }
+
     #[test]
     fn title_focus_round_trip() {
         let mut ed = editor("# 标题\n\n正文");

@@ -136,6 +136,7 @@ fn base_entries(vim: bool) -> Vec<Entry> {
             "help-list-indent",
             vec![a(Tab), a(BackTab)],
         ),
+        entry("Ctrl+D", "help-task", a(ToggleTask)),
         entry(
             "Ctrl+Backspace / Ctrl+W",
             "help-delete-word",
@@ -567,6 +568,7 @@ mod tests {
             | Action::DeleteLine
             | Action::OpenLineBelow
             | Action::OpenLineAbove
+            | Action::ToggleTask
             | Action::ToggleTypewriter
             | Action::ToggleFocusMode
             | Action::OpenSettings

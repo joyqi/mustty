@@ -1,8 +1,8 @@
 //! Editing semantics, decoupled from keys. All variants were fixed in M1 and M4 adds or removes none;
-//! the only deliberate revisions are six: `OpenSettings` for the settings panel, `OpenHelp` for
+//! the only deliberate revisions are seven: `OpenSettings` for the settings panel, `OpenHelp` for
 //! the help panel, `Tab`, find (`OpenFind`, `FindNext`, `FindPrev`), the list keys (`BackTab`,
 //! `OpenLineAbove`), which are named after keys too: what they do depends on the line, which the
-//! Editor decides, and `OpenLink`. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
+//! Editor decides, `OpenLink`, and `ToggleTask` for task boxes. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
 
 use crate::input::KeyEvent;
 
@@ -37,6 +37,8 @@ pub enum Action {
     OpenLineBelow,
     /// vim `O`: insert `\n` at the start of the logical line and stay on the new line above
     OpenLineAbove,
+    /// Ctrl+D: check or uncheck the task box on the cursor's line, or make the line a task item
+    ToggleTask,
     ToggleTypewriter,
     ToggleFocusMode,
     /// Ctrl+P: open the settings panel; consumed by App
