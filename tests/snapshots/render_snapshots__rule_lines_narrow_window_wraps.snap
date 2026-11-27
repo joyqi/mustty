@@ -1,15 +1,15 @@
 ---
 source: tests/render_snapshots.rs
+assertion_line: 1073
 expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 ---
- 1: "notes" DIM
- 3: "  段 落" NONE
+ 0: "notes" DIM
+ 2: "  段 落" NONE
+ 4: "────────────────────" DIM
  5: "────────────────────" DIM
- 6: "────────────────────" DIM
- 8: "  后 文" NONE
-10: "notes.md" DIM | "4 字" DIM | " · 1:1" DIM
+ 7: "  后 文" NONE
+11: "notes.md" DIM | "4 字" DIM | " · 1:1" DIM
 
-"                        "
 "         notes          "
 "                        "
 "  段落                  " Hidden by multi-width symbols: [(3, " "), (5, " ")]
@@ -19,7 +19,8 @@ expression: "format!(\"{}\\n{}\", styled(&b), snapshot(b.clone()))"
 "                        "
 "  后文                  " Hidden by multi-width symbols: [(3, " "), (5, " ")]
 "                        "
-"  notes.md  4 字 · 1:1  " Hidden by multi-width symbols: [(15, " ")]
 "                        "
+"                        "
+"  notes.md  4 字 · 1:1  " Hidden by multi-width symbols: [(15, " ")]
 
-cursor: Position { x: 2, y: 3 } visible: true
+cursor: Position { x: 2, y: 2 } visible: true

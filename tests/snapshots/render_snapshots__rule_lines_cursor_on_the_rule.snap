@@ -1,15 +1,15 @@
 ---
 source: tests/render_snapshots.rs
+assertion_line: 1030
 expression: "rule_frame(true, false, 40, &events)"
 ---
- 2: "notes" DIM
- 4: "  第 一 段" NONE
- 6: "---" DIM
- 8: "  第 二 段" NONE
-10: "────────────────────────────────────" DIM
+ 1: "notes" DIM
+ 3: "  第 一 段" NONE
+ 5: "---" DIM
+ 7: "  第 二 段" NONE
+ 9: "────────────────────────────────────" DIM
 13: "notes.md" DIM | "6 字" DIM | " · 3:1" DIM
 
-"                                        "
 "                                        "
 "                 notes                  "
 "                                        "
@@ -22,8 +22,9 @@ expression: "rule_frame(true, false, 40, &events)"
 "  ────────────────────────────────────  "
 "                                        "
 "                                        "
+"                                        "
 "  notes.md                  6 字 · 3:1  " Hidden by multi-width symbols: [(31, " ")]
 "                                        "
 "                                        "
 
-cursor: Position { x: 2, y: 6 } visible: true
+cursor: Position { x: 2, y: 5 } visible: true

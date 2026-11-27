@@ -75,7 +75,6 @@ mod tests {
     use super::*;
     use crate::editor::cursor::Affinity;
     use crate::text::grapheme::{grapheme_width, graphemes};
-    use crate::view::layout::{MEASURE, compute_layout};
     use crate::view::screen::TitleMap;
     use crate::view::viewport::{ViewTop, Viewport};
     use crate::view::widgets::title_placement;
@@ -95,16 +94,15 @@ mod tests {
     const DRAG: MouseEventKind = MouseEventKind::Drag(MouseButton::Left);
     const TITLE: &str = "标题";
 
-    /// Build the ScreenMap the way rendering does: 40×12, title at y = 1, body at x = 2, y = 3, 36 wide, 6 tall, status bar at y = 10.
+    /// Build the ScreenMap for a 40-column screen: title at y = 1, body at x = 2, y = 3, 36 wide, 6 tall, status bar at y = 10.
     fn screen(vp: &Viewport, title: &str, title_cursor: Option<u16>) -> ScreenMap {
-        let layout = compute_layout(Rect::new(0, 0, 40, 12), MEASURE);
-        assert_eq!(
-            (layout.body, layout.title.map(|r| r.y)),
-            (Rect::new(2, 3, 36, 6), Some(1))
-        );
-        let rect = layout.title.unwrap();
+        let rect = Rect::new(2, 1, 36, 1);
         let (pad, scroll) = title_placement(title, title_cursor, rect.width, 4);
-        ScreenMap::new(layout.body, vp, Some(TitleMap { rect, pad, scroll }))
+        ScreenMap::new(
+            Rect::new(2, 3, 36, 6),
+            vp,
+            Some(TitleMap { rect, pad, scroll }),
+        )
     }
 
     /// Line 0 has 20 CJK characters: 18 on visual row 0, 2 on visual row 1. Line 1 ends in whitespace, and its last space hangs

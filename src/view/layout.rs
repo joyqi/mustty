@@ -10,6 +10,8 @@ pub const MIN_SIDE_MARGIN: u16 = 2;
 pub const GAP: u16 = 1;
 /// Top and bottom margins each take 1 / V_PAD_DIVISOR of the terminal height.
 pub const V_PAD_DIVISOR: u16 = 8;
+/// Body rows a short window keeps before any blank row or margin comes back.
+pub const SHORT_BODY: u16 = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
@@ -40,18 +42,21 @@ pub fn compute_layout(area: Rect, measure: u16) -> Layout {
     let x = area.x + (wt - w) / 2;
     let row = |y: u16, h: u16| Rect::new(x, area.y + y, w, h);
 
-    let (title, body, status) = if ht >= 12 {
-        let v_pad = (ht / V_PAD_DIVISOR).max(1);
-        let block_h = ht - 2 * v_pad;
-        let body_h = block_h - 2 - 2 * GAP;
-        let y0 = (ht - block_h) / 2;
+    let (title, body, status) = if ht >= 5 {
+        // Rows beyond the title, the status bar and a SHORT_BODY-row body go to the
+        // decoration: the blank rows first, then the margins. Each extra row of height adds
+        // at most one row of decoration, so the body never shrinks as the window grows.
+        let decor = ht.saturating_sub(2 + SHORT_BODY).min(2 * GAP + margins(ht));
+        let gaps = decor.min(2 * GAP);
+        let (gap_above, gap_below) = (gaps.min(GAP), gaps - gaps.min(GAP));
+        let top = (decor - gaps) / 2;
+        let body_h = ht - 2 - decor;
+        let body_y = top + 1 + gap_above;
         (
-            Some(row(y0, 1)),
-            row(y0 + 1 + GAP, body_h),
-            Some(row(y0 + 1 + GAP + body_h + GAP, 1)),
+            Some(row(top, 1)),
+            row(body_y, body_h),
+            Some(row(body_y + body_h + gap_below, 1)),
         )
-    } else if ht >= 5 {
-        (Some(row(0, 1)), row(1, ht - 2), Some(row(ht - 1, 1)))
     } else if ht >= 2 {
         (None, row(0, ht - 1), Some(row(ht - 1, 1)))
     } else {
@@ -63,6 +68,14 @@ pub fn compute_layout(area: Rect, measure: u16) -> Layout {
         status,
         too_small: false,
     }
+}
+
+/// Rows the top and bottom margins take together in a full layout. Each side gets
+/// H / V_PAD_DIVISOR, except that the bottom margin takes its next row one height early:
+/// both sides step up together at a multiple of V_PAD_DIVISOR, and growing by two rows
+/// from one height to the next would cost the body a row.
+fn margins(ht: u16) -> u16 {
+    2 * (ht / V_PAD_DIVISOR) + u16::from(ht % V_PAD_DIVISOR == V_PAD_DIVISOR - 1)
 }
 
 #[cfg(test)]
@@ -124,10 +137,34 @@ mod tests {
         assert_eq!(layout(80, 11).body, Rect::new(4, 1, 72, 9));
         assert_eq!(layout(80, 4).body, Rect::new(4, 0, 72, 3));
         assert_eq!(layout(80, 1).body, Rect::new(4, 0, 72, 1));
-        // H = 12: v_pad = 1, a 6-row body, and the status bar right above the bottom margin
+        // H = 12: the first spare row becomes the blank row under the title
         let l = layout(80, 12);
-        assert_eq!((l.body.y, l.body.height), (3, 6));
-        assert_eq!(l.status.unwrap().y, 10);
+        assert_eq!((l.body.y, l.body.height), (2, 9));
+        assert_eq!(l.status.unwrap().y, 11);
+        // H = 13: both blank rows, no margin yet
+        let l = layout(80, 13);
+        assert_eq!((l.title.unwrap().y, l.body.y, l.body.height), (0, 2, 9));
+        assert_eq!(l.status.unwrap().y, 12);
+        // H = 17: the decoration has its full share, so the margins are an eighth again
+        let l = layout(80, 17);
+        assert_eq!((l.title.unwrap().y, l.body.height), (2, 9));
+    }
+
+    #[test]
+    fn body_rows_never_shrink_as_the_window_grows() {
+        for wt in [10, 23, 24, 76, 200] {
+            let mut prev = 0;
+            for ht in 4..=60 {
+                let l = layout(wt, ht);
+                assert!(l.body.height >= 1, "{wt}x{ht}");
+                assert!(
+                    l.body.height >= prev,
+                    "{wt}x{ht}: {} < {prev}",
+                    l.body.height
+                );
+                prev = l.body.height;
+            }
+        }
     }
 
     #[test]
@@ -141,7 +178,7 @@ mod tests {
     #[test]
     fn invariants_on_grid() {
         for wt in [8, 9, 10, 23, 24, 75, 76, 200] {
-            for ht in [1, 2, 4, 5, 11, 12, 24, 60] {
+            for ht in [1, 2, 4, 5, 11, 12, 13, 17, 18, 24, 31, 60] {
                 let area = Rect::new(0, 0, wt, ht);
                 let l = compute_layout(area, MEASURE);
                 if l.too_small {
