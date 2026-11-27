@@ -119,15 +119,22 @@ pub fn save(doc: &Document, path: &Path, check_disk: bool) -> Result<DiskStamp, 
 /// If `{base}-N` is still taken up to this number, fall back to a timestamp.
 pub const MAX_FREE_SUFFIX: u32 = 1000;
 
+/// Characters kept from the title, so the name (with `-N.md` added) stays within the file
+/// system's limit of 255 bytes even when every character takes 3 bytes.
+pub const MAX_STEM_CHARS: usize = 80;
+
 /// The file name stem prefilled when a document is saved for the first time: its H1 title without
 /// the characters a file name can't hold on some system (`/`, `\`, `:`) and control characters,
-/// trimmed; `untitled` when nothing is left (no title, or only spaces and those characters).
+/// without leading dots (no hidden file) and surrounding whitespace, cut to `MAX_STEM_CHARS`;
+/// `untitled` when nothing is left.
 pub fn title_stem(title: &str) -> String {
     let kept: String = title
         .chars()
         .filter(|&c| !matches!(c, '/' | '\\' | ':') && !c.is_control())
         .collect();
-    match kept.trim() {
+    let kept = kept.trim_start_matches(|c: char| c == '.' || c.is_whitespace());
+    let cut: String = kept.chars().take(MAX_STEM_CHARS).collect();
+    match cut.trim_end() {
         "" => "untitled".to_owned(),
         stem => stem.to_owned(),
     }
@@ -190,6 +197,16 @@ mod tests {
         assert_eq!(title_stem(""), "untitled");
         assert_eq!(title_stem("   "), "untitled");
         assert_eq!(title_stem(" / : \\ "), "untitled");
+        // No hidden files: leading dots (and the spaces among them) go
+        assert_eq!(title_stem(".env"), "env");
+        assert_eq!(title_stem(" . .. config.d"), "config.d");
+        assert_eq!(title_stem("..."), "untitled");
+        assert_eq!(title_stem("v1.2"), "v1.2", "dots inside stay");
+        // Cut to MAX_STEM_CHARS characters, on a char boundary, then trimmed again
+        let long = "中".repeat(200);
+        assert_eq!(title_stem(&long), "中".repeat(MAX_STEM_CHARS));
+        let spaced = format!("{} tail", "a".repeat(MAX_STEM_CHARS - 1));
+        assert_eq!(title_stem(&spaced), "a".repeat(MAX_STEM_CHARS - 1));
     }
 
     #[test]

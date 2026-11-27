@@ -2459,6 +2459,13 @@ mod tests {
         assert_eq!(prefill("# a/b\\c: d\n\nbody").0, "abc d.md");
         assert_eq!(prefill("# 中文标题\n").0, "中文标题.md");
         assert_eq!(prefill("no title").0, "untitled.md");
+        assert_eq!(prefill("# .env\n").0, "env.md", "no hidden file");
+        assert_eq!(prefill("# ...\n").0, "untitled.md");
+        let long = format!("# {}\n", "长".repeat(300));
+        assert_eq!(
+            prefill(&long).0,
+            format!("{}.md", "长".repeat(file::MAX_STEM_CHARS))
+        );
         std::fs::write(dir.path().join("My Notes.md"), "").unwrap();
         assert_eq!(
             prefill("# My Notes\n\nbody"),
