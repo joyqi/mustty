@@ -234,6 +234,26 @@ irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps
 </tr>
 <tr>
 <td>Normal</td>
+<td><code>dw</code> / <code>de</code> / <code>db</code></td>
+<td>Delete to the next word / through the end of the word / back to the start of the word</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>d0</code> / <code>d$</code></td>
+<td>Delete to the start / through the end of the screen line</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>dgg</code> / <code>dG</code></td>
+<td>Delete whole lines up to the start / end of the document</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>r</code> + a character</td>
+<td>Replace the character under the cursor</td>
+</tr>
+<tr>
+<td>Normal</td>
 <td><code>u</code> / <code>Ctrl+R</code></td>
 <td>Undo / redo (<code>Ctrl+R</code> in Normal only; elsewhere <code>Ctrl+Y</code>)</td>
 </tr>
@@ -268,6 +288,7 @@ irm https://github.com/joyqi/mustty/releases/latest/download/mustty-installer.ps
 <td>End selection / switch to Insert</td>
 </tr>
 </tbody></table>
+<p><code>d</code> also takes <code>h</code>, <code>l</code>, <code>←</code>, <code>→</code>, <code>Home</code> and <code>End</code>. What it deletes goes to the register, so <code>p</code> puts it back; whole lines (<code>dd</code>, <code>dgg</code>, <code>dG</code>) paste below the cursor's line. <code>dw</code> on the last word of a line stops at the end of the line, and no <code>d</code> joins two lines except <code>de</code> from the last letter of a line, as in vim. Each delete or replace is one undo step. A <code>d</code> or <code>r</code> followed by a key it does not take does nothing.</p>
 <p>Arrow keys, <code>Home</code>, <code>End</code>, <code>PgUp</code> and <code>PgDn</code> also work in Normal mode. <code>?</code>, <code>/</code>, <code>n</code> and <code>N</code> act as commands only in vim modes; otherwise they type the character. This is a deliberately small subset: there are no counts, no <code>c</code>, <code>yy</code>, <code>A</code>, <code>I</code>, <code>.</code>, <code>:</code> commands, registers or text objects, and any other key in Normal mode is ignored.</p>
 <h2 id="find">Find</h2>
 <p>Search the document body incrementally as you type.</p>

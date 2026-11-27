@@ -1732,6 +1732,160 @@ mod tests {
         }
     }
 
+    /// A vim app on `text` with the cursor at the `|` in it (the `|` is not part of the body).
+    fn vim_at(text: &str) -> App {
+        let at = text.find('|').expect("a | marks the cursor");
+        let mut app = vim_app(&text.replace('|', ""));
+        app.editor.cursor.set(text[..at].chars().count());
+        app
+    }
+
+    /// The body with a `|` at the cursor.
+    fn marked(app: &App) -> String {
+        let mut s = body(app);
+        let at = s
+            .char_indices()
+            .nth(app.editor.cursor.head)
+            .map_or(s.len(), |(b, _)| b);
+        s.insert(at, '|');
+        s
+    }
+
+    /// `d` + motion and `r` over real text: before (`|` is the cursor), keys, after, and the
+    /// register (None: untouched). Each change is one undo step back to the text before it.
+    #[test]
+    fn vim_operators_over_text() {
+        let esc = press(KeyCode::Esc);
+        let ev =
+            |keys: &str| -> Vec<Event> { keys.chars().map(|c| press(KeyCode::Char(c))).collect() };
+        let with = |keys: &str, last: KeyCode| {
+            let mut v = ev(keys);
+            v.push(press(last));
+            v
+        };
+        let charwise = |s: &str| Some((s.to_owned(), false));
+        let linewise = |s: &str| Some((s.to_owned(), true));
+        type Case<'a> = (&'a str, Vec<Event>, &'a str, Option<(String, bool)>);
+        let cases: Vec<Case> = vec![
+            // dw: to the start of the next word, spaces included
+            ("foo |bar baz", ev("dw"), "foo |baz", charwise("bar ")),
+            ("|中文，ab", ev("dw"), "|，ab", charwise("中文")),
+            // dw on the last word of a line stops at the line end: the next line stays
+            ("foo b|ar\nnext", ev("dw"), "foo |b\nnext", charwise("ar")),
+            ("foo ba|r\nnext", ev("dw"), "foo b|a\nnext", charwise("r")),
+            ("foo b|ar", ev("dw"), "foo |b", charwise("ar")),
+            ("one  |  \ntwo", ev("dw"), "one | \ntwo", charwise("  ")),
+            // de: through the end of the word; from a word's last letter, through the next word
+            ("|foo bar", ev("de"), "| bar", charwise("foo")),
+            ("fo|o bar", ev("de"), "f|o", charwise("o bar")),
+            // db: back to the start of the word; from column 0, the last word of the line above
+            ("foo |bar", ev("db"), "|bar", charwise("foo ")),
+            ("foo b|ar", ev("db"), "foo |ar", charwise("b")),
+            ("foo bar\n|baz", ev("db"), "foo| \nbaz", charwise("bar")),
+            ("foo\n|baz", ev("db"), "|baz", linewise("foo\n")),
+            ("|foo", ev("db"), "|foo", None),
+            // d0 / d$ and Home / End
+            ("ab|cd", ev("d0"), "|cd", charwise("ab")),
+            ("ab|cd", with("d", KeyCode::Home), "|cd", charwise("ab")),
+            ("|abcd", ev("d0"), "|abcd", None),
+            ("ab|cd\nx", ev("d$"), "a|b\nx", charwise("cd")),
+            ("abc|d", ev("d$"), "ab|c", charwise("d")),
+            ("ab|cd", with("d", KeyCode::End), "a|b", charwise("cd")),
+            ("|中", ev("d$"), "|", charwise("中")),
+            // dh / dl and ← / →: one character, never across the line break
+            ("a|中c", ev("dh"), "|中c", charwise("a")),
+            ("a|中c", ev("dl"), "a|c", charwise("中")),
+            ("a|bc", with("d", KeyCode::Left), "|bc", charwise("a")),
+            (
+                "ab|c\nd",
+                with("d", KeyCode::Right),
+                "a|b\nd",
+                charwise("c"),
+            ),
+            ("ab\n|cd", ev("dh"), "ab\n|cd", None),
+            ("ab\n|\ncd", ev("dl"), "ab\n|\ncd", None),
+            ("ab\n|\ncd", ev("dw"), "ab\n|\ncd", None),
+            ("ab\n|\n", ev("de"), "ab\n|\n", None),
+            // dG / dgg: whole lines from the cursor's line
+            ("a\nb|b\nc", ev("dG"), "|a", linewise("bb\nc\n")),
+            ("a\nb|b\nc", ev("dgg"), "|c", linewise("a\nbb\n")),
+            ("|a\nb", ev("dgg"), "|b", linewise("a\n")),
+            ("|only", ev("dG"), "|", linewise("only\n")),
+            // Invalid sequences do nothing
+            ("ab|c", ev("dx"), "ab|c", None),
+            ("ab|c", ev("dj"), "ab|c", None),
+            ("ab|c", ev("dgx"), "ab|c", None),
+            (
+                "ab|c",
+                vec![press(KeyCode::Char('d')), esc.clone()],
+                "ab|c",
+                None,
+            ),
+            // r{char}: the cursor stays on the new character
+            ("a|bc", ev("rx"), "a|xc", None),
+            ("ab|c", ev("rx"), "ab|x", None),
+            ("a|中b", ev("rx"), "a|xb", None),
+            ("a|bc", ev("r中"), "a|中c", None),
+            ("|e\u{301}x", ev("rr"), "|rx", None),
+            ("a|bc", ev("rG"), "a|Gc", None),
+            ("ab\n|\ncd", ev("rx"), "ab\n|\ncd", None),
+            // r then Enter, Esc or a motion key: nothing happens, and the key does nothing either
+            ("a|bc", with("r", KeyCode::Enter), "a|bc", None),
+            (
+                "a|bc",
+                vec![press(KeyCode::Char('r')), esc.clone()],
+                "a|bc",
+                None,
+            ),
+            ("a|bc", with("r", KeyCode::Right), "a|bc", None),
+            ("a|bc", with("r", KeyCode::Down), "a|bc", None),
+        ];
+        for (before, keys, after, register) in cases {
+            let mut app = vim_at(before);
+            let original = body(&app);
+            for k in keys {
+                app.handle(k);
+            }
+            assert_eq!(marked(&app), after, "{before:?}");
+            assert_eq!(app.mode, Mode::Normal(NormalState::default()), "{before:?}");
+            let reg = app.editor.register().map(|r| (r.text.clone(), r.linewise));
+            assert_eq!(reg, register, "{before:?}: register");
+            if body(&app) != original {
+                typed(&mut app, "u");
+                assert_eq!(body(&app), original, "{before:?}: one u undoes it");
+                assert!(!app.editor.is_dirty(), "{before:?}");
+                app.handle(key_with(KeyCode::Char('r'), KeyModifiers::CONTROL));
+                assert_eq!(body(&app), after.replace('|', ""), "{before:?}: redo");
+            }
+        }
+    }
+
+    /// What `d` takes, `p` puts back: charwise at the cursor, linewise below the line
+    #[test]
+    fn vim_operator_then_paste() {
+        let mut app = vim_at("foo |bar baz");
+        typed(&mut app, "dwp");
+        assert_eq!(marked(&app), "foo bar |baz");
+        let mut app = vim_at("a\nb|b\nc");
+        typed(&mut app, "dG");
+        assert_eq!(marked(&app), "|a");
+        typed(&mut app, "p");
+        assert_eq!(marked(&app), "a\n|bb\nc");
+        let mut app = vim_at("a\nb|b\nc");
+        typed(&mut app, "dgg");
+        assert_eq!(marked(&app), "|c");
+        typed(&mut app, "p");
+        assert_eq!(marked(&app), "c\n|a\nbb");
+        // dd after r and dw: every change is its own undo step
+        let mut app = vim_at("|one two\nthree");
+        typed(&mut app, "rOdwdd");
+        assert_eq!(body(&app), "three");
+        for want in ["two\nthree", "One two\nthree", "one two\nthree"] {
+            typed(&mut app, "u");
+            assert_eq!(body(&app), want);
+        }
+    }
+
     #[test]
     fn vim_visual_word_delete_and_ignored_chars() {
         let mut app = vim_app("hello world foo");

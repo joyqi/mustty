@@ -197,6 +197,26 @@ fn normal_entries() -> Vec<Entry> {
         entry("G", "help-doc-end", mv(DocEnd, false)),
         entry("x", "help-delete-forward", a(DeleteForward)),
         entry("dd", "help-vim-cut-line", a(DeleteLine)),
+        each(
+            "dw / de / db",
+            "help-vim-delete-word",
+            vec![
+                a(Delete(WordRight)),
+                a(Delete(WordEnd)),
+                a(Delete(WordLeft)),
+            ],
+        ),
+        each(
+            "d0 / d$",
+            "help-vim-delete-to-line",
+            vec![a(Delete(LineStart)), a(Delete(LineEnd))],
+        ),
+        each(
+            "dgg / dG",
+            "help-vim-delete-lines",
+            vec![a(Delete(DocStart)), a(Delete(DocEnd))],
+        ),
+        entry("r{char}", "help-vim-replace-char", a(Replace('x'))),
         entry("p", "help-vim-paste", a(PasteRegister)),
         entry("u", "help-undo", a(Undo)),
         entry("Ctrl+R", "help-redo", a(Redo)),
@@ -361,6 +381,7 @@ fn char_key(c: char) -> KeyCode {
 }
 
 /// Turns notations like `Ctrl+Shift+→`, `PgUp`, `gg` or `Shift+↑↓` back into key sequences.
+/// `{char}` stands for any character and is pressed as `x`.
 pub fn parse_keys(keys: &str) -> Vec<KeyEvent> {
     let mut mods = KeyModifiers::NONE;
     let mut rest = keys;
@@ -395,6 +416,7 @@ pub fn parse_keys(keys: &str) -> Vec<KeyEvent> {
             .map(|c| KeyEvent::new(char_key(c.to_ascii_lowercase()), mods))
             .collect(),
         None => rest
+            .replace("{char}", "x")
             .chars()
             .map(|c| KeyEvent::new(char_key(c), KeyModifiers::NONE))
             .collect(),
@@ -491,7 +513,7 @@ mod tests {
     }
 
     /// Everything the keymap can produce in a mode: single keys (all modifier combinations) and the
-    /// two-key sequences behind the g / d prefixes.
+    /// sequences behind the g / d / dg / r prefixes, followed as long as a prefix is pending.
     fn reachable(vim: bool, start: Mode) -> Vec<(Option<Action>, Mode, Mode)> {
         let mut codes: Vec<KeyCode> = (' '..='~').map(KeyCode::Char).collect();
         codes.extend([
@@ -525,11 +547,16 @@ mod tests {
                 let k = KeyEvent::new(code, m);
                 let (action, mode) = press(vim, start, &[k]);
                 out.push((action, start, mode));
-                if matches!(mode, Mode::Normal(s) if s.pending.is_some()) {
-                    for &second in &codes {
-                        let k2 = KeyEvent::new(second, KeyModifiers::NONE);
-                        let (action, end) = press(vim, mode, &[k2]);
+                let mut frontier = vec![mode];
+                while let Some(mode) = frontier.pop() {
+                    if !matches!(mode, Mode::Normal(s) if s.pending.is_some()) {
+                        continue;
+                    }
+                    for &next in &codes {
+                        let k = KeyEvent::new(next, KeyModifiers::NONE);
+                        let (action, end) = press(vim, mode, &[k]);
                         out.push((action, start, end));
+                        frontier.push(end);
                     }
                 }
             }
@@ -566,6 +593,8 @@ mod tests {
             | Action::Cut
             | Action::PasteRegister
             | Action::DeleteLine
+            | Action::Delete(_)
+            | Action::Replace(_)
             | Action::OpenLineBelow
             | Action::OpenLineAbove
             | Action::ToggleTask

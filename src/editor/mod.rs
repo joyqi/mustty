@@ -225,7 +225,21 @@ impl Editor {
                 return Effect::Copied(text);
             }
             Action::PasteRegister => self.paste_register(now),
-            Action::DeleteLine => self.delete_line(now),
+            Action::DeleteLine => {
+                let line = rope.char_to_line(head);
+                self.delete_lines(line, line, now);
+            }
+            &Action::Delete(motion) => self.delete_motion(motion, page, now),
+            &Action::Replace(c) => {
+                let line = rope.char_to_line(head);
+                let end = rope.line_to_char(line) + line_text(rope, line).chars().count();
+                // An empty line has no character to replace
+                if head < end {
+                    let next = Cursor::next(rope, head);
+                    let text = c.to_string();
+                    self.change_to(Target::Body, head..next, &text, head, EditKind::Other, now);
+                }
+            }
             Action::OpenLineBelow => {
                 let line = rope.char_to_line(head);
                 let end = rope.line_to_char(line) + line_text(rope, line).chars().count();
@@ -331,16 +345,18 @@ impl Editor {
         self.change_to(Target::Body, at..at, &text, head, EditKind::Other, now);
     }
 
-    /// Cut the whole logical line into the register (linewise). The last line is deleted together with the newline before it, so no empty line is left.
-    fn delete_line(&mut self, now: Instant) {
+    /// Cut logical lines `first..=last` into the register (linewise). When they run to the end of
+    /// the body they go together with the newline before them, so no empty line is left.
+    fn delete_lines(&mut self, first: usize, last: usize, now: Instant) {
         let rope = self.doc.body();
-        let line = rope.char_to_line(self.cursor.head);
-        let start = rope.line_to_char(line);
-        let text = format!("{}\n", line_text(rope, line));
-        let (range, head_after) = if line + 1 < rope.len_lines() {
-            (start..rope.line_to_char(line + 1), start)
-        } else if line > 0 {
-            (start - 1..rope.len_chars(), rope.line_to_char(line - 1))
+        let start = rope.line_to_char(first);
+        let text: String = (first..=last)
+            .map(|l| format!("{}\n", line_text(rope, l)))
+            .collect();
+        let (range, head_after) = if last + 1 < rope.len_lines() {
+            (start..rope.line_to_char(last + 1), start)
+        } else if first > 0 {
+            (start - 1..rope.len_chars(), rope.line_to_char(first - 1))
         } else {
             (0..rope.len_chars(), 0)
         };
@@ -349,6 +365,77 @@ impl Editor {
             linewise: true,
         });
         self.change_to(Target::Body, range, "", head_after, EditKind::Other, now);
+    }
+
+    /// vim `d` + motion. `gg` / `G` are linewise from the cursor's line; the rest are charwise
+    /// with vim's ranges: exclusive, except `e` (through the end of the word) and `$` (through
+    /// the last character, which here is the row end the motion stops after). `h` / `l` never
+    /// leave the line and `w` stops at its end, so none of them joins lines; `b` at the start of
+    /// a line takes the last word of the line above, linewise when that word starts the line.
+    /// Nothing to delete leaves the body and the register alone.
+    fn delete_motion(&mut self, motion: Motion, page: isize, now: Instant) {
+        let rope = self.doc.body();
+        let head = self.cursor.head;
+        let line = rope.char_to_line(head);
+        let start = rope.line_to_char(line);
+        let end = start + line_text(rope, line).chars().count();
+        let range = match motion {
+            Motion::DocStart => return self.delete_lines(0, line, now),
+            Motion::DocEnd => return self.delete_lines(line, rope.len_lines() - 1, now),
+            Motion::Left if head > start => Cursor::prev(rope, head)..head,
+            Motion::Right if head < end => head..Cursor::next(rope, head),
+            Motion::Left | Motion::Right => return,
+            Motion::WordRight => head..Cursor::word_right(rope, head).min(end),
+            Motion::WordEnd => {
+                let to = Cursor::word_end(rope, head);
+                let line_end = |at| {
+                    let l = rope.char_to_line(at);
+                    at == rope.line_to_char(l) + line_text(rope, l).chars().count()
+                };
+                // Only an empty line can leave `to` at a line end; there is nothing to take there
+                if line_end(to) {
+                    head..to
+                } else {
+                    head..Cursor::next(rope, to)
+                }
+            }
+            Motion::WordLeft if head == start && line > 0 => {
+                // vim's `b` from column 0 lands on the last word of the line above; the range then
+                // ends at that line's end, and covers the whole line if the word starts it
+                let above = line - 1;
+                let above_start = rope.line_to_char(above);
+                let mut to = Cursor::word_left(rope, head);
+                if to > above_start {
+                    to = Cursor::word_left(rope, to);
+                }
+                let text = line_text(rope, above);
+                let indent = text.chars().take_while(|c| c.is_whitespace()).count();
+                if to <= above_start + indent {
+                    return self.delete_lines(above, above, now);
+                }
+                to..head - 1
+            }
+            Motion::WordLeft => Cursor::word_left(rope, head)..head,
+            Motion::LineStart | Motion::LineEnd => {
+                let saved = self.cursor;
+                self.motion(motion, false, page);
+                let to = self.cursor.head;
+                self.cursor = saved;
+                to.min(head)..to.max(head)
+            }
+            // Not operator motions (see the keymap)
+            Motion::Up | Motion::Down | Motion::PageUp | Motion::PageDown => return,
+        };
+        if range.is_empty() {
+            return;
+        }
+        let rope = self.doc.body();
+        self.register = Some(Register {
+            text: rope.slice(range.clone()).to_string(),
+            linewise: false,
+        });
+        let at = range.start;
+        self.change_to(Target::Body, range, "", at, EditKind::Other, now);
     }
 
     fn apply_title(&mut self, action: &Action, now: Instant) -> Effect {
@@ -1174,6 +1261,11 @@ mod tests {
             prop::sample::select(simple.to_vec()).prop_map(Op::Act),
             (prop::sample::select(motions.to_vec()), any::<bool>())
                 .prop_map(|(m, e)| Op::Act(Action::Move(m, e))),
+            prop::sample::select(motions.to_vec()).prop_map(|m| Op::Act(Action::Delete(m))),
+            Just(Op::Act(Action::Delete(Motion::LineStart))),
+            Just(Op::Act(Action::Delete(Motion::DocStart))),
+            prop::sample::select(vec!['x', '中', '-', '`'])
+                .prop_map(|c| Op::Act(Action::Replace(c))),
             Just(Op::Paste("```\n".into())),
             Just(Op::Paste("\n1. a\n1. b\n    - [ ] c\n".into())),
             prop::sample::select(vec!["- ", "1. ", "    ", "2) "])

@@ -10,6 +10,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - A checked task item (`- [x] …` or `- [X] …`) shows its text dimmed, so finished items recede while staying readable and editable; the characters are untouched. Selections, find matches and the cursor show on it as anywhere else. A box inside a code block or a quote is not a task and stays as it is.
 - `Ctrl+D` checks or unchecks the task box on the cursor's line (`- [ ]` / `- [x]`, any marker, any indent), in the default keys and in every vim mode. On a list item without a box it adds `[ ] ` after the marker; on any other line, empty or not, it puts `- [ ] ` in front of the text. Each is one undo step. On a heading, a thematic break (`---`), or inside a code block or a quote it does nothing. The help panel (`Ctrl+G`) lists it.
+- vim: `d` takes a motion ([#9](https://github.com/joyqi/mustty/issues/9)): `dw`, `de`, `db`, `d0`, `d$`, and `dh`, `dl`, `←`, `→`, `Home`, `End`, delete characters with vim's ranges; `dgg` and `dG` delete whole lines up to the start or end of the document. `dw` on the last word of a line stops at the line end instead of joining the next line. The deleted text goes to the register, so `p` puts it back, and each delete is one undo step.
+- vim: `r` followed by a character replaces the character under the cursor (a CJK character or an accented letter counts as one) and stays in Normal mode, as one undo step. `r` followed by `Enter`, `Esc` or a movement key does nothing.
+- The help panel (`Ctrl+G`) lists `dw / de / db`, `d0 / d$`, `dgg / dG` and `r{char}` under vim.
 
 ## [0.1.7] - 2026-11-25
 

@@ -14,9 +14,21 @@ pub enum Mode {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NormalState {
-    /// `'g'` or `'d'`
-    pub pending: Option<char>,
+    pub pending: Option<Pending>,
     pub visual: bool,
+}
+
+/// A Normal-mode key waiting for the next one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pending {
+    /// `g`: `gg`, `gx`
+    G,
+    /// `d`: the delete operator, waiting for a motion or a second `d`
+    Delete,
+    /// `dg`: waiting for the second `g` of `dgg`
+    DeleteG,
+    /// `r`: waiting for the replacement character
+    Replace,
 }
 
 pub struct Keymap {
@@ -121,19 +133,36 @@ fn default_map(key: &KeyEvent, extend: bool) -> Option<Action> {
     }
 }
 
-/// vim Normal mode. Returns the action and the new Mode; Visual mode and the g/d prefixes are
-/// substates of NormalState.
+/// vim Normal mode. Returns the action and the new Mode; Visual mode and the g / d / dg / r
+/// prefixes are substates of NormalState.
 fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
     use Motion::*;
     let pending = st.pending.take();
     let visual = st.visual;
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
+    // Ctrl+Alt is AltGr on Windows: a plain character
+    let combo = (ctrl || alt) && !(ctrl && alt);
     let normal = Mode::Normal(st);
     let leave_visual = Mode::Normal(NormalState::default());
     let mv = |m| (Some(Action::Move(m, visual)), normal);
+    let wait = |p| {
+        let st = NormalState {
+            pending: Some(p),
+            visual,
+        };
+        (None, Mode::Normal(st))
+    };
+    // `r` takes the next plain character; any other key (Enter, Esc, a motion, a combo) cancels it
+    // and does nothing
+    if pending == Some(Pending::Replace) {
+        return match key.code {
+            KeyCode::Char(c) if !combo => (Some(Action::Replace(c)), normal),
+            _ => (None, normal),
+        };
+    }
     // Ctrl / Alt combos match the default bindings; Ctrl+R redoes only in Normal mode
-    if (ctrl || alt) && !(ctrl && alt) {
+    if combo {
         if ctrl && matches!(key.code, KeyCode::Char('r' | 'R')) {
             return (Some(Action::Redo), normal);
         }
@@ -151,6 +180,11 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
             )
         });
         return (action, normal);
+    }
+    if pending == Some(Pending::Delete)
+        && let Some(m) = operator_motion(key.code)
+    {
+        return (Some(Action::Delete(m)), normal);
     }
     let KeyCode::Char(c) = key.code else {
         return match key.code {
@@ -170,9 +204,11 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
         };
     };
     match (pending, c) {
-        (Some('g'), 'g') => mv(DocStart),
-        (Some('d'), 'd') => (Some(Action::DeleteLine), normal),
-        (Some('g'), 'x') => (Some(Action::OpenLink), normal),
+        (Some(Pending::G), 'g') => mv(DocStart),
+        (Some(Pending::G), 'x') => (Some(Action::OpenLink), normal),
+        (Some(Pending::Delete), 'd') => (Some(Action::DeleteLine), normal),
+        (Some(Pending::Delete), 'g') => wait(Pending::DeleteG),
+        (Some(Pending::DeleteG), 'g') => (Some(Action::Delete(DocStart)), normal),
         // Invalid sequence: drop the pending operator and ignore the second key too
         (Some(_), _) => (None, normal),
         (None, 'i') => (visual.then_some(Action::Cancel), Mode::Insert),
@@ -199,23 +235,12 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
         (None, '0') => mv(LineStart),
         (None, '$') => mv(LineEnd),
         (None, 'G') => mv(DocEnd),
-        (None, 'g') => (
-            None,
-            Mode::Normal(NormalState {
-                pending: Some('g'),
-                visual,
-            }),
-        ),
+        (None, 'g') => wait(Pending::G),
         (None, 'x') if visual => (Some(Action::Cut), leave_visual),
         (None, 'x') => (Some(Action::DeleteForward), normal),
         (None, 'd') if visual => (Some(Action::Cut), leave_visual),
-        (None, 'd') => (
-            None,
-            Mode::Normal(NormalState {
-                pending: Some('d'),
-                visual,
-            }),
-        ),
+        (None, 'd') => wait(Pending::Delete),
+        (None, 'r') if !visual => wait(Pending::Replace),
         (None, 'y') if visual => (Some(Action::Copy), leave_visual),
         (None, 'p') => (Some(Action::PasteRegister), leave_visual),
         (None, 'u') => (Some(Action::Undo), normal),
@@ -227,6 +252,23 @@ fn map_normal(key: &KeyEvent, mut st: NormalState) -> (Option<Action>, Mode) {
         // Any other printable character (including CJK committed by an IME) is ignored
         _ => (None, normal),
     }
+}
+
+/// The motions `d` takes (`gg` goes through `Pending::DeleteG`). `j` / `k` and the page keys are
+/// not among them.
+fn operator_motion(code: KeyCode) -> Option<Motion> {
+    use Motion::*;
+    Some(match code {
+        KeyCode::Char('h') | KeyCode::Left => Left,
+        KeyCode::Char('l') | KeyCode::Right => Right,
+        KeyCode::Char('w') => WordRight,
+        KeyCode::Char('b') => WordLeft,
+        KeyCode::Char('e') => WordEnd,
+        KeyCode::Char('0') | KeyCode::Home => LineStart,
+        KeyCode::Char('$') | KeyCode::End => LineEnd,
+        KeyCode::Char('G') => DocEnd,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -394,7 +436,7 @@ mod tests {
 
     // ---- vim ----
 
-    fn normal(pending: Option<char>, visual: bool) -> Mode {
+    fn normal(pending: Option<Pending>, visual: bool) -> Mode {
         Mode::Normal(NormalState { pending, visual })
     }
 
@@ -454,7 +496,7 @@ mod tests {
         assert_eq!(one(VIS, ch('v')), (Some(Action::Cancel), NOR));
         assert_eq!(one(VIS, esc.clone()), (Some(Action::Cancel), NOR));
         assert_eq!(
-            one(normal(Some('g'), false), esc.clone()),
+            one(normal(Some(Pending::G), false), esc.clone()),
             (None, NOR),
             "Esc clears the pending operator"
         );
@@ -553,7 +595,7 @@ mod tests {
         assert_eq!(
             seq,
             vec![
-                (None, normal(Some('g'), false)),
+                (None, normal(Some(Pending::G), false)),
                 (Some(Action::Move(Motion::DocStart, false)), NOR)
             ]
         );
@@ -561,12 +603,12 @@ mod tests {
         assert_eq!(
             seq,
             vec![
-                (None, normal(Some('d'), false)),
+                (None, normal(Some(Pending::Delete), false)),
                 (Some(Action::DeleteLine), NOR)
             ]
         );
         // Invalid sequence: drop the pending operator and ignore the second key too
-        for (first, second) in [('g', 'y'), ('d', 'j'), ('g', 'd'), ('d', 'g')] {
+        for (first, second) in [('g', 'y'), ('d', 'j'), ('g', 'd'), ('d', 'x')] {
             let seq = vim(NOR, &[ch(first), ch(second)], false);
             assert_eq!(seq[1], (None, NOR), "{first}{second}");
         }
@@ -580,6 +622,46 @@ mod tests {
             (Some(Action::Move(Motion::Down, false)), NOR),
             "non-char key: only drops the pending operator"
         );
+    }
+
+    /// The keys `d` and `r` wait on, beyond the table's char keys: arrows / Home / End are
+    /// motions for `d`; `r` drops itself on any key that is not a plain character
+    #[test]
+    fn vim_operator_named_keys() {
+        use Motion::*;
+        let k = |code| key(code, KeyModifiers::NONE);
+        for (code, motion) in [
+            (KeyCode::Left, Left),
+            (KeyCode::Right, Right),
+            (KeyCode::Home, LineStart),
+            (KeyCode::End, LineEnd),
+        ] {
+            assert_eq!(one(PEND_D, k(code)), (del(motion), NOR), "d {code:?}");
+        }
+        // Not operator motions: the pending d goes, the key does what it does alone
+        assert_eq!(one(PEND_D, k(KeyCode::Down)), (mv(Down, false), NOR));
+        assert_eq!(one(PEND_DG, k(KeyCode::Down)), (mv(Down, false), NOR));
+        let ctrl_s = key(KeyCode::Char('s'), KeyModifiers::CONTROL);
+        assert_eq!(one(PEND_D, ctrl_s.clone()), (Some(Action::Save), NOR));
+        for ev in [
+            k(KeyCode::Enter),
+            k(KeyCode::Esc),
+            k(KeyCode::Left),
+            k(KeyCode::Down),
+            k(KeyCode::End),
+            k(KeyCode::Tab),
+            k(KeyCode::Backspace),
+            ctrl_s,
+            key(KeyCode::Char('x'), KeyModifiers::ALT),
+        ] {
+            assert_eq!(one(PEND_R, ev.clone()), (None, NOR), "r {ev:?}");
+        }
+        // AltGr characters (Ctrl+Alt on Windows) are plain characters
+        let altgr = key(
+            KeyCode::Char('@'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        );
+        assert_eq!(one(PEND_R, altgr), (Some(Action::Replace('@')), NOR));
     }
 
     #[test]
@@ -618,14 +700,19 @@ mod tests {
     }
 
     const INS: Mode = Mode::Insert;
-    const PEND_G: Mode = Mode::Normal(NormalState {
-        pending: Some('g'),
-        visual: false,
-    });
-    const PEND_D: Mode = Mode::Normal(NormalState {
-        pending: Some('d'),
-        visual: false,
-    });
+    const fn pend(p: Pending) -> Mode {
+        Mode::Normal(NormalState {
+            pending: Some(p),
+            visual: false,
+        })
+    }
+    const PEND_G: Mode = pend(Pending::G);
+    const PEND_D: Mode = pend(Pending::Delete);
+    const PEND_DG: Mode = pend(Pending::DeleteG);
+    const PEND_R: Mode = pend(Pending::Replace);
+    const fn del(m: Motion) -> Option<Action> {
+        Some(Action::Delete(m))
+    }
     const fn mv(m: Motion, extend: bool) -> Option<Action> {
         Some(Action::Move(m, extend))
     }
@@ -645,6 +732,8 @@ mod tests {
         ("<Esc>", VIS, Some(Action::Cancel), NOR),
         ("<Esc>", NOR, None, NOR),
         ("<Esc>", PEND_G, None, NOR),
+        ("<Esc>", PEND_D, None, NOR),
+        ("<Esc>", PEND_DG, None, NOR),
         // Normal mode actions
         ("h", NOR, mv(Motion::Left, false), NOR),
         ("j", NOR, mv(Motion::Down, false), NOR),
@@ -687,6 +776,31 @@ mod tests {
         ("g/", NOR, None, NOR),
         ("gn", NOR, None, NOR),
         ("d/", NOR, None, NOR),
+        // d + motion: charwise, except dgg / dG (linewise)
+        ("dh", NOR, del(Motion::Left), NOR),
+        ("dl", NOR, del(Motion::Right), NOR),
+        ("dw", NOR, del(Motion::WordRight), NOR),
+        ("db", NOR, del(Motion::WordLeft), NOR),
+        ("de", NOR, del(Motion::WordEnd), NOR),
+        ("d0", NOR, del(Motion::LineStart), NOR),
+        ("d$", NOR, del(Motion::LineEnd), NOR),
+        ("dG", NOR, del(Motion::DocEnd), NOR),
+        ("dg", NOR, None, PEND_DG),
+        ("dgg", NOR, del(Motion::DocStart), NOR),
+        ("dx", NOR, None, NOR),
+        ("dk", NOR, None, NOR),
+        ("dgx", NOR, None, NOR),
+        ("dgd", NOR, None, NOR),
+        ("ddd", NOR, None, PEND_D),
+        // r{char}: the next plain character replaces the one under the cursor
+        ("r", NOR, None, PEND_R),
+        ("rx", NOR, Some(Action::Replace('x')), NOR),
+        ("rr", NOR, Some(Action::Replace('r')), NOR),
+        ("rG", NOR, Some(Action::Replace('G')), NOR),
+        ("r中", NOR, Some(Action::Replace('中')), NOR),
+        ("r$", NOR, Some(Action::Replace('$')), NOR),
+        ("<Esc>", PEND_R, None, NOR),
+        ("r", VIS, None, VIS),
         // Other printable characters are ignored
         ("z", NOR, None, NOR),
         ("中", NOR, None, NOR),
@@ -751,8 +865,8 @@ mod tests {
             }
         }
 
-        /// With vim on, no sequence panics, Normal mode never inserts, and the pending operator is
-        /// only ever g / d.
+        /// With vim on, no sequence panics, Normal mode never inserts, a pending prefix never
+        /// survives Visual mode, and `r` takes nothing but a plain character.
         #[test]
         fn vim_on_is_total(events in prop::collection::vec(any_event(), 0..80)) {
             let keymap = Keymap { vim: true };
@@ -764,7 +878,11 @@ mod tests {
                     prop_assert!(!matches!(action, Some(Action::Insert(_) | Action::Tab | Action::BackTab)), "{:?}", ev);
                 }
                 if let Mode::Normal(s) = mode {
-                    prop_assert!(matches!(s.pending, None | Some('g' | 'd')));
+                    prop_assert!(!s.visual || matches!(s.pending, None | Some(Pending::G)), "{:?}", s);
+                }
+                if let Some(Action::Replace(_)) = action {
+                    let plain = matches!(ev, Event::Key(k) if matches!(k.code, KeyCode::Char(_)));
+                    prop_assert!(plain && matches!(before, Mode::Normal(s) if s.pending == Some(Pending::Replace)), "{:?}", ev);
                 }
             }
         }

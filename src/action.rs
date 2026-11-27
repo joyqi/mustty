@@ -1,8 +1,9 @@
 //! Editing semantics, decoupled from keys. All variants were fixed in M1 and M4 adds or removes none;
-//! the only deliberate revisions are seven: `OpenSettings` for the settings panel, `OpenHelp` for
+//! the only deliberate revisions are eight: `OpenSettings` for the settings panel, `OpenHelp` for
 //! the help panel, `Tab`, find (`OpenFind`, `FindNext`, `FindPrev`), the list keys (`BackTab`,
 //! `OpenLineAbove`), which are named after keys too: what they do depends on the line, which the
-//! Editor decides, `OpenLink`, and `ToggleTask` for task boxes. `Editor::apply` ignores variants that M1 left unbound or unimplemented.
+//! Editor decides, `OpenLink`, `ToggleTask` for task boxes, and the vim operators (`Delete`,
+//! `Replace`). `Editor::apply` ignores variants that M1 left unbound or unimplemented.
 
 use crate::input::KeyEvent;
 
@@ -33,6 +34,11 @@ pub enum Action {
     PasteRegister,
     /// vim `dd`: cut the whole logical line into the register (linewise)
     DeleteLine,
+    /// vim `d` + motion: delete from the cursor to where the motion goes, into the register.
+    /// Charwise, except `DocStart` / `DocEnd` (`dgg` / `dG`), which are linewise like `DeleteLine`
+    Delete(Motion),
+    /// vim `r`: replace the character under the cursor and stay on it
+    Replace(char),
     /// vim `o`: move to the end of the logical line and insert `\n`, as one Transaction
     OpenLineBelow,
     /// vim `O`: insert `\n` at the start of the logical line and stay on the new line above
