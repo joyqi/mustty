@@ -1,6 +1,7 @@
 //! Task boxes (`Ctrl+D`). On a task item the box is checked or unchecked; a list item without a
 //! box gets one; any other line becomes an unchecked task item. Lines in fenced code or a quote
-//! are left alone, like the scanner, which does not count a box there as a task.
+//! are left alone, like the scanner, which does not count a box there as a task, and so are
+//! headings and thematic breaks, which are not text a task could hold.
 
 use super::{Change, Ctx, Splice};
 use crate::action::Action;
@@ -30,7 +31,7 @@ pub fn intent(action: &Action, cx: &mut Ctx) -> Option<Change> {
             };
             (splice, start)
         }
-        None if in_code_or_quote(cx, line) => {
+        None if is_left_alone(cx, line) => {
             return Some(Change {
                 splices: Vec::new(),
                 head: cx.head,
@@ -59,11 +60,16 @@ pub fn intent(action: &Action, cx: &mut Ctx) -> Option<Change> {
     })
 }
 
-fn in_code_or_quote(cx: &mut Ctx, line: usize) -> bool {
+/// Fenced code, a quote, a heading or a thematic break
+fn is_left_alone(cx: &mut Ctx, line: usize) -> bool {
     cx.marks.ranges(cx.rope, line).iter().any(|r| {
         matches!(
             r.token,
-            Token::FenceLine | Token::FencedCode | Token::QuoteMark
+            Token::FenceLine
+                | Token::FencedCode
+                | Token::QuoteMark
+                | Token::HeadingMark
+                | Token::Rule
         )
     })
 }
@@ -143,7 +149,6 @@ mod tests {
             ("|text", "- [ ] |text"),
             ("  |text", "  - [ ] |text"),
             ("|  text", "  - [ ] |text"),
-            ("# Heading|", "- [ ] # Heading|"),
             ("1.x|", "- [ ] 1.x|"),
         ]);
     }
@@ -158,6 +163,26 @@ mod tests {
             ("> - [ ] a|", "> - [ ] a|"),
             ("> quote|", "> quote|"),
             (">|", ">|"),
+        ]);
+    }
+
+    #[test]
+    fn leaves_headings_and_rules_alone() {
+        each(&[
+            ("# H|", "# H|"),
+            ("## H|", "## H|"),
+            ("### H|", "### H|"),
+            ("#### H|", "#### H|"),
+            ("##### H|", "##### H|"),
+            ("###### H|", "###### H|"),
+            ("|#", "|#"),
+            ("---|", "---|"),
+            ("***|", "***|"),
+            ("___|", "___|"),
+            ("- - -|", "- - -|"),
+            // Not a heading: seven marks, or no space after them
+            ("####### H|", "- [ ] ####### H|"),
+            ("#H|", "- [ ] #H|"),
         ]);
     }
 

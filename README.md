@@ -65,7 +65,7 @@ mustty [FILE]
 Pass a file to open or create it on first save, or omit `FILE` to start an Untitled document (`-h` / `--help` and `-V` / `--version` are the only flags).
 
 - Press `Ctrl+G` inside the app (or `?` in vim Normal mode) to see the shortcuts worth knowing.
-- Press `Ctrl+D` to check or uncheck the task box on the cursor's line; on a line without one it makes the line a `- [ ] ` task. Checked items are dimmed.
+- Press `Ctrl+D` to check or uncheck the task box on the cursor's line; on a line without one it makes the line a `- [ ] ` task (not a heading or a `---` rule). Checked items are dimmed.
 - Press `Ctrl+L` (or `gx` / `Enter` in vim Normal mode) to open the link under the cursor in your browser; only `http(s)://` and `www.` addresses open.
 - Press `Ctrl+P` to open the live settings panel. Changes apply immediately and write back to `~/.mustty.toml` (`width`, `vim`, `mouse`, `autosave`, `autosave_idle_ms`, `typewriter`, `focus_mode`, `scrolloff`, `tab_width`, `code_color`, `code_highlight`, `link_color`, `rule_lines`, `cursor`, `cursor_blink`, `lang`).
   `code_highlight` (on by default) colors code blocks whose fence names a language (` ```rust `, ` ```py `, ` ```diff `, 30 languages): keywords bold, strings green, comments dim, diff lines green and red. Off, code blocks are one color, `code_color`.

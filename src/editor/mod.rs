@@ -717,6 +717,8 @@ mod tests {
             ("# T\n\nplain\n", "# T\n\n- [ ] plain\n"),
             ("# T\n\n", "# T\n\n- [ ] "),
             ("# T\n\n> - [ ] q\n", "# T\n\n> - [ ] q\n"),
+            ("# T\n\n## H\n", "# T\n\n## H\n"),
+            ("# T\n\n---\n", "# T\n\n---\n"),
         ];
         for (raw, toggled) in cases {
             let mut ed = Editor::new(Document::parse(raw, lf_meta(None)), 20, 4);
