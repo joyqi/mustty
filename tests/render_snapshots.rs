@@ -224,7 +224,6 @@ fn focus_mode_dims_other_paragraphs_and_vim_label() {
     };
     let raw = "第一段第一行\n第一段第二行\n\n第二段（光标在这里）\n第二段续\n\n第三段\n";
     let events = [
-        key(KeyCode::Esc),
         key(KeyCode::Char('j')),
         key(KeyCode::Char('j')),
         key(KeyCode::Char('j')),
@@ -475,7 +474,7 @@ fn settings_cursor_labels_follow_vim_toggle_live() {
     );
 }
 
-/// vim on: Esc enters Normal mode, then v enters Visual mode.
+/// vim on: starts in Normal mode; i enters Insert mode, v enters Visual mode.
 fn vim_frame(events: &[Event]) -> TestBackend {
     let config = mustty::config::Config {
         vim: true,
@@ -500,11 +499,16 @@ fn find_text(b: &TestBackend, text: &str) -> (u16, u16) {
 fn vim_mode_indicator_styles() {
     use ratatui::style::{Color, Modifier};
     let cases = [
-        ("INS", vec![], Color::Reset, Modifier::empty()),
-        ("NOR", vec![key(KeyCode::Esc)], Color::Reset, Modifier::DIM),
+        (
+            "INS",
+            vec![key(KeyCode::Char('i'))],
+            Color::Reset,
+            Modifier::empty(),
+        ),
+        ("NOR", vec![], Color::Reset, Modifier::DIM),
         (
             "VIS",
-            vec![key(KeyCode::Esc), key(KeyCode::Char('v'))],
+            vec![key(KeyCode::Char('v'))],
             Color::Yellow,
             Modifier::empty(),
         ),
@@ -576,17 +580,13 @@ fn vim_mode_indicator_sgr() {
         sgr_state(&out[..at])
     };
     assert_eq!(
-        sgr_before(&[], "INS"),
+        sgr_before(&[key(KeyCode::Char('i'))], "INS"),
         (false, None),
         "INS: no DIM, default foreground"
     );
+    assert_eq!(sgr_before(&[], "NOR"), (true, None), "NOR: DIM (SGR 2)");
     assert_eq!(
-        sgr_before(&[key(KeyCode::Esc)], "NOR"),
-        (true, None),
-        "NOR: DIM (SGR 2)"
-    );
-    assert_eq!(
-        sgr_before(&[key(KeyCode::Esc), key(KeyCode::Char('v'))], "VIS"),
+        sgr_before(&[key(KeyCode::Char('v'))], "VIS"),
         (false, Some(3)),
         "VIS: yellow foreground (SGR 33 / 38;5;3), no DIM"
     );

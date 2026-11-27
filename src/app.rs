@@ -21,7 +21,7 @@ use crate::host::{self, ConfigStore, CursorStyle, DocStore, HostCaps, HostOp, Pu
 use crate::i18n::{t, t_args};
 use crate::input::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent};
 use crate::io::file::IoError;
-use crate::keymap::{Keymap, Mode};
+use crate::keymap::{Keymap, Mode, NormalState};
 use crate::markdown;
 use crate::settings::{Outcome, Settings};
 use crate::status::{Prompt, StatusModel};
@@ -177,6 +177,7 @@ impl App {
             needs_redraw: true,
         };
         app.apply_config(config);
+        app.mode = app.start_mode();
         // TerminalGuard already set the startup terminal state (mouse capture, bar cursor), so don't emit it again.
         // Push the cursor shape once more only if the configured one isn't a bar
         app.output.clear();
@@ -331,12 +332,12 @@ impl App {
     }
 
     /// Replaces the document with `doc` as if the app had started with it: cursor at the start, no undo
-    /// history (it belongs to the old text) and no selection, Insert mode, panels, prompt and messages
+    /// history (it belongs to the old text) and no selection, the starting mode, panels, prompt and messages
     /// closed. The config and the host stay; the window title follows on the next turn.
     pub fn open_document(&mut self, doc: Document) {
         self.large = doc.body().len_bytes() > LARGE_FILE;
         self.editor = Editor::new(doc, self.layout().body.width, self.config.tab_width);
-        self.mode = Mode::Insert;
+        self.mode = self.start_mode();
         self.status = StatusModel {
             words: self.editor.word_count(),
             ..StatusModel::default()
@@ -359,6 +360,16 @@ impl App {
         self.quit_armed = false;
         self.sync_cursor_style();
         self.needs_redraw = true;
+    }
+
+    /// The mode a document starts in: Normal with vim keys on, as in vim, even for an empty
+    /// document; Insert otherwise.
+    fn start_mode(&self) -> Mode {
+        if self.keymap.vim {
+            Mode::Normal(NormalState::default())
+        } else {
+            Mode::Insert
+        }
     }
 
     /// Shows the key hint in the right part of the status bar for 5 s after startup.
@@ -1500,6 +1511,28 @@ mod tests {
         assert_eq!(body(&app), "two\nthree");
     }
 
+    /// With vim keys on, every document starts in Normal mode, an empty one included, and so does
+    /// one opened later; with them off it is always Insert.
+    #[test]
+    fn vim_starts_in_normal_mode() {
+        for text in ["", "# Title\n\nbody"] {
+            let mut app = vim_app(text);
+            assert_eq!(app.mode_label(), Some("NOR"), "{text:?}");
+            assert_eq!(app.cursor_style(), CursorStyle::STEADY_BLOCK);
+            let before = body(&app);
+            typed(&mut app, "z");
+            assert_eq!(body(&app), before, "{text:?}: Normal mode doesn't insert");
+            typed(&mut app, "ix");
+            assert_eq!(app.mode_label(), Some("INS"));
+            app.open_document(lf_doc(text));
+            assert_eq!(app.mode_label(), Some("NOR"), "after open_document");
+        }
+        let mut plain = App::new(lf_doc(""), Size::new(80, 24), false);
+        assert_eq!(plain.mode, Mode::Insert);
+        plain.open_document(lf_doc("x"));
+        assert_eq!(plain.mode, Mode::Insert);
+    }
+
     /// Normal mode keeps the cursor on a character: `$`, `l` on the last character and leaving
     /// Insert at the end of a line all land on the last character; `a` there appends on the same line.
     #[test]
@@ -1751,7 +1784,13 @@ mod tests {
     #[test]
     fn vim_cursor_shape_follows_mode() {
         let mut app = vim_app("x");
-        app.take_terminal_output();
+        assert_eq!(
+            app.take_terminal_output(),
+            vec!["\x1b[2 q".to_owned()],
+            "starts in Normal: SteadyBlock"
+        );
+        typed(&mut app, "i");
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[6 q".to_owned()]);
         typed(&mut app, "\x1b");
         assert_eq!(
             app.take_terminal_output(),
@@ -1808,8 +1847,10 @@ mod tests {
             ..Config::default()
         };
         let mut app = App::with_config(doc(), Size::new(80, 24), &config);
+        // Normal (including Visual) is always SteadyBlock, regardless of config, from startup on
+        assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
+        typed(&mut app, "i");
         assert_eq!(app.take_terminal_output(), vec!["\x1b[4 q".to_owned()]);
-        // Normal (including Visual) is always SteadyBlock, regardless of config
         typed(&mut app, "\x1b");
         assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
         typed(&mut app, "v");
@@ -2491,6 +2532,8 @@ mod tests {
         );
         // Already in Insert when turned off: no cursor sequence is pushed
         let mut app = vim_app("hello");
+        typed(&mut app, "i");
+        app.take_terminal_output();
         app.apply_config(&Config {
             vim: false,
             ..app.config.clone()
@@ -3110,6 +3153,7 @@ mod tests {
         assert_eq!(app.take_terminal_output(), vec!["\x1b[2 q".to_owned()]);
         // Insert mode stays Insert
         let mut app = vim_app("one two");
+        typed(&mut app, "i");
         app.handle(ctrl('f'));
         typed(&mut app, "two");
         app.handle(press(KeyCode::Enter));
